@@ -1,0 +1,28 @@
+   - '*'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clone repo
+      uses: actions/checkout@v2
+    - name: Set up python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.9
+        cache: 'pip'
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+    - name: isort
+      run: python -m  isort . --check --diff
+    - name: black
+      run: python -m black --check --diff .
+    - name: flake8
+      run: python -m flake8 .
+    - name: mypy
+      run: python -m mypy .
+    - name: tests
+      run: python -m unittest discover -s tests

@@ -1,0 +1,8 @@
+einops==0.6.0
+numpy==1.23.5
+torch==2.0
+tqdm==4.64.1
+black==22.10.0
+flake8==5.0.4
+isort==5.10.1
+mypy==1.1.1
