@@ -6,7 +6,7 @@ from src.dataops import NORMED_BANDS, DynamicWorld2020_2021
 from src.utils import construct_single_presto_input
 
 
-class TestDatopsUtils(TestCase):
+class TestUtils(TestCase):
     def test_construct_single_presto_input(self):
         input_bands = ["B2", "B3", "B4", "B8"]
         x, mask, dw = construct_single_presto_input(
