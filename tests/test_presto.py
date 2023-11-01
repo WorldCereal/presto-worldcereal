@@ -168,7 +168,9 @@ class TestPresto(TestCase):
         # srtm_token = x[:, srtm_index : srtm_index + 1, :]
         output = output[:, [i for i in range(output.shape[1]) if i != srtm_index], :]
         expected_positional_encodings = decoder.pos_embed[:, :num_timesteps, :]
-        expected_month_encodings = decoder.month_embed(month_to_tensor(1, 1, num_timesteps, device))
+        expected_month_encodings = decoder.month_embed(
+            month_to_tensor(1, 1, num_timesteps, device)
+        )
         # then, for each group of channels lets make sure the embeddings are correct
         for idx in range(len(BANDS_GROUPS_IDX) + 1):
             # we record the true channel idx since removing SRTM messes things up
