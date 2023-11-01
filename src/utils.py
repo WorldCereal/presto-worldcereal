@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Union
 
-import dateutil.tz
 import torch
 
 from .dataops import (
@@ -70,7 +69,7 @@ def initialize_logging(output_dir: Union[str, Path], to_file=True, logger_name="
 
 
 def timestamp_dirname(suffix: Optional[str] = None) -> str:
-    ts = datetime.now(dateutil.tz.tzlocal()).strftime("%Y_%m_%d_%H_%M_%S_%f")
+    ts = datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")
     return f"{ts}_{suffix}" if suffix is not None else ts
 
 
