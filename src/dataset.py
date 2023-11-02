@@ -15,6 +15,7 @@ class WorldCerealDataset(Dataset):
     def __init__(self, dataframe: pd.DataFrame, mask_params: Optional[MaskParamsNoDw] = None):
         self.df = dataframe
         self.mask_params = mask_params
+        self._NODATAVALUE = 65535
 
     def __len__(self):
         return self.df.shape[0]
@@ -36,6 +37,7 @@ class WorldCerealDataset(Dataset):
         month = datetime.strptime(row.start_date, "%Y-%m-%d").month - 1
         month = torch.tensor(month).long()
 
+        # -------------------------------------------------------------
         # Sentinel-2
         s2_band_mapping = {
             "B02": "B2",
@@ -51,72 +53,47 @@ class WorldCerealDataset(Dataset):
         }
 
         single_sample = pd.DataFrame(
-            index=[
-                "ts0",
-                "ts1",
-                "ts2",
-                "ts3",
-                "ts4",
-                "ts5",
-                "ts6",
-                "ts7",
-                "ts8",
-                "ts9",
-                "ts10",
-                "ts11",
-            ]
+            index=[f"ts{tstep}" for tstep in range(12)]
         )
         for b in s2_band_mapping.keys():
             fts = [x for x in self.df.columns if b in x and "ts" in x]
-            single_sample[b] = row[fts].values.astype(int)
+            values = row[fts].values.astype(int)
+
+            # This is actually no data and should ideally been handled by
+            # the mask in both input and target. For now, put to 0
+            values[values == self._NODATAVALUE] = 0
+
+            single_sample[b] = values
 
         s2_data = torch.from_numpy(single_sample.values).float()
 
+        # -------------------------------------------------------------
         # Sentinel-1
         s1bands = ["VV", "VH"]
         single_sample = pd.DataFrame(
-            index=[
-                "ts0",
-                "ts1",
-                "ts2",
-                "ts3",
-                "ts4",
-                "ts5",
-                "ts6",
-                "ts7",
-                "ts8",
-                "ts9",
-                "ts10",
-                "ts11",
-            ]
+            index=[f"ts{tstep}" for tstep in range(12)]
         )
         for b in s1bands:
             fts = [x for x in self.df.columns if b in x and "ts" in x]
             values = row[fts].values.astype(float)
-            idx_valid = values != 0
+            idx_valid = values != self._NODATAVALUE
+
+            # Conversion to dB
             values[idx_valid] = 20 * np.log10(values[idx_valid]) - 83
-            # values[~idx_valid] = -999 # Custom nodata
-            # # Don't do this as long as we can't update the mask
+
+            # This is actually no data and should ideally been handled by
+            # the mask in both input and target. For now, put to 0
+            # at some point, assign another nodata value (e.g. -999)
+            values[~idx_valid] = 0
+
             single_sample[b] = values
 
         s1_data = torch.from_numpy(single_sample.values).float()
 
+        # -------------------------------------------------------------
         # METEO
         single_sample = pd.DataFrame(
-            index=[
-                "ts0",
-                "ts1",
-                "ts2",
-                "ts3",
-                "ts4",
-                "ts5",
-                "ts6",
-                "ts7",
-                "ts8",
-                "ts9",
-                "ts10",
-                "ts11",
-            ]
+            index=[f"ts{tstep}" for tstep in range(12)]
         )
         meteo_band_mapping = {
             "temperature_mean": "temperature_2m",
@@ -125,17 +102,22 @@ class WorldCerealDataset(Dataset):
         for b in meteo_band_mapping.keys():
             fts = [x for x in self.df.columns if b in x and "ts" in x]
             values = row[fts].values.astype(float)
-            idx_valid = values != 0
-            values = values / 100.0
+            idx_valid = values != self._NODATAVALUE
+            values = values / 100.0  # Remove scaling
 
             if b == "precipitation_flux":
-                values = values / 1000.0
-            # idx_valid[~idx_valid] = -999 # Custom nodata # Custom nodata
-            # # Don't do this as long as we can't update the mask
+                values = values / 1000.0  # AgERA5 is in mm, Presto expects m
+
+            # This is actually no data and should ideally been handled by
+            # the mask in both input and target. For now, put to 0
+            # at some point, assign another nodata value (e.g. -999)
+            idx_valid[~idx_valid] = 0
+
             single_sample[b] = values
 
         meteo_data = torch.from_numpy(single_sample.values).float()
 
+        # -------------------------------------------------------------
         # Alt/slope
         srtm_data = np.repeat(
             row[["DEM-alt-20m", "DEM-slo-20m"]].values.reshape((1, 2)), 12, axis=0
