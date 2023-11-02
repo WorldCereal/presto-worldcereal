@@ -52,9 +52,7 @@ class WorldCerealDataset(Dataset):
             "B12": "B12",
         }
 
-        single_sample = pd.DataFrame(
-            index=[f"ts{tstep}" for tstep in range(12)]
-        )
+        single_sample = pd.DataFrame(index=[f"ts{tstep}" for tstep in range(12)])
         for b in s2_band_mapping.keys():
             fts = [x for x in self.df.columns if b in x and "ts" in x]
             values = row[fts].values.astype(int)
@@ -70,9 +68,7 @@ class WorldCerealDataset(Dataset):
         # -------------------------------------------------------------
         # Sentinel-1
         s1bands = ["VV", "VH"]
-        single_sample = pd.DataFrame(
-            index=[f"ts{tstep}" for tstep in range(12)]
-        )
+        single_sample = pd.DataFrame(index=[f"ts{tstep}" for tstep in range(12)])
         for b in s1bands:
             fts = [x for x in self.df.columns if b in x and "ts" in x]
             values = row[fts].values.astype(float)
@@ -92,9 +88,7 @@ class WorldCerealDataset(Dataset):
 
         # -------------------------------------------------------------
         # METEO
-        single_sample = pd.DataFrame(
-            index=[f"ts{tstep}" for tstep in range(12)]
-        )
+        single_sample = pd.DataFrame(index=[f"ts{tstep}" for tstep in range(12)])
         meteo_band_mapping = {
             "temperature_mean": "temperature_2m",
             "precipitation_flux": "total_precipitation",
