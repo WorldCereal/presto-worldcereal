@@ -84,7 +84,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 
         dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
         mask_dw = np.full(self.NUM_TIMESTEPS, True)
-        y_dw = dynamic_world.detach().clone()
+        y_dw = dynamic_world.copy()
         return MaskedExample(
             mask_eo,
             mask_dw,
