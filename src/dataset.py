@@ -64,6 +64,15 @@ class WorldCerealBase(Dataset):
     def __getitem__(self, idx):
         raise NotImplementedError
 
+    @classmethod
+    def normalize_and_mask(cls, eo: np.ndarray):
+        # this is copied over from dataops. Sorry
+        keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
+        normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
+        # TODO: fix this. For now, we replicate the previous behaviour
+        normed_eo = np.where(eo[:, keep_indices] == cls._NODATAVALUE, normed_eo, 0)
+        return normed_eo
+
 
 class WorldCerealMaskedDataset(WorldCerealBase):
     def __init__(self, dataframe: pd.DataFrame, mask_params: MaskParamsNoDw):
@@ -74,13 +83,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, latlon, month, _ = self.row_to_arrays(row)
-
-        # this is copied over from dataops. Sorry
-        keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
-        normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
-        # TODO: fix this. For now, we replicate the previous behaviour
-        normed_eo = np.where(eo[:, keep_indices] == self._NODATAVALUE, normed_eo, 0)
-        mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(normed_eo)
+        mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(self.normalize_and_mask(eo))
 
         dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
         mask_dw = np.full(self.NUM_TIMESTEPS, True)
@@ -95,4 +98,19 @@ class WorldCerealMaskedDataset(WorldCerealBase):
             month,
             latlon,
             strat,
+        )
+
+
+class WorldCerealLabelledDataset(WorldCerealBase):
+    def __getitem__(self, idx):
+        # Get the sample
+        row = self.df.iloc[idx, :]
+        eo, latlon, month, target = self.row_to_arrays(row)
+
+        return (
+            self.normalize_and_mask(eo),
+            target,
+            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            latlon,
+            month,
         )
