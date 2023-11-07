@@ -14,7 +14,7 @@ class WorldCerealBase(Dataset):
     NUM_TIMESTEPS = 12
 
     def __init__(self, dataframe: pd.DataFrame):
-        self.dataframe = dataframe
+        self.df = dataframe
 
     def __len__(self):
         return self.df.shape[0]
