@@ -104,9 +104,9 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 class WorldCerealLabelledDataset(WorldCerealBase):
     def __init__(self, dataframe: pd.DataFrame):
         # no information
-        dataframe = dataframe[dataframe.LANDCOVER_LABEL] != 0
+        dataframe = dataframe[dataframe.LANDCOVER_LABEL != 0]
         # could be both annual or perennial
-        dataframe = dataframe[dataframe.LANDCOVER_LABEL] != 10
+        dataframe = dataframe[dataframe.LANDCOVER_LABEL != 10]
         super().__init__(dataframe)
 
     def __getitem__(self, idx):
