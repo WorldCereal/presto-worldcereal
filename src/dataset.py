@@ -70,7 +70,7 @@ class WorldCerealBase(Dataset):
         keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
         normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
         # TODO: fix this. For now, we replicate the previous behaviour
-        normed_eo = np.where(eo[:, keep_indices] == cls._NODATAVALUE, normed_eo, 0)
+        normed_eo = np.where(eo[:, keep_indices] != cls._NODATAVALUE, normed_eo, 0)
         return normed_eo
 
 
