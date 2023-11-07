@@ -18,6 +18,7 @@ from .utils import DEFAULT_SEED, device
 
 class WorldCerealEval:
     name = "WorldCerealCropland"
+    threshold = 0.5
 
     def __init__(self, train_data: pd.DataFrame, val_data: pd.DataFrame, seed: int = DEFAULT_SEED):
         self.seed = seed
@@ -54,7 +55,7 @@ class WorldCerealEval:
             with torch.no_grad():
                 encodings = (
                     pretrained_model.encoder(
-                        x, dynamic_world=dw, mask=batch_mask, latlons=latlons, month=month
+                        x, dynamic_world=dw.long(), mask=batch_mask, latlons=latlons, month=month
                     )
                     .cpu()
                     .numpy()
@@ -97,7 +98,7 @@ class WorldCerealEval:
         )
 
         test_preds, targets = [], []
-        for x, y, dw, month, latlons in dl:
+        for x, y, dw, latlons, month in dl:
             targets.append(y.cpu().numpy())
             x, dw, latlons, month = [t.to(device) for t in (x, dw, latlons, month)]
             batch_mask = self._mask_to_batch_tensor(mask, x.shape[0])
@@ -105,7 +106,7 @@ class WorldCerealEval:
                 finetuned_model.eval()
                 preds = (
                     finetuned_model(
-                        x, dynamic_world=dw, mask=batch_mask, latlons=latlons, month=month
+                        x, dynamic_world=dw.long(), mask=batch_mask, latlons=latlons, month=month
                     )
                     .squeeze(dim=1)
                     .cpu()
@@ -115,18 +116,20 @@ class WorldCerealEval:
                 cast(Presto, pretrained_model).eval()
                 encodings = (
                     cast(Presto, pretrained_model)
-                    .encoder(x, dynamic_world=dw, mask=batch_mask, latlons=latlons, month=month)
+                    .encoder(
+                        x, dynamic_world=dw.long(), mask=batch_mask, latlons=latlons, month=month
+                    )
                     .cpu()
                     .numpy()
                 )
                 preds = finetuned_model.predict(encodings)
             test_preds.append(preds)
-        test_preds_np = np.concatenate(test_preds)
+        test_preds_np = np.concatenate(test_preds) >= self.threshold
         target_np = np.concatenate(targets)
 
         prefix = finetuned_model.__class__.__name__
         return {
-            f"{self.name}_{prefix}_f1": f1_score(target_np, test_preds_np, squared=False),
+            f"{self.name}_{prefix}_f1": f1_score(target_np, test_preds_np),
             f"{self.name}_{prefix}_recall": recall_score(target_np, test_preds_np),
             f"{self.name}_{prefix}_precision": precision_score(target_np, test_preds_np),
         }
