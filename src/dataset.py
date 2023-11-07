@@ -57,7 +57,7 @@ class WorldCerealBase(Dataset):
             eo_data[:, BANDS.index(presto_val)] = values
         static_band_mapping = {"DEM-alt-20m": "elevation", "DEM-slo-20m": "slope"}
         for df_val, presto_val in static_band_mapping.items():
-            eo_data[:, presto_val] = row[df_val]
+            eo_data[:, BANDS.index(presto_val)] = row[df_val]
 
         return eo_data, latlon, month, row["LANDCOVER_LABEL"] == 11
 
