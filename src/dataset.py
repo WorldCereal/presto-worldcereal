@@ -75,9 +75,11 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         row = self.df.iloc[idx, :]
         eo, latlon, month, _ = self.row_to_arrays(row)
 
+        # this is copied over from dataops. Sorry
+        keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
         normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
         # TODO: fix this. For now, we replicate the previous behaviour
-        normed_eo = np.where(eo == self._NODATAVALUE, normed_eo, 0)
+        normed_eo = np.where(eo[:, keep_indices] == self._NODATAVALUE, normed_eo, 0)
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(normed_eo)
 
         dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
