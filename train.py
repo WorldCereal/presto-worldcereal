@@ -14,7 +14,7 @@ from tqdm import tqdm
 from wandb.sdk.wandb_run import Run
 
 from src.dataops import BANDS_GROUPS_IDX
-from src.dataset import WorldCerealDataset
+from src.dataset import WorldCerealMaskedDataset as WorldCerealDataset
 from src.masking import MASK_STRATEGIES, MaskParamsNoDw
 from src.presto import (
     LossWrapper,
