@@ -15,6 +15,7 @@ from wandb.sdk.wandb_run import Run
 
 from src.dataops import BANDS_GROUPS_IDX
 from src.dataset import WorldCerealMaskedDataset as WorldCerealDataset
+from src.eval import WorldCerealEval
 from src.masking import MASK_STRATEGIES, MaskParamsNoDw
 from src.presto import (
     LossWrapper,
@@ -141,6 +142,10 @@ train_dataloader = DataLoader(
 )
 val_dataloader = DataLoader(
     WorldCerealDataset(val_df, mask_params=mask_params), batch_size=batch_size, shuffle=False
+)
+validation_task = WorldCerealEval(
+    train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
+    val_data=val_df.sample(1000, random_state=DEFAULT_SEED),
 )
 
 logger.info("Setting up model")
@@ -284,9 +289,28 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 train_size = 0
                 num_validations += 1
 
+                val_task_results = validation_task.finetuning_results(
+                    model, model_modes=["Random Forest"]
+                )
+                to_log.update(val_task_results)
+
                 if wandb_enabled:
                     wandb.log(to_log)
 
                 model.train()
 
 logger.info(f"Done training, best model saved to {best_model_path}")
+
+logger.info("Loading best model: %s" % best_model_path)
+best_model = torch.load(best_model_path)
+model.load_state_dict(best_model)
+
+full_eval = WorldCerealEval(train_df, val_df)
+results = full_eval.finetuning_results(model, model_modes=["Random Forest", "Regression"])
+logger.info(json.dumps(results, indent=2))
+if wandb_enabled:
+    wandb.log(results)
+
+if wandb_enabled and run:
+    run.finish()
+    logger.info(f"Wandb url: {run.url}")
