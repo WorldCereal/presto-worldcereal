@@ -1,7 +1,9 @@
 # presto_pretrain_finetune, but in a notebook
+import argparse
 import json
 import logging
 from pathlib import Path
+from typing import Tuple, cast
 
 import pandas as pd
 import torch
@@ -9,9 +11,11 @@ import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from wandb.sdk.wandb_run import Run
 
 from src.dataops import BANDS_GROUPS_IDX
-from src.dataset import WorldCerealDataset
+from src.dataset import WorldCerealMaskedDataset as WorldCerealDataset
+from src.eval import WorldCerealEval
 from src.masking import MASK_STRATEGIES, MaskParamsNoDw
 from src.presto import (
     LossWrapper,
@@ -31,30 +35,97 @@ from src.utils import (
 
 logger = logging.getLogger("__main__")
 
+argparser = argparse.ArgumentParser()
+argparser.add_argument("--model_name", type=str, default="")
+argparser.add_argument("--path_to_config", type=str, default="")
+argparser.add_argument(
+    "--output_dir",
+    type=str,
+    default="",
+    help="Parent directory to save output to, <output_dir>/wandb/ "
+    "and <output_dir>/output/ will be written to. "
+    "Leave empty to use the directory you are running this file from.",
+)
+argparser.add_argument("--n_epochs", type=int, default=20)
+argparser.add_argument("--max_learning_rate", type=float, default=0.0001)
+argparser.add_argument("--min_learning_rate", type=float, default=0.0)
+argparser.add_argument("--warmup_epochs", type=int, default=2)
+argparser.add_argument("--weight_decay", type=float, default=0.05)
+argparser.add_argument("--batch_size", type=int, default=4096)
+argparser.add_argument("--val_per_n_steps", type=int, default=1000)
+argparser.add_argument(
+    "--mask_strategies",
+    type=str,
+    default=[
+        "group_bands",
+        "random_timesteps",
+        "chunk_timesteps",
+        "random_combinations",
+    ],
+    nargs="+",
+    help="`all` will use all available masking strategies (including single bands)",
+)
+argparser.add_argument("--mask_ratio", type=float, default=0.75)
+argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+argparser.add_argument("--wandb", dest="wandb", action="store_true")
+argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
+argparser.add_argument(
+    "--train_file",
+    type=str,
+    default="worldcereal_presto_cropland_linearinterp_V1_TRAIN.parquet",
+)
+argparser.add_argument(
+    "--val_file",
+    type=str,
+    default="worldcereal_presto_cropland_linearinterp_V1_VAL.parquet",
+)
+argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
+argparser.set_defaults(wandb=False)
+argparser.set_defaults(warm_start=True)
+args = argparser.parse_args().__dict__
 
-model_name = "presto_worldcereal"
-seed = DEFAULT_SEED
+model_name = args["model_name"]
+seed: int = args["seed"]
+path_to_config = args["path_to_config"]
+warm_start = args["warm_start"]
+wandb_enabled: bool = args["wandb"]
+wandb_org: str = args["wandb_org"]
+
 seed_everything(seed)
-output_parent_dir = Path(".")
+output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
 run_id = None
+
+if wandb_enabled:
+    import wandb
+
+    run = wandb.init(
+        entity=wandb_org,
+        project="presto-worldcereal",
+        dir=output_parent_dir,
+    )
+    run_id = cast(Run, run).id
 
 logging_dir = output_parent_dir / "output" / timestamp_dirname(run_id)
 logging_dir.mkdir(exist_ok=True, parents=True)
 initialize_logging(logging_dir)
 logger.info("Using output dir: %s" % logging_dir)
 
-# Taken the defaults for now
-num_epochs = 20
-val_per_n_steps = 1000
-max_learning_rate = 0.0001  # 0.001 is default, for finetuning max should be lower?
-min_learning_rate = 0
-warmup_epochs = 2
-weight_decay = 0.05
-batch_size = 4096  # default 4096
+num_epochs = args["n_epochs"]
+val_per_n_steps = args["val_per_n_steps"]
+max_learning_rate = args["max_learning_rate"]
+min_learning_rate = args["min_learning_rate"]
+warmup_epochs = args["warmup_epochs"]
+weight_decay = args["weight_decay"]
+batch_size = args["batch_size"]
 
 # Default mask strategies and mask_ratio
-mask_strategies = MASK_STRATEGIES
-mask_ratio: float = 0.75
+mask_strategies: Tuple[str, ...] = tuple(args["mask_strategies"])
+if (len(mask_strategies) == 1) and (mask_strategies[0] == "all"):
+    mask_strategies = MASK_STRATEGIES
+mask_ratio: float = args["mask_ratio"]
+
+train_file: str = args["train_file"]
+val_file: str = args["val_file"]
 
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
@@ -64,20 +135,30 @@ logger.info("Setting up dataloaders")
 # Load the mask parameters
 mask_params = MaskParamsNoDw(mask_strategies, mask_ratio)
 
-# Create DataLoaders from the dataset. For now, without shame using same data for train and val
-# we're just testing functionality ;-)
-df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")
-# Create the WorldCereal dataset
-ds = WorldCerealDataset(df, mask_params=mask_params)
-train_dataloader = DataLoader(ds, batch_size=batch_size, shuffle=True)
-val_dataloader = DataLoader(ds, batch_size=batch_size, shuffle=False)
-
+train_df = pd.read_parquet(data_dir / train_file)
+val_df = pd.read_parquet(data_dir / val_file)
+train_dataloader = DataLoader(
+    WorldCerealDataset(train_df, mask_params=mask_params), batch_size=batch_size, shuffle=True
+)
+val_dataloader = DataLoader(
+    WorldCerealDataset(val_df, mask_params=mask_params), batch_size=batch_size, shuffle=False
+)
+validation_task = WorldCerealEval(
+    train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
+    val_data=val_df.sample(1000, random_state=DEFAULT_SEED),
+)
 
 logger.info("Setting up model")
-model = Presto.load_pretrained()
+if warm_start:
+    model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
+    model = Presto.load_pretrained()
+else:
+    if path_to_config == "":
+        path_to_config = config_dir / "default.json"
+    model_kwargs = json.load(Path(path_to_config).open("r"))
+    model = Presto.construct(**model_kwargs)
 model.to(device)
 
-# Model hyperparameters: keep unchanged for now
 param_groups = param_groups_weight_decay(model, weight_decay)
 optimizer = optim.AdamW(param_groups, lr=max_learning_rate, betas=(0.9, 0.95))
 mse = LossWrapper(nn.MSELoss())
@@ -90,15 +171,18 @@ training_config = {
     "eo_loss": mse.loss.__class__.__name__,
     "device": device,
     "logging_dir": logging_dir,
-    # **args,
-    # **model_kwargs,
+    **args,
+    **model_kwargs,
 }
+
+if wandb_enabled:
+    wandb.config.update(training_config)
 
 lowest_validation_loss = None
 best_val_epoch = 0
 training_step = 0
 num_validations = 0
-dataloader_length = df.shape[0]
+dataloader_length = train_df.shape[0]
 
 with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
     for epoch in tqdm_epoch:
@@ -176,8 +260,8 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 if "train_size" not in training_config and "val_size" not in training_config:
                     training_config["train_size"] = train_size
                     training_config["val_size"] = val_size
-                    # if wandb_enabled:
-                    #     wandb.config.update(training_config)
+                    if wandb_enabled:
+                        wandb.config.update(training_config)
 
                 to_log = {
                     "train_eo_loss": train_eo_loss,
@@ -205,13 +289,28 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 train_size = 0
                 num_validations += 1
 
-                # if wandb_enabled:
-                #     model.eval()
-                #     for title, plot in plot_predictions(model):
-                #         to_log[title] = plot
-                #     wandb.log(to_log)
-                #     plt.close("all")
+                val_task_results = validation_task.finetuning_results(
+                    model, model_modes=["Random Forest"]
+                )
+                to_log.update(val_task_results)
+
+                if wandb_enabled:
+                    wandb.log(to_log)
 
                 model.train()
 
 logger.info(f"Done training, best model saved to {best_model_path}")
+
+logger.info("Loading best model: %s" % best_model_path)
+best_model = torch.load(best_model_path)
+model.load_state_dict(best_model)
+
+full_eval = WorldCerealEval(train_df, val_df)
+results = full_eval.finetuning_results(model, model_modes=["Random Forest", "Regression"])
+logger.info(json.dumps(results, indent=2))
+if wandb_enabled:
+    wandb.log(results)
+
+if wandb_enabled and run:
+    run.finish()
+    logger.info(f"Wandb url: {run.url}")

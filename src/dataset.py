@@ -1,184 +1,123 @@
 from datetime import datetime
-from typing import Optional
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
-import torch
 from torch.utils.data import Dataset
 
-from .dataops import NUM_TIMESTEPS
+from .dataops import BANDS, S1_S2_ERA5_SRTM, DynamicWorld2020_2021
 from .masking import MaskedExample, MaskParamsNoDw
-from .utils import construct_single_presto_input
 
 
-class WorldCerealDataset(Dataset):
-    def __init__(self, dataframe: pd.DataFrame, mask_params: Optional[MaskParamsNoDw] = None):
+class WorldCerealBase(Dataset):
+    _NODATAVALUE = 65535
+    NUM_TIMESTEPS = 12
+
+    def __init__(self, dataframe: pd.DataFrame):
         self.df = dataframe
-        self.mask_params = mask_params
-        self._NODATAVALUE = 65535
 
     def __len__(self):
         return self.df.shape[0]
 
-    def __getitem__(self, idx):
+    @classmethod
+    def row_to_arrays(cls, row: pd.Series) -> Tuple[np.ndarray, np.ndarray, float, int]:
+        latlon = np.array([row.lat, row.lon])
+        month = datetime.strptime(row.start_date, "%Y-%m-%d").month - 1
 
+        eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
+        band_mapping = {
+            "OPTICAL-B02-ts{}-10m": "B2",
+            "OPTICAL-B03-ts{}-10m": "B3",
+            "OPTICAL-B04-ts{}-10m": "B4",
+            "OPTICAL-B05-ts{}-20m": "B5",
+            "OPTICAL-B06-ts{}-20m": "B6",
+            "OPTICAL-B07-ts{}-20m": "B7",
+            "OPTICAL-B08-ts{}-10m": "B8",
+            "OPTICAL-B8A-ts{}-20m": "B8A",
+            "OPTICAL-B11-ts{}-20m": "B11",
+            "OPTICAL-B12-ts{}-20m": "B12",
+            "SAR-VH-ts{}-20m": "VH",
+            "SAR-VV-ts{}-20m": "VV",
+            "METEO-precipitation_flux-ts{}-100m": "total_precipitation",
+            "METEO-temperature_mean-ts{}-100m": "temperature_2m",
+        }
+        for df_val, presto_val in band_mapping.items():
+            column_names = [df_val.format(t) for t in range(cls.NUM_TIMESTEPS)]
+            values = row[column_names].values.astype(float)
+            idx_valid = values != cls._NODATAVALUE
+            if presto_val in ["VV", "VH"]:
+                # convert to dB
+                values[idx_valid] = 20 * np.log10(values[idx_valid]) - 83
+            elif presto_val == "total_precipitation":
+                # scaling, and AgERA5 is in mm, Presto expects m
+                values[idx_valid] = values[idx_valid] / (100 * 1000.0)
+            elif presto_val == "temperature_2m":
+                # remove scaling
+                values[idx_valid] = values[idx_valid] / 100
+            eo_data[:, BANDS.index(presto_val)] = values
+        static_band_mapping = {"DEM-alt-20m": "elevation", "DEM-slo-20m": "slope"}
+        for df_val, presto_val in static_band_mapping.items():
+            eo_data[:, BANDS.index(presto_val)] = row[df_val]
+
+        return eo_data, latlon, month, row["LANDCOVER_LABEL"] == 11
+
+    def __getitem__(self, idx):
+        raise NotImplementedError
+
+    @classmethod
+    def normalize_and_mask(cls, eo: np.ndarray):
+        # this is copied over from dataops. Sorry
+        keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
+        normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
+        # TODO: fix this. For now, we replicate the previous behaviour
+        normed_eo = np.where(eo[:, keep_indices] != cls._NODATAVALUE, normed_eo, 0)
+        return normed_eo
+
+
+class WorldCerealMaskedDataset(WorldCerealBase):
+    def __init__(self, dataframe: pd.DataFrame, mask_params: MaskParamsNoDw):
+        super().__init__(dataframe)
+        self.mask_params = mask_params
+
+    def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
+        eo, latlon, month, _ = self.row_to_arrays(row)
+        mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(self.normalize_and_mask(eo))
 
-        # Convert inputs and return
-        return self.convert_inputs(row)
-
-    def convert_inputs(self, row):
-
-        # Latitude/Longitude
-        latlon = torch.tensor([row.lat, row.lon]).float()
-
-        # Month
-        month = datetime.strptime(row.start_date, "%Y-%m-%d").month - 1
-        month = torch.tensor(month).long()
-
-        # -------------------------------------------------------------
-        # Sentinel-2
-        s2_band_mapping = {
-            "B02": "B2",
-            "B03": "B3",
-            "B04": "B4",
-            "B05": "B5",
-            "B06": "B6",
-            "B07": "B7",
-            "B08": "B8",
-            "B8A": "B8A",
-            "B11": "B11",
-            "B12": "B12",
-        }
-
-        single_sample = pd.DataFrame(index=[f"ts{tstep}" for tstep in range(12)])
-        for b in s2_band_mapping.keys():
-            fts = [x for x in self.df.columns if b in x and "ts" in x]
-            values = row[fts].values.astype(int)
-
-            # This is actually no data and should ideally been handled by
-            # the mask in both input and target. For now, put to 0
-            values[values == self._NODATAVALUE] = 0
-
-            single_sample[b] = values
-
-        s2_data = torch.from_numpy(single_sample.values).float()
-
-        # -------------------------------------------------------------
-        # Sentinel-1
-        s1bands = ["VV", "VH"]
-        single_sample = pd.DataFrame(index=[f"ts{tstep}" for tstep in range(12)])
-        for b in s1bands:
-            fts = [x for x in self.df.columns if b in x and "ts" in x]
-            values = row[fts].values.astype(float)
-            idx_valid = values != self._NODATAVALUE
-
-            # Conversion to dB
-            values[idx_valid] = 20 * np.log10(values[idx_valid]) - 83
-
-            # This is actually no data and should ideally been handled by
-            # the mask in both input and target. For now, put to 0
-            # at some point, assign another nodata value (e.g. -999)
-            values[~idx_valid] = 0
-
-            single_sample[b] = values
-
-        s1_data = torch.from_numpy(single_sample.values).float()
-
-        # -------------------------------------------------------------
-        # METEO
-        single_sample = pd.DataFrame(index=[f"ts{tstep}" for tstep in range(12)])
-        meteo_band_mapping = {
-            "temperature_mean": "temperature_2m",
-            "precipitation_flux": "total_precipitation",
-        }
-        for b in meteo_band_mapping.keys():
-            fts = [x for x in self.df.columns if b in x and "ts" in x]
-            values = row[fts].values.astype(float)
-            idx_valid = values != self._NODATAVALUE
-            values = values / 100.0  # Remove scaling
-
-            if b == "precipitation_flux":
-                values = values / 1000.0  # AgERA5 is in mm, Presto expects m
-
-            # This is actually no data and should ideally been handled by
-            # the mask in both input and target. For now, put to 0
-            # at some point, assign another nodata value (e.g. -999)
-            idx_valid[~idx_valid] = 0
-
-            single_sample[b] = values
-
-        meteo_data = torch.from_numpy(single_sample.values).float()
-
-        # -------------------------------------------------------------
-        # Alt/slope
-        srtm_data = np.repeat(
-            row[["DEM-alt-20m", "DEM-slo-20m"]].values.reshape((1, 2)), 12, axis=0
-        )
-        srtm_data = torch.from_numpy(srtm_data.astype(float)).float()
-
-        # Construct normalized Presto inputs
-        # NOTE: using this method because it conveniently takes care
-        # of all the required normalizations
-        # the `mask` is not going to be used in training mode
-        x, mask, dynamic_world = construct_single_presto_input(
-            s2=s2_data,
-            s2_bands=list(s2_band_mapping.values()),
-            s1=s1_data,
-            s1_bands=s1bands,
-            era5=meteo_data,
-            era5_bands=list(meteo_band_mapping.values()),
-            srtm=srtm_data,
-            srtm_bands=["elevation", "slope"],
+        dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
+        mask_dw = np.full(self.NUM_TIMESTEPS, True)
+        y_dw = dynamic_world.copy()
+        return MaskedExample(
+            mask_eo,
+            mask_dw,
+            x_eo,
+            y_eo,
+            dynamic_world,
+            y_dw,
+            month,
+            latlon,
+            strat,
         )
 
-        """
-        Adjusting the mask cannot be done for now, as Presto code
-        requires all elements in the batch to be masked equally
-        cfr. https://github.com/nasaharvest/presto/issues/26#issuecomment-1777120102
 
-        # --------------------------------------------------------
-        # Adjust the mask so nodata values are dealt with properly
-        #
-        # Columns in x:
-        # 0, 1: Sentinel-1
-        # 2-11: Sentinel-2
-        # 12-13: T/Pr
-        # 14-15: DEM/Slope
-        # 16: NDVI
-        # --------------------------------------------------------
-        # Sentinel-2: make sure automatically computed NDVI is masked too
-        if 0 in s2_data:
-            idx_mask = torch.where(s2_data == 0)
-            mask[idx_mask[0], idx_mask[1] + 2] = 1
-            mask[torch.where(s2_data[:, 0] == 0)[0], -1] = 1  # Manually set NDVI mask
+class WorldCerealLabelledDataset(WorldCerealBase):
+    def __init__(self, dataframe: pd.DataFrame):
+        # no information
+        dataframe = dataframe[dataframe.LANDCOVER_LABEL != 0]
+        # could be both annual or perennial
+        dataframe = dataframe[dataframe.LANDCOVER_LABEL != 10]
+        super().__init__(dataframe)
 
-        # Sentinel-1:
-        if -999 in s1_data:
-            mask[torch.where(s1_data == -999)] = 1
+    def __getitem__(self, idx):
+        # Get the sample
+        row = self.df.iloc[idx, :]
+        eo, latlon, month, target = self.row_to_arrays(row)
 
-        # Meteo
-        if -999 in meteo_data:
-            mask[torch.where(meteo_data == -999)] = 1
-        """
-
-        if self.mask_params is None:
-            # return in the format we can encode it with Presto
-            return x.float(), mask.bool(), dynamic_world.long(), latlon, month
-        else:
-            # return it the way it's done for Presto training
-            mask_dw = np.full(NUM_TIMESTEPS, True)
-            y_dw = dynamic_world.detach().clone()
-            mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(x.numpy())
-            return MaskedExample(
-                mask_eo,
-                mask_dw,
-                x_eo,
-                y_eo,
-                dynamic_world,
-                y_dw,
-                month,
-                latlon,
-                strat,
-            )
+        return (
+            self.normalize_and_mask(eo),
+            target,
+            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            latlon,
+            month,
+        )
