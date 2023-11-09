@@ -182,7 +182,7 @@ lowest_validation_loss = None
 best_val_epoch = 0
 training_step = 0
 num_validations = 0
-dataloader_length = train_df.shape[0]
+dataloader_length = int(train_df.shape[0] / batch_size)
 
 with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
     for epoch in tqdm_epoch:
