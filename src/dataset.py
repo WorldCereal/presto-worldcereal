@@ -21,8 +21,12 @@ class WorldCerealBase(Dataset):
 
     @classmethod
     def row_to_arrays(cls, row: pd.Series) -> Tuple[np.ndarray, np.ndarray, float, int]:
-        latlon = np.array([row.lat, row.lon])
-        month = datetime.strptime(row.start_date, "%Y-%m-%d").month - 1
+        # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
+        # This is faster than indexing the series every time!
+        row_d = pd.Series.to_dict(row)
+
+        latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
+        month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
         band_mapping = {
@@ -42,8 +46,7 @@ class WorldCerealBase(Dataset):
             "METEO-temperature_mean-ts{}-100m": "temperature_2m",
         }
         for df_val, presto_val in band_mapping.items():
-            column_names = [df_val.format(t) for t in range(cls.NUM_TIMESTEPS)]
-            values = row[column_names].values.astype(float)
+            values = [float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)]
             idx_valid = values != cls._NODATAVALUE
             if presto_val in ["VV", "VH"]:
                 # convert to dB
@@ -57,9 +60,9 @@ class WorldCerealBase(Dataset):
             eo_data[:, BANDS.index(presto_val)] = values
         static_band_mapping = {"DEM-alt-20m": "elevation", "DEM-slo-20m": "slope"}
         for df_val, presto_val in static_band_mapping.items():
-            eo_data[:, BANDS.index(presto_val)] = row[df_val]
+            eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
 
-        return eo_data, latlon, month, row["LANDCOVER_LABEL"] == 11
+        return eo_data, latlon, month, row_d["LANDCOVER_LABEL"] == 11
 
     def __getitem__(self, idx):
         raise NotImplementedError
