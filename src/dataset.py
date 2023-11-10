@@ -12,9 +12,33 @@ from .masking import MaskedExample, MaskParamsNoDw
 class WorldCerealBase(Dataset):
     _NODATAVALUE = 65535
     NUM_TIMESTEPS = 12
+    BAND_MAPPING = {
+        "OPTICAL-B02-ts{}-10m": "B2",
+        "OPTICAL-B03-ts{}-10m": "B3",
+        "OPTICAL-B04-ts{}-10m": "B4",
+        "OPTICAL-B05-ts{}-20m": "B5",
+        "OPTICAL-B06-ts{}-20m": "B6",
+        "OPTICAL-B07-ts{}-20m": "B7",
+        "OPTICAL-B08-ts{}-10m": "B8",
+        "OPTICAL-B8A-ts{}-20m": "B8A",
+        "OPTICAL-B11-ts{}-20m": "B11",
+        "OPTICAL-B12-ts{}-20m": "B12",
+        "SAR-VH-ts{}-20m": "VH",
+        "SAR-VV-ts{}-20m": "VV",
+        "METEO-precipitation_flux-ts{}-100m": "total_precipitation",
+        "METEO-temperature_mean-ts{}-100m": "temperature_2m",
+    }
+    STATIC_BAND_MAPPING = {"DEM-alt-20m": "elevation", "DEM-slo-20m": "slope"}
 
     def __init__(self, dataframe: pd.DataFrame):
         self.df = dataframe
+        self.cache = {
+            "eo": np.empty((self.df.shape[0], self.NUM_TIMESTEPS, len(BANDS)), dtype=np.float32),
+            "latlons": np.empty((self.df.shape[0], 2), dtype=np.float32),
+            "months": np.empty(self.df.shape[0], dtype=np.int32),
+            "labels": np.empty(self.df.shape[0], dtype=bool),
+        }
+        self.cache_populated = self.df.shape[0] * [False]
 
     def __len__(self):
         return self.df.shape[0]
@@ -29,23 +53,7 @@ class WorldCerealBase(Dataset):
         month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
-        band_mapping = {
-            "OPTICAL-B02-ts{}-10m": "B2",
-            "OPTICAL-B03-ts{}-10m": "B3",
-            "OPTICAL-B04-ts{}-10m": "B4",
-            "OPTICAL-B05-ts{}-20m": "B5",
-            "OPTICAL-B06-ts{}-20m": "B6",
-            "OPTICAL-B07-ts{}-20m": "B7",
-            "OPTICAL-B08-ts{}-10m": "B8",
-            "OPTICAL-B8A-ts{}-20m": "B8A",
-            "OPTICAL-B11-ts{}-20m": "B11",
-            "OPTICAL-B12-ts{}-20m": "B12",
-            "SAR-VH-ts{}-20m": "VH",
-            "SAR-VV-ts{}-20m": "VV",
-            "METEO-precipitation_flux-ts{}-100m": "total_precipitation",
-            "METEO-temperature_mean-ts{}-100m": "temperature_2m",
-        }
-        for df_val, presto_val in band_mapping.items():
+        for df_val, presto_val in cls.BAND_MAPPING.items():
             values = [float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)]
             idx_valid = values != cls._NODATAVALUE
             if presto_val in ["VV", "VH"]:
@@ -58,14 +66,27 @@ class WorldCerealBase(Dataset):
                 # remove scaling
                 values[idx_valid] = values[idx_valid] / 100
             eo_data[:, BANDS.index(presto_val)] = values
-        static_band_mapping = {"DEM-alt-20m": "elevation", "DEM-slo-20m": "slope"}
-        for df_val, presto_val in static_band_mapping.items():
+        for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
 
         return eo_data, latlon, month, row_d["LANDCOVER_LABEL"] == 11
 
     def __getitem__(self, idx):
-        raise NotImplementedError
+        if self.cache_populated[idx]:
+            return (
+                self.cache["eo"][idx],
+                self.cache["latlons"][idx],
+                self.cache["months"][idx],
+                self.cache["labels"][idx],
+            )
+        else:
+            eo, latlon, month, label = self.row_to_arrays(self.df.iloc[idx])
+            self.cache["eo"][idx] = eo
+            self.cache["latlons"][idx] = latlon
+            self.cache["months"][idx] = month
+            self.cache["labels"][idx] = label
+            self.cache_populated[idx] = True
+            return eo, latlon, month, label
 
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
@@ -84,8 +105,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 
     def __getitem__(self, idx):
         # Get the sample
-        row = self.df.iloc[idx, :]
-        eo, latlon, month, _ = self.row_to_arrays(row)
+        eo, latlon, month, _ = super().__getitem__(idx)
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(self.normalize_and_mask(eo))
 
         dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
@@ -114,8 +134,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
 
     def __getitem__(self, idx):
         # Get the sample
-        row = self.df.iloc[idx, :]
-        eo, latlon, month, target = self.row_to_arrays(row)
+        eo, latlon, month, target = super().__getitem__(idx)
 
         return (
             self.normalize_and_mask(eo),
