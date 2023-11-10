@@ -182,7 +182,6 @@ lowest_validation_loss = None
 best_val_epoch = 0
 training_step = 0
 num_validations = 0
-dataloader_length = train_df.shape[0]
 
 with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
     for epoch in tqdm_epoch:
@@ -199,7 +198,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
             optimizer.zero_grad()
             lr = adjust_learning_rate(
                 optimizer,
-                epoch_step / dataloader_length + epoch,
+                epoch_step / len(train_dataloader) + epoch,
                 warmup_epochs,
                 num_epochs,
                 max_learning_rate,
