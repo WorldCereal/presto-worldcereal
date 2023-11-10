@@ -10,19 +10,19 @@ Currently two versions of the training data are available:
 1) With linear interpolation
 
 - [Cropland TRAIN data (251MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_linearinterp_V1_TRAIN.parquet)
-- [Cropland VAL data (76MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_linearinterp_V1_VAL.parquet)
+- [Cropland VAL data (78MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_linearinterp_V2_VAL.parquet)
 
 2) Without linear interpolation
 
 - [Cropland TRAIN data (242MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_nointerp_V1_TRAIN.parquet)
-- [Cropland VAL data (73MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_nointerp_V1_VAL.parquet)
+- [Cropland VAL data (76MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_nointerp_V2_VAL.parquet)
 
 
 #### 2.  <a name='ContentofaWorldCerealsample'></a>Content of a WorldCereal sample
 
 Training data comes in the form of a parquet file which can be loaded as a Pandas DataFrame, e.g.:
 
-`df = pd.read_parquet('worldcereal_presto_cropland_linearinterp_V1_VAL.parquet')`
+`df = pd.read_parquet('worldcereal_presto_cropland_linearinterp_V2_VAL.parquet')`
 
 Let's explore the contents of one sample or row in the dataframe:
 
@@ -40,6 +40,8 @@ We find following relevant attributes:
 - Irrigation label: `IRRIGATION_LABEL`
 - Altitude in meters: `DEM-alt-20m`
 - Slope: `DEM-slo-20m`
+- WorldCereal V1 prediction label (0|1): `catboost_prediction`
+- WorldCereal V1 prediction confidence (0-1): `catboost_confidence`
 
 Monthly composited time series inputs are organized following the pattern:
 
