@@ -32,13 +32,6 @@ class WorldCerealBase(Dataset):
 
     def __init__(self, dataframe: pd.DataFrame):
         self.df = dataframe
-        self.cache = {
-            "eo": np.empty((self.df.shape[0], self.NUM_TIMESTEPS, len(BANDS)), dtype=np.float32),
-            "latlons": np.empty((self.df.shape[0], 2), dtype=np.float32),
-            "months": np.empty(self.df.shape[0], dtype=np.int32),
-            "labels": np.empty(self.df.shape[0], dtype=bool),
-        }
-        self.cache_populated = self.df.shape[0] * [False]
 
     def __len__(self):
         return self.df.shape[0]
@@ -72,21 +65,7 @@ class WorldCerealBase(Dataset):
         return eo_data, latlon, month, row_d["LANDCOVER_LABEL"] == 11
 
     def __getitem__(self, idx):
-        if self.cache_populated[idx]:
-            return (
-                self.cache["eo"][idx],
-                self.cache["latlons"][idx],
-                self.cache["months"][idx],
-                self.cache["labels"][idx],
-            )
-        else:
-            eo, latlon, month, label = self.row_to_arrays(self.df.iloc[idx])
-            self.cache["eo"][idx] = eo
-            self.cache["latlons"][idx] = latlon
-            self.cache["months"][idx] = month
-            self.cache["labels"][idx] = label
-            self.cache_populated[idx] = True
-            return eo, latlon, month, label
+        raise NotImplementedError
 
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
@@ -105,7 +84,8 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 
     def __getitem__(self, idx):
         # Get the sample
-        eo, latlon, month, _ = super().__getitem__(idx)
+        row = self.df.iloc[idx, :]
+        eo, latlon, month, _ = self.row_to_arrays(row)
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(self.normalize_and_mask(eo))
 
         dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
@@ -134,7 +114,8 @@ class WorldCerealLabelledDataset(WorldCerealBase):
 
     def __getitem__(self, idx):
         # Get the sample
-        eo, latlon, month, target = super().__getitem__(idx)
+        row = self.df.iloc[idx, :]
+        eo, latlon, month, target = self.row_to_arrays(row)
 
         return (
             self.normalize_and_mask(eo),

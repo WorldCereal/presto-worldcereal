@@ -67,7 +67,7 @@ argparser.add_argument(
 )
 argparser.add_argument("--mask_ratio", type=float, default=0.75)
 argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-argparser.add_argument("--num_workers", type=int, default=0)
+argparser.add_argument("--num_workers", type=int, default=4)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 argparser.add_argument(
