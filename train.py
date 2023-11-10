@@ -67,6 +67,7 @@ argparser.add_argument(
 )
 argparser.add_argument("--mask_ratio", type=float, default=0.75)
 argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+argparser.add_argument("--num_workers", type=int, default=4)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 argparser.add_argument(
@@ -86,6 +87,7 @@ args = argparser.parse_args().__dict__
 
 model_name = args["model_name"]
 seed: int = args["seed"]
+num_workers: int = args["num_workers"]
 path_to_config = args["path_to_config"]
 warm_start = args["warm_start"]
 wandb_enabled: bool = args["wandb"]
@@ -138,10 +140,16 @@ mask_params = MaskParamsNoDw(mask_strategies, mask_ratio)
 train_df = pd.read_parquet(data_dir / train_file)
 val_df = pd.read_parquet(data_dir / val_file)
 train_dataloader = DataLoader(
-    WorldCerealDataset(train_df, mask_params=mask_params), batch_size=batch_size, shuffle=True
+    WorldCerealDataset(train_df, mask_params=mask_params),
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=num_workers,
 )
 val_dataloader = DataLoader(
-    WorldCerealDataset(val_df, mask_params=mask_params), batch_size=batch_size, shuffle=False
+    WorldCerealDataset(val_df, mask_params=mask_params),
+    batch_size=batch_size,
+    shuffle=False,
+    num_workers=num_workers,
 )
 validation_task = WorldCerealEval(
     train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
