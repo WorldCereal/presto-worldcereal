@@ -50,6 +50,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
     num_tokens_to_mask = int(
         ((NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio - sum(sum(mask))
     )
+    assert num_tokens_to_mask > 0
 
     def mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio):
         should_flip = random() < mask_ratio
