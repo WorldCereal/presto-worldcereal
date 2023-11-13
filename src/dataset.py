@@ -48,7 +48,7 @@ class WorldCerealBase(Dataset):
         return self.df.shape[0]
 
     @classmethod
-    def row_to_arrays(cls, row: pd.Series) -> Tuple[np.ndarray, np.ndarray, float, int]:
+    def row_to_arrays(cls, row: pd.Series) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
@@ -64,7 +64,7 @@ class WorldCerealBase(Dataset):
             values = [float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)]
             idx_valid = values != cls._NODATAVALUE
             mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
-                mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_max=1
+                mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
             )
             if presto_val in ["VV", "VH"]:
                 # convert to dB
