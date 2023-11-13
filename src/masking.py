@@ -22,22 +22,34 @@ MASK_STRATEGIES = (
 
 MaskedExample = namedtuple(
     "MaskedExample",
-    ["mask_eo", "mask_dw", "x_eo", "y_eo", "x_dw", "y_dw", "start_month", "latlon", "strategy"],
+    [
+        "mask_eo",
+        "mask_dw",
+        "x_eo",
+        "y_eo",
+        "x_dw",
+        "y_dw",
+        "start_month",
+        "latlon",
+        "strategy",
+        "real_mask",
+    ],
 )
 
 
-def make_mask_no_dw(strategy: str, mask_ratio: float) -> np.ndarray:
+def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray) -> np.ndarray:
     """
     Make a mask for a given strategy and percentage of masked values.
     Args:
         strategy: The masking strategy to use. One of MASK_STRATEGIES
         mask_ratio: The percentage of values to mask. Between 0 and 1.
     """
-
-    # SRTM is included here, but ignored by Presto
-    mask = np.full((NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)), False)
+    # we assume that topography is never "naturally" masked
+    mask = existing_mask.copy()
     srtm_mask = False
-    num_tokens_to_mask = int(((NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio)
+    num_tokens_to_mask = int(
+        ((NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio
+    ) - sum(sum(mask))
 
     def mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio):
         should_flip = random() < mask_ratio
@@ -70,14 +82,16 @@ def make_mask_no_dw(strategy: str, mask_ratio: float) -> np.ndarray:
         srtm_mask, num_tokens_to_mask = mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio)
         # next, we figure out how many tokens we can mask
         num_band_groups_to_mask = int(num_tokens_to_mask / NUM_TIMESTEPS)
-        num_tokens_to_mask -= NUM_TIMESTEPS * num_band_groups_to_mask
-        assert num_tokens_to_mask >= 0
+        assert (num_tokens_to_mask - NUM_TIMESTEPS * num_band_groups_to_mask) >= 0
+        num_tokens_masked = 0
         # tuple because of mypy, which thinks lists can only hold one type
         band_groups: List[Any] = list(range(len(BANDS_GROUPS_IDX)))
         band_groups.remove(SRTM_INDEX)
         band_groups_to_mask = sample(band_groups, num_band_groups_to_mask)
         for band_group in band_groups_to_mask:
+            num_tokens_masked += len(mask[:, band_group]) - sum(mask[:, band_group])
             mask[:, band_group] = True
+        num_tokens_to_mask += num_tokens_masked
         mask = random_masking(mask, num_tokens_to_mask)
 
     # RANDOM TIMESTEPS
@@ -85,16 +99,20 @@ def make_mask_no_dw(strategy: str, mask_ratio: float) -> np.ndarray:
         srtm_mask, num_tokens_to_mask = mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio)
         # -1 for SRTM
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
-        num_tokens_to_mask -= (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
+        max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
         timesteps = sample(TIMESTEPS_IDX, k=timesteps_to_mask)
+        num_tokens_to_mask -= max_tokens_masked - sum(sum(mask[timesteps]))
         mask[timesteps] = True
         mask = random_masking(mask, num_tokens_to_mask)
     elif strategy == "chunk_timesteps":
         srtm_mask, num_tokens_to_mask = mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio)
         # -1 for SRTM
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
-        num_tokens_to_mask -= (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
+        max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
         start_idx = randint(0, NUM_TIMESTEPS - timesteps_to_mask)
+        num_tokens_to_mask -= max_tokens_masked - sum(
+            sum(mask[start_idx : start_idx + timesteps_to_mask])
+        )
         mask[start_idx : start_idx + timesteps_to_mask] = True  # noqa
         mask = random_masking(mask, num_tokens_to_mask)
     else:
@@ -118,9 +136,9 @@ class MaskParamsNoDw:
                 "random_combinations",
             ]
 
-    def mask_data(self, eo_data: np.ndarray):
+    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray):
         strategy = choice(self.strategies)
-        mask = make_mask_no_dw(strategy=strategy, mask_ratio=self.ratio)
+        mask = make_mask_no_dw(strategy=strategy, mask_ratio=self.ratio, existing_mask=mask)
         x = eo_data * ~mask
         y = np.zeros(eo_data.shape).astype(np.float32)
         y[mask] = eo_data[mask]
