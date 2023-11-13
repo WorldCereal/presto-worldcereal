@@ -92,7 +92,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
         for band_group in band_groups_to_mask:
             num_tokens_masked += int(len(mask[:, band_group]) - sum(mask[:, band_group]))
             mask[:, band_group] = True
-        num_tokens_to_mask += num_tokens_masked
+        num_tokens_to_mask -= num_tokens_masked
         mask = random_masking(mask, num_tokens_to_mask)
 
     # RANDOM TIMESTEPS
@@ -102,19 +102,21 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
         max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
         timesteps = sample(TIMESTEPS_IDX, k=timesteps_to_mask)
-        num_tokens_to_mask -= int(max_tokens_masked - sum(sum(mask[timesteps])))
-        mask[timesteps] = True
+        if timesteps_to_mask > 0:
+            num_tokens_to_mask -= int(max_tokens_masked - sum(sum(mask[timesteps])))
+            mask[timesteps] = True
         mask = random_masking(mask, num_tokens_to_mask)
     elif strategy == "chunk_timesteps":
         srtm_mask, num_tokens_to_mask = mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio)
         # -1 for SRTM
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
-        max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
-        start_idx = randint(0, NUM_TIMESTEPS - timesteps_to_mask)
-        num_tokens_to_mask -= int(
-            max_tokens_masked - sum(sum(mask[start_idx : start_idx + timesteps_to_mask]))
-        )
-        mask[start_idx : start_idx + timesteps_to_mask] = True  # noqa
+        if timesteps_to_mask > 0:
+            max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
+            start_idx = randint(0, NUM_TIMESTEPS - timesteps_to_mask)
+            num_tokens_to_mask -= int(
+                max_tokens_masked - sum(sum(mask[start_idx : start_idx + timesteps_to_mask]))
+            )
+            mask[start_idx : start_idx + timesteps_to_mask] = True  # noqa
         mask = random_masking(mask, num_tokens_to_mask)
     else:
         raise ValueError(f"Unknown strategy {strategy} not in {MASK_STRATEGIES}")
