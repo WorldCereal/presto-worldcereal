@@ -89,7 +89,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
         band_groups.remove(SRTM_INDEX)
         band_groups_to_mask = sample(band_groups, num_band_groups_to_mask)
         for band_group in band_groups_to_mask:
-            num_tokens_masked += int(len(mask[:, band_group]) - sum(mask[:, band_group]))
+            num_tokens_masked += int(len(mask[:, band_group] - sum(mask[:, band_group])))
             mask[:, band_group] = True
         num_tokens_to_mask += num_tokens_masked
         mask = random_masking(mask, num_tokens_to_mask)
