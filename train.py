@@ -201,7 +201,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
         for epoch_step, b in enumerate(tqdm(train_dataloader, desc="Train", leave=False)):
             mask, x, y, start_month = b[0].to(device), b[2].to(device), b[3].to(device), b[6]
             dw_mask, x_dw, y_dw = b[1].to(device), b[4].to(device).long(), b[5].to(device).long()
-            latlons, real_mask = b[7].to(device), b[8].to(device)
+            latlons, real_mask = b[7].to(device), b[9].to(device)
             # zero the parameter gradients
             optimizer.zero_grad()
             lr = adjust_learning_rate(
@@ -245,7 +245,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                             b[2].to(device),
                             b[3].to(device),
                             b[6],
-                            b[8].to(device),
+                            b[9].to(device),
                         )
                         dw_mask, x_dw = b[1].to(device), b[4].to(device).long()
                         y_dw, latlons = b[5].to(device).long(), b[7].to(device)
