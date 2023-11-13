@@ -81,7 +81,7 @@ class WorldCerealBase(Dataset):
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
 
-        return eo_data, mask_per_token, latlon, month, row_d["LANDCOVER_LABEL"] == 11
+        return eo_data, mask_per_token.astype(bool), latlon, month, row_d["LANDCOVER_LABEL"] == 11
 
     def __getitem__(self, idx):
         raise NotImplementedError
