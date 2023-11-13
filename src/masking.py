@@ -48,8 +48,8 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
     mask = existing_mask.copy()
     srtm_mask = False
     num_tokens_to_mask = int(
-        ((NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio
-    ) - sum(sum(mask))
+        ((NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio - sum(sum(mask))
+    )
 
     def mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio):
         should_flip = random() < mask_ratio
@@ -89,7 +89,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
         band_groups.remove(SRTM_INDEX)
         band_groups_to_mask = sample(band_groups, num_band_groups_to_mask)
         for band_group in band_groups_to_mask:
-            num_tokens_masked += len(mask[:, band_group]) - sum(mask[:, band_group])
+            num_tokens_masked += int(len(mask[:, band_group]) - sum(mask[:, band_group]))
             mask[:, band_group] = True
         num_tokens_to_mask += num_tokens_masked
         mask = random_masking(mask, num_tokens_to_mask)
@@ -101,7 +101,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
         max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
         timesteps = sample(TIMESTEPS_IDX, k=timesteps_to_mask)
-        num_tokens_to_mask -= max_tokens_masked - sum(sum(mask[timesteps]))
+        num_tokens_to_mask -= int(max_tokens_masked - sum(sum(mask[timesteps])))
         mask[timesteps] = True
         mask = random_masking(mask, num_tokens_to_mask)
     elif strategy == "chunk_timesteps":
@@ -110,8 +110,8 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
         max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
         start_idx = randint(0, NUM_TIMESTEPS - timesteps_to_mask)
-        num_tokens_to_mask -= max_tokens_masked - sum(
-            sum(mask[start_idx : start_idx + timesteps_to_mask])
+        num_tokens_to_mask -= int(
+            max_tokens_masked - sum(sum(mask[start_idx : start_idx + timesteps_to_mask]))
         )
         mask[start_idx : start_idx + timesteps_to_mask] = True  # noqa
         mask = random_masking(mask, num_tokens_to_mask)
