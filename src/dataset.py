@@ -48,7 +48,9 @@ class WorldCerealBase(Dataset):
         return self.df.shape[0]
 
     @classmethod
-    def row_to_arrays(cls, row: pd.Series) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
+    def row_to_arrays(
+        cls, row: pd.Series
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
@@ -104,7 +106,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         row = self.df.iloc[idx, :]
         eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row)
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
-            self.normalize_and_mask(eo, real_mask_per_token)
+            self.normalize_and_mask(eo), real_mask_per_token
         )
         real_mask_per_variable = np.repeat(real_mask_per_token, BAND_EXPANSION, axis=1)
 
