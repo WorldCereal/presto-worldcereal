@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Sequence, Union, cast
 import numpy as np
 import pandas as pd
 import torch
-from einops import repeat
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -25,16 +24,6 @@ class WorldCerealEval:
         self.train_ds = train_data
         self.val_ds = val_data
 
-    @staticmethod
-    def _mask_to_batch_tensor(
-        mask: Optional[np.ndarray], batch_size: int
-    ) -> Optional[torch.Tensor]:
-        # TODO: This function should be replaced by a real mask,
-        # returned by the dataloader
-        if mask is not None:
-            return repeat(torch.from_numpy(mask).to(device), "t c -> b t c", b=batch_size).float()
-        return None
-
     @torch.no_grad()
     def finetune_sklearn_model(
         self,
@@ -48,19 +37,27 @@ class WorldCerealEval:
         pretrained_model.eval()
 
         encoding_list, target_list = [], []
-        for x, y, dw, latlons, month in tqdm(dl, desc="Computing embeddings"):
-            x, dw, latlons, y, month = [t.to(device) for t in (x, dw, latlons, y, month)]
-            batch_mask = self._mask_to_batch_tensor(mask, x.shape[0])
-            target_list.append(y.cpu().numpy())
-            with torch.no_grad():
-                encodings = (
-                    pretrained_model.encoder(
-                        x, dynamic_world=dw.long(), mask=batch_mask, latlons=latlons, month=month
+        for x, y, dw, latlons, month, num_masked_tokens, variable_mask in dl:
+            for masked_token_group in torch.unique(num_masked_tokens):
+                filter = num_masked_tokens == masked_token_group
+                target_list.append(y[filter].cpu().numpy())
+                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                    t[filter].to(device) for t in (x, dw, latlons, month, variable_mask)
+                ]
+                target_list.append(y.cpu().numpy())
+                with torch.no_grad():
+                    encodings = (
+                        pretrained_model.encoder(
+                            x_f,
+                            dynamic_world=dw_f.long(),
+                            mask=variable_mask_f,
+                            latlons=latlons_f,
+                            month=month_f,
+                        )
+                        .cpu()
+                        .numpy()
                     )
-                    .cpu()
-                    .numpy()
-                )
-                encoding_list.append(encodings)
+                    encoding_list.append(encodings)
         encodings_np = np.concatenate(encoding_list)
         targets = np.concatenate(target_list)
         if len(targets.shape) == 2 and targets.shape[1] == 1:
@@ -98,32 +95,43 @@ class WorldCerealEval:
         )
 
         test_preds, targets = [], []
-        for x, y, dw, latlons, month in dl:
-            targets.append(y.cpu().numpy())
-            x, dw, latlons, month = [t.to(device) for t in (x, dw, latlons, month)]
-            batch_mask = self._mask_to_batch_tensor(mask, x.shape[0])
-            if isinstance(finetuned_model, PrestoFineTuningModel):
-                finetuned_model.eval()
-                preds = (
-                    finetuned_model(
-                        x, dynamic_world=dw.long(), mask=batch_mask, latlons=latlons, month=month
+        for x, y, dw, latlons, month, num_masked_tokens, variable_mask in dl:
+            for masked_token_group in torch.unique(num_masked_tokens):
+                filter = num_masked_tokens == masked_token_group
+                targets.append(y[filter].cpu().numpy())
+                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                    t[filter].to(device) for t in (x, dw, latlons, month, variable_mask)
+                ]
+                if isinstance(finetuned_model, PrestoFineTuningModel):
+                    finetuned_model.eval()
+                    preds = (
+                        finetuned_model(
+                            x_f,
+                            dynamic_world=dw_f.long(),
+                            mask=variable_mask_f,
+                            latlons=latlons_f,
+                            month=month_f,
+                        )
+                        .squeeze(dim=1)
+                        .cpu()
+                        .numpy()
                     )
-                    .squeeze(dim=1)
-                    .cpu()
-                    .numpy()
-                )
-            elif isinstance(finetuned_model, BaseEstimator):
-                cast(Presto, pretrained_model).eval()
-                encodings = (
-                    cast(Presto, pretrained_model)
-                    .encoder(
-                        x, dynamic_world=dw.long(), mask=batch_mask, latlons=latlons, month=month
+                elif isinstance(finetuned_model, BaseEstimator):
+                    cast(Presto, pretrained_model).eval()
+                    encodings = (
+                        cast(Presto, pretrained_model)
+                        .encoder(
+                            x_f,
+                            dynamic_world=dw_f.long(),
+                            mask=variable_mask_f,
+                            latlons=latlons_f,
+                            month=month_f,
+                        )
+                        .cpu()
+                        .numpy()
                     )
-                    .cpu()
-                    .numpy()
-                )
-                preds = finetuned_model.predict(encodings)
-            test_preds.append(preds)
+                    preds = finetuned_model.predict(encodings)
+                test_preds.append(preds)
         test_preds_np = np.concatenate(test_preds) >= self.threshold
         target_np = np.concatenate(targets)
 

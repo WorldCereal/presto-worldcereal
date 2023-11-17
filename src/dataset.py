@@ -139,12 +139,14 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
-        _ = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
-
+        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+        num_masked_tokens = sum(sum(mask_per_token))
         return (
             self.normalize_and_mask(eo),
             target,
             np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
             latlon,
             month,
+            num_masked_tokens,
+            mask_per_variable,
         )
