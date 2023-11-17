@@ -44,7 +44,6 @@ class WorldCerealEval:
                 x_f, dw_f, latlons_f, month_f, variable_mask_f = [
                     t[filter].to(device) for t in (x, dw, latlons, month, variable_mask)
                 ]
-                target_list.append(y.cpu().numpy())
                 with torch.no_grad():
                     encodings = (
                         pretrained_model.encoder(
