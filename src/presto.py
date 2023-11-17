@@ -360,24 +360,22 @@ class Encoder(nn.Module):
 
     @staticmethod
     def mask_tokens(x, mask):
-        summed = mask.sum(
-            dim=(1, 2)
-        )  # summed tells me the number of masked elements per batch idx
+        # summed tells me the number of masked elements per batch idx
+        summed = mask.sum(dim=1)
         assert summed.max() == summed.min(), f"{summed.max()}, {summed.min()}"
 
         batch_size = x.shape[0]
-        removed_elements_per_batch = int(summed.max() / mask.shape[2])
-        kept_elements_per_batch = x.shape[1] - removed_elements_per_batch
-        embedding_dim = x.shape[-1]
+        removed_elements_per_sample = summed.max()  # per_sample
+        kept_elements_per_sample = x.shape[1] - removed_elements_per_sample  # per_sample
 
         # we want the mask to just be the indices of the masked tokens
         indices = repeat(torch.arange(0, x.shape[1]).long().to(x.device), "d -> b d", b=x.shape[0])
 
-        x = x[~mask.bool()].view(batch_size, kept_elements_per_batch, embedding_dim)
+        embedding_dim = x.shape[-1]
+        x = x[~mask.bool()].view(batch_size, kept_elements_per_sample, embedding_dim)  # todo
 
-        mask = mask[:, :, 0]
-        kept_indices = indices[~mask.bool()].view(batch_size, kept_elements_per_batch)
-        removed_indices = indices[mask.bool()].view(batch_size, removed_elements_per_batch)
+        kept_indices = indices[~mask.bool()].view(batch_size, kept_elements_per_sample)
+        removed_indices = indices[mask.bool()].view(batch_size, removed_elements_per_sample)
 
         return x, kept_indices, removed_indices
 
@@ -432,11 +430,7 @@ class Encoder(nn.Module):
             tokens = tokens[:, indices]
             tokens += channel_wise_positional_embedding
             all_tokens.append(tokens)
-            group_mask = repeat(
-                torch.max(mask[:, indices, channel_idxs], dim=-1)[0],
-                "b t -> b t d",
-                d=tokens.shape[-1],
-            )
+            group_mask = torch.max(mask[:, indices, channel_idxs], dim=-1)[0]
             all_masks.append(group_mask)
 
         # then, dynamic world
@@ -452,13 +446,11 @@ class Encoder(nn.Module):
         all_tokens.append(tokens)
 
         # now we calculate the mask for these [b, t] tokens
-        group_mask = repeat(
-            dynamic_world == DynamicWorld2020_2021.class_amount, "b t -> b t d", d=tokens.shape[-1]
-        )
+        group_mask = dynamic_world == DynamicWorld2020_2021.class_amount
         all_masks.append(group_mask)
 
         x = torch.cat(all_tokens, dim=1)  # [batch, timesteps, embedding_dim]
-        mask = torch.cat(all_masks, dim=1)  # [batch, timesteps, embedding_dim]
+        mask = torch.cat(all_masks, dim=1)  # [batch, timesteps]
         x, kept_indices, removed_indices = self.mask_tokens(x, mask)
 
         # append latlon tokens
@@ -564,11 +556,11 @@ class Decoder(nn.Module):
 
         # sort according to their indices. Shape is [batch, index]
         combined_indices = torch.cat([kept_indices, removed_indices], dim=1) + 1
-        # 0 for latlon index
-        combined_indices = torch.sort(
+        # 0 for latlon index. Argsort
+        _, combined_indices = torch.sort(
             torch.cat([torch.zeros_like(combined_indices[:, 0:1]), combined_indices], dim=1)
-        )[1]
-        # and then tile for each dimension
+        )
+        # and then tile for each dimension (gather doesn't broadcast)
         combined_indices = repeat(combined_indices, "b t -> b t d", d=x.shape[-1])
         x = torch.gather(x, 1, combined_indices)
         return x

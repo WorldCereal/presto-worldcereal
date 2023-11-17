@@ -73,12 +73,12 @@ argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 argparser.add_argument(
     "--train_file",
     type=str,
-    default="worldcereal_presto_cropland_linearinterp_V1_TRAIN.parquet",
+    default="worldcereal_presto_cropland_nointerp_V1_TRAIN.parquet",
 )
 argparser.add_argument(
     "--val_file",
     type=str,
-    default="worldcereal_presto_cropland_linearinterp_V1_VAL.parquet",
+    default="worldcereal_presto_cropland_nointerp_V2_VAL.parquet",
 )
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
