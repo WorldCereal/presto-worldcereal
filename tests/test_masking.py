@@ -9,11 +9,14 @@ TEST_MASK_RATIOS = [x / 100 for x in range(5, 100, 5)]
 
 class TestMasking(TestCase):
     def test_make_mask_group_bands(self):
+        real_masked_tokens = np.zeros((NUM_TIMESTEPS, len(BANDS_GROUPS_IDX))).astype(bool)
+        real_masked_tokens[0, 0] = True
         for mask_ratio in TEST_MASK_RATIOS:
-            real_masked_tokens = np.zeros((NUM_TIMESTEPS, len(BANDS_GROUPS_IDX))).astype(bool)
-            real_masked_tokens[0, 0] = True
             eo_mask = make_mask_no_dw(
                 strategy="group_bands", mask_ratio=mask_ratio, existing_mask=real_masked_tokens
+            )
+            self.assertTrue(
+                (eo_mask[0, BANDS_GROUPS_IDX[list(BANDS_GROUPS_IDX.keys())[0]]] == 1).all()
             )
 
             num_masked_channels = 0
@@ -51,15 +54,18 @@ class TestMasking(TestCase):
             )
 
     def test_make_mask_timesteps(self):
-
+        real_masked_tokens = np.zeros((NUM_TIMESTEPS, len(BANDS_GROUPS_IDX))).astype(bool)
+        real_masked_tokens[0, 0] = True
         for mask_ratio in TEST_MASK_RATIOS:
             for masking_strategy in ["random_timesteps", "chunk_timesteps"]:
-                real_masked_tokens = np.zeros((NUM_TIMESTEPS, len(BANDS_GROUPS_IDX))).astype(bool)
-                real_masked_tokens[0, 0] = True
+
                 eo_mask = make_mask_no_dw(
                     strategy=masking_strategy,
                     mask_ratio=mask_ratio,
                     existing_mask=real_masked_tokens,
+                )
+                self.assertTrue(
+                    (eo_mask[0, BANDS_GROUPS_IDX[list(BANDS_GROUPS_IDX.keys())[0]]] == 1).all()
                 )
 
                 num_masked_timesteps = 0

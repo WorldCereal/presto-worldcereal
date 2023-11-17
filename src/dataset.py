@@ -63,7 +63,7 @@ class WorldCerealBase(Dataset):
         # have the same masking
         mask_per_token = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
         for df_val, presto_val in cls.BAND_MAPPING.items():
-            values = [float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)]
+            values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
             idx_valid = values != cls._NODATAVALUE
             mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
                 mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
