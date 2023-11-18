@@ -38,25 +38,23 @@ class WorldCerealEval:
 
         encoding_list, target_list = [], []
         for x, y, dw, latlons, month, num_masked_tokens, variable_mask in dl:
-            for masked_token_group in torch.unique(num_masked_tokens):
-                filter = num_masked_tokens == masked_token_group
-                target_list.append(y[filter].cpu().numpy())
-                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                    t[filter].to(device) for t in (x, dw, latlons, month, variable_mask)
-                ]
-                with torch.no_grad():
-                    encodings = (
-                        pretrained_model.encoder(
-                            x_f,
-                            dynamic_world=dw_f.long(),
-                            mask=variable_mask_f,
-                            latlons=latlons_f,
-                            month=month_f,
-                        )
-                        .cpu()
-                        .numpy()
+            x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            ]
+            target_list.append(y)
+            with torch.no_grad():
+                encodings = (
+                    pretrained_model.encoder(
+                        x_f,
+                        dynamic_world=dw_f.long(),
+                        mask=variable_mask_f,
+                        latlons=latlons_f,
+                        month=month_f,
                     )
-                    encoding_list.append(encodings)
+                    .cpu()
+                    .numpy()
+                )
+                encoding_list.append(encodings)
         encodings_np = np.concatenate(encoding_list)
         targets = np.concatenate(target_list)
         if len(targets.shape) == 2 and targets.shape[1] == 1:
@@ -94,43 +92,42 @@ class WorldCerealEval:
         )
 
         test_preds, targets = [], []
+
         for x, y, dw, latlons, month, num_masked_tokens, variable_mask in dl:
-            for masked_token_group in torch.unique(num_masked_tokens):
-                filter = num_masked_tokens == masked_token_group
-                targets.append(y[filter].cpu().numpy())
-                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                    t[filter].to(device) for t in (x, dw, latlons, month, variable_mask)
-                ]
-                if isinstance(finetuned_model, PrestoFineTuningModel):
-                    finetuned_model.eval()
-                    preds = (
-                        finetuned_model(
-                            x_f,
-                            dynamic_world=dw_f.long(),
-                            mask=variable_mask_f,
-                            latlons=latlons_f,
-                            month=month_f,
-                        )
-                        .squeeze(dim=1)
-                        .cpu()
-                        .numpy()
+            targets.append(y)
+            x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            ]
+            if isinstance(finetuned_model, PrestoFineTuningModel):
+                finetuned_model.eval()
+                preds = (
+                    finetuned_model(
+                        x_f,
+                        dynamic_world=dw_f.long(),
+                        mask=variable_mask_f,
+                        latlons=latlons_f,
+                        month=month_f,
                     )
-                elif isinstance(finetuned_model, BaseEstimator):
-                    cast(Presto, pretrained_model).eval()
-                    encodings = (
-                        cast(Presto, pretrained_model)
-                        .encoder(
-                            x_f,
-                            dynamic_world=dw_f.long(),
-                            mask=variable_mask_f,
-                            latlons=latlons_f,
-                            month=month_f,
-                        )
-                        .cpu()
-                        .numpy()
+                    .squeeze(dim=1)
+                    .cpu()
+                    .numpy()
+                )
+            elif isinstance(finetuned_model, BaseEstimator):
+                cast(Presto, pretrained_model).eval()
+                encodings = (
+                    cast(Presto, pretrained_model)
+                    .encoder(
+                        x_f,
+                        dynamic_world=dw_f.long(),
+                        mask=variable_mask_f,
+                        latlons=latlons_f,
+                        month=month_f,
                     )
-                    preds = finetuned_model.predict(encodings)
-                test_preds.append(preds)
+                    .cpu()
+                    .numpy()
+                )
+                preds = finetuned_model.predict(encodings)
+            test_preds.append(preds)
         test_preds_np = np.concatenate(test_preds) >= self.threshold
         target_np = np.concatenate(targets)
 
