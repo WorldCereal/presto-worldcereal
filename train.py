@@ -73,12 +73,12 @@ argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 argparser.add_argument(
     "--train_file",
     type=str,
-    default="worldcereal_presto_cropland_linearinterp_V1_TRAIN.parquet",
+    default="worldcereal_presto_cropland_nointerp_V1_TRAIN.parquet",
 )
 argparser.add_argument(
     "--val_file",
     type=str,
-    default="worldcereal_presto_cropland_linearinterp_V1_VAL.parquet",
+    default="worldcereal_presto_cropland_nointerp_V2_VAL.parquet",
 )
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
@@ -238,6 +238,12 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 num_val_updates_captured = 0
                 val_size = 0
                 model.eval()
+
+                val_task_results = validation_task.finetuning_results(
+                    model, model_modes=["Random Forest"]
+                )
+                to_log = val_task_results
+
                 with torch.no_grad():
                     for b in tqdm(val_dataloader, desc="Validate"):
                         mask, x, y, start_month, real_mask = (
@@ -276,13 +282,15 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                     if wandb_enabled:
                         wandb.config.update(training_config)
 
-                to_log = {
-                    "train_eo_loss": train_eo_loss,
-                    "val_eo_loss": val_eo_loss,
-                    "training_step": training_step,
-                    "epoch": epoch,
-                    "lr": lr,
-                }
+                to_log.update(
+                    {
+                        "train_eo_loss": train_eo_loss,
+                        "val_eo_loss": val_eo_loss,
+                        "training_step": training_step,
+                        "epoch": epoch,
+                        "lr": lr,
+                    }
+                )
                 tqdm_epoch.set_postfix(loss=val_eo_loss)
 
                 if lowest_validation_loss is None or val_eo_loss < lowest_validation_loss:
@@ -301,11 +309,6 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 num_updates_being_captured = 0
                 train_size = 0
                 num_validations += 1
-
-                val_task_results = validation_task.finetuning_results(
-                    model, model_modes=["Random Forest"]
-                )
-                to_log.update(val_task_results)
 
                 if wandb_enabled:
                     wandb.log(to_log)
