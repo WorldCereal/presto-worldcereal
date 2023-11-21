@@ -131,55 +131,55 @@ class WorldCerealEval:
         test_preds_np = np.concatenate(test_preds) >= self.threshold
         target_np = np.concatenate(targets)
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
-        result_dict = {}
 
-        result_dict.update(
-            {
-                f"{prefix}_f1": f1_score(target_np, test_preds_np),
-                f"{prefix}_recall": recall_score(target_np, test_preds_np),
-                f"{prefix}_precision": precision_score(target_np, test_preds_np),
-                **{
-                    f"{prefix}_{m}": val
-                    for (m, val) in self.partitioned_metrics(target_np, test_preds_np).items()
-                },
-            }
-        )
+        return {
+            f"{prefix}_f1": float(f1_score(target_np, test_preds_np)),
+            f"{prefix}_recall": float(recall_score(target_np, test_preds_np)),
+            f"{prefix}_precision": float(precision_score(target_np, test_preds_np)),
+            **{
+                f"{prefix}_{m}": int(val) if "num_samples" in m else float(val)
+                for (m, val) in self.partitioned_metrics(target_np, test_preds_np).items()
+            },
+        }
 
     def partitioned_metrics(
         self, target: np.ndarray, preds: np.ndarray
-    ) -> Dict[str, Union[float, int]]:
-        result_dict = {}
+    ) -> Dict[str, Union[np.float32, np.int32]]:
+
         aezs = self.val_df.loc[
             ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ].aez_zoneid
-
-        for aez in aezs.unique():
-            f: pd.Series = cast(pd.Series, aezs == aez)
-            result_dict.update(
-                {
-                    f"num_samples_aez{aez}": f.sum(),
-                    f"f1_aez{aez}": f1_score(target[f], preds[f]),
-                    f"recall_aez{aez}": recall_score(target[f], preds[f]),
-                    f"precision_aez{aez}": precision_score(target[f], preds[f]),
-                }
-            )
-
         dates = self.val_df.loc[
             ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ].end_date
         years = dates.apply(lambda date: date[:4])
 
-        for year in years.unique():
-            f = cast(pd.Series, years == year)
-            result_dict.update(
+        def metrics(name: str, prop_series: pd.Series) -> Dict:
+            res = {}
+            precisions, recalls = [], []
+            for prop in prop_series.unique():
+                f: pd.Series = cast(pd.Series, prop_series == prop)
+                recalls.append(recall_score(target[f], preds[f]))
+                precisions.append(precision_score(target[f], preds[f]))
+                res.update(
+                    {
+                        f"num_samples_{name}{prop}": f.sum(),
+                        f"f1_{name}{prop}": f1_score(target[f], preds[f]),
+                        f"recall_{name}{prop}": recalls[-1],
+                        f"precision_{name}{prop}": precisions[-1],
+                    }
+                )
+            recall, precision = np.mean(recalls), np.mean(precisions)
+            res.update(
                 {
-                    f"num_samples_y{year}": f.sum(),
-                    f"f1_y{year}": f1_score(target[f], preds[f]),
-                    f"recall_y{year}": recall_score(target[f], preds[f]),
-                    f"precision_y{year}": precision_score(target[f], preds[f]),
+                    f"f1_{name}_macro": 2 * recall * precision / (precision + recall),
+                    f"recall_{name}_macro": recall,
+                    f"precision_{name}_macro": precision,
                 }
             )
-        return result_dict
+            return res
+
+        return {**metrics("aez", aezs), **metrics("year", years)}
 
     def finetuning_results(
         self,
