@@ -367,12 +367,11 @@ class Encoder(nn.Module):
 
     @staticmethod
     def mask_tokens(x, mask):
+        mask = mask.bool()
 
-        # that moment when you find an SO post that does *exactly* what you need
         # https://stackoverflow.com/a/68621610/2332296
-
         # move all non-masked values to the front of their rows
-        sorted_mask, indices = torch.sort((~mask).long(), dim=1, descending=True, stable=True)
+        sorted_mask, indices = torch.sort((~mask).int(), dim=1, descending=True, stable=True)
         x = x.gather(1, indices[:, :, None].expand_as(x))
         # set masked values to 0 (not really necessary since we'll ignore them anyway)
         x = x * sorted_mask.unsqueeze(-1)
@@ -380,7 +379,7 @@ class Encoder(nn.Module):
         # cut off to the length of the longest sequence
         max_length = sorted_mask.sum(-1).max()
         x = x[:, :max_length]
-        updated_mask = 1 - sorted_mask[:, :max_length]
+        updated_mask = (1 - sorted_mask[:, :max_length]).int()
 
         return x, indices, updated_mask
 
@@ -461,10 +460,12 @@ class Encoder(nn.Module):
         # append latlon tokens
         latlon_tokens = self.latlon_embed(self.cartesian(latlons)).unsqueeze(1)
         x = torch.cat((latlon_tokens, x), dim=1)
-        upd_mask = torch.cat((torch.zeros(x.shape[0])[:, None].to(device), upd_mask), dim=1)
+        upd_mask = torch.cat(
+            (torch.zeros(x.shape[0], dtype=torch.int)[:, None].to(device), upd_mask), dim=1
+        )
         orig_indices = torch.cat(
             (
-                torch.zeros(upd_mask.shape[0], dtype=torch.int)[:, None].to(device),
+                torch.zeros(x.shape[0], dtype=torch.int)[:, None].to(device),
                 orig_indices + 1,
             ),
             dim=1,
@@ -477,7 +478,7 @@ class Encoder(nn.Module):
         # mask will be a boolean of shape [batch, total_num_tokens]
         if eval_task:
             return self.norm(x.mean(dim=1))
-        return self.norm(x), orig_indices
+        return self.norm(x), orig_indices, upd_mask
 
 
 class Decoder(nn.Module):
@@ -560,15 +561,21 @@ class Decoder(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def add_masked_tokens(self, x, orig_indices):
-        all_masked = repeat(
-            self.mask_token, "d -> b t d", b=x.shape[0], t=orig_indices.shape[1] - x.shape[1]
+    def add_masked_tokens(self, x, orig_indices, x_mask):
+        all_masked = repeat(self.mask_token, "d -> b t d", b=x.shape[0], t=orig_indices.shape[1])
+        mask = torch.cat(
+            (
+                x_mask,
+                torch.ones((x.shape[0], orig_indices.shape[1] - x.shape[1]), device=device).int(),
+            ),
+            dim=-1,
         )
-        x_and_masked = torch.cat((x, all_masked), dim=1)
-        reverse_indices = orig_indices.argsort(1)
-        out = x_and_masked.scatter(
-            1, reverse_indices[:, :, None].expand_as(x_and_masked), x_and_masked
-        )
+        # can't set value on leaf variable
+        out = all_masked.clone()
+        # put tokens in full masked tensor (at the first N positions in every row)
+        out[~mask.bool()] = x[~x_mask.bool()]
+        # then move them to their original positions
+        out = out.scatter(1, orig_indices[:, :, None].expand_as(out), out)
         return out
 
     def add_embeddings(self, x, month: Union[torch.Tensor, int]):
@@ -657,10 +664,10 @@ class Decoder(nn.Module):
         # is ordered
         return torch.cat(eo_output, dim=-1), cast(torch.Tensor, dw_output)
 
-    def forward(self, x, orig_indices, month):
+    def forward(self, x, orig_indices, x_mask, month):
 
         x = self.decoder_embed(x)
-        x = self.add_masked_tokens(x, orig_indices)
+        x = self.add_masked_tokens(x, orig_indices, x_mask)
         x = self.add_embeddings(x, month)
 
         # apply Transformer blocks
@@ -734,7 +741,7 @@ class Presto(nn.Module):
         mask: Optional[torch.Tensor] = None,
         month: Union[torch.Tensor, int] = 0,
     ) -> torch.Tensor:
-        x, orig_indices = self.encoder(
+        x, orig_indices, x_mask = self.encoder(
             x=x,
             dynamic_world=dynamic_world,
             latlons=latlons,
@@ -743,7 +750,7 @@ class Presto(nn.Module):
             eval_task=False,
         )
 
-        return self.decoder(x, orig_indices, month)
+        return self.decoder(x, orig_indices, x_mask, month)
 
     @classmethod
     def construct(
