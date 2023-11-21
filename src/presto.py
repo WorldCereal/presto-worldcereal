@@ -472,7 +472,10 @@ class Encoder(nn.Module):
 
         # mask will be a boolean of shape [batch, total_num_tokens]
         if eval_task:
-            return self.norm(x.mean(dim=1))
+            # set masked tokens to 0
+            x_for_mean = x * (1 - upd_mask.unsqueeze(-1))
+            x_mean = x_for_mean.sum(dim=1) / torch.sum(1 - upd_mask, -1, keepdim=True)
+            return self.norm(x_mean)
         return self.norm(x), orig_indices, upd_mask
 
 
