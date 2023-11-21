@@ -24,12 +24,12 @@ class TestPresto(TestCase):
     def test_encoder_init(self):
         batch_size = 3
         input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS)))
-        input_mask = torch.zeros_like(input)
+        input_mask = torch.zeros_like(input, dtype=torch.int)
         dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long()
         latlons = torch.rand((batch_size, 2))
         model = Encoder()
 
-        x, kept_indices, removed_indices = model(
+        x, orig_indices, upd_mask = model(
             input,
             dynamic_world=dynamic_world,
             latlons=latlons,
@@ -38,16 +38,13 @@ class TestPresto(TestCase):
             eval_task=False,
         )
         # if nothing is masked, we expect to have (NUM_TIMESTEPS * (band_groups)) + 2 tokens
-        self.assertTrue(x.shape[1] == 2 + (NUM_TIMESTEPS * len(BANDS_GROUPS_IDX)))
-        self.assertTrue(kept_indices.shape[1] + 1 == x.shape[1])  # +1 because of the latlon token
-        self.assertTrue(
-            kept_indices.shape[1] + removed_indices.shape[1]
-            == 1 + (NUM_TIMESTEPS * len(BANDS_GROUPS_IDX))
-        )
+        self.assertEqual(x.shape[1], 2 + NUM_TIMESTEPS * len(BANDS_GROUPS_IDX))
+        self.assertEqual(orig_indices.shape[1], x.shape[1])
+        self.assertEqual(upd_mask.shape[1], x.shape[1])
 
-        # mask one group
+        # mask one entire group
         input_mask[:, :, 0] = 1
-        x, kept_indices, removed_indices = model(
+        x, orig_indices, upd_mask = model(
             input,
             dynamic_world=dynamic_world,
             latlons=latlons,
@@ -55,16 +52,13 @@ class TestPresto(TestCase):
             month=1,
             eval_task=False,
         )
-        self.assertTrue(x.shape[1] == 2 + (NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 1)))
-        self.assertTrue(kept_indices.shape[1] + 1 == x.shape[1])  # +1 because of the latlon token
-        self.assertTrue(
-            kept_indices.shape[1] + removed_indices.shape[1]
-            == 1 + (NUM_TIMESTEPS * len(BANDS_GROUPS_IDX))
-        )
+        self.assertEqual(x.shape[1], 2 + (NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 1)))
+        self.assertEqual(orig_indices.shape[1], 2 + NUM_TIMESTEPS * len(BANDS_GROUPS_IDX))
+        self.assertEqual(upd_mask.shape[1], x.shape[1])
 
         # mask dynamic world. This is the missing class value
         dynamic_world *= DynamicWorld2020_2021.class_amount
-        x, kept_indices, removed_indices = model(
+        x, orig_indices, upd_mask = model(
             input,
             dynamic_world=dynamic_world,
             latlons=latlons,
@@ -72,18 +66,15 @@ class TestPresto(TestCase):
             month=1,
             eval_task=False,
         )
-        # if nothing is masked, we expect to have (NUM_TIMESTEPS * (band_groups)) + 1 tokens
-        self.assertTrue(x.shape[1] == 2 + (NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 2)))
-        self.assertTrue(kept_indices.shape[1] + 1 == x.shape[1])  # +1 because of the latlon token
-        self.assertTrue(
-            kept_indices.shape[1] + removed_indices.shape[1]
-            == 1 + (NUM_TIMESTEPS * len(BANDS_GROUPS_IDX))
-        )
+        # if nothing is masked, we expect to have (NUM_TIMESTEPS * (band_groups)) + 2 tokens
+        self.assertEqual(x.shape[1], 2 + (NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 2)))
+        self.assertEqual(orig_indices.shape[1], 2 + NUM_TIMESTEPS * len(BANDS_GROUPS_IDX))
+        self.assertEqual(upd_mask.shape[1], x.shape[1])
 
     def test_end_to_end(self):
         batch_size = 3
         input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS)))
-        input_mask = torch.zeros_like(input)
+        input_mask = torch.zeros_like(input, dtype=torch.int)
         dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long()
         latlons = torch.rand((batch_size, 2))
 
@@ -94,35 +85,80 @@ class TestPresto(TestCase):
         output, dw_outut = model(
             input, dynamic_world=dynamic_world, latlons=latlons, mask=input_mask, month=1
         )
-        self.assertTrue(output.shape == input.shape)
-        self.assertTrue(
-            dw_outut.shape == (batch_size, NUM_TIMESTEPS, DynamicWorld2020_2021.class_amount)
+        self.assertEqual(output.shape, input.shape)
+        self.assertEqual(
+            dw_outut.shape, (batch_size, NUM_TIMESTEPS, DynamicWorld2020_2021.class_amount)
         )
 
     def test_tokens_correctly_masked(self):
-
         x = torch.tensor([[1, 2, 3, 4, 5], [1, 2, 3, 4, 5]])
-        x = repeat(x, "b t -> b t d", d=3)
+        mask = torch.zeros_like(x, dtype=torch.int)
+        x = repeat(x, "b t -> b t d", d=3).clone()
+        x += torch.arange(3)[None, None]
 
-        mask = torch.zeros_like(x)
         mask[0, 1] = 1
         mask[0, 3] = 1
         mask[1, 2] = 1
         mask[1, 4] = 1
 
-        x, kept_indices, removed_indices = Encoder.mask_tokens(x, mask)
+        x, orig_indices, upd_mask = Encoder.mask_tokens(x, mask)
 
         expected_out = torch.tensor([[1, 3, 5], [1, 2, 4]])
+        expected_out = repeat(expected_out, "b t -> b t d", d=3).clone()
+        expected_out += torch.arange(3)[None, None]
+
+        self.assertTrue(torch.equal(x, expected_out))
+        self.assertTrue(
+            torch.equal(orig_indices, torch.tensor([[0, 2, 4, 1, 3], [0, 1, 3, 2, 4]]))
+        )
+        self.assertTrue(torch.equal(upd_mask, torch.tensor([[0, 0, 0], [0, 0, 0]])))
+
+    def test_tokens_correctly_masked_unequal(self):
+        x = torch.tensor([[1, 2, 3, 4, 5], [1, 2, 3, 4, 5]])
+        mask = torch.zeros_like(x, dtype=torch.int)
+        x = repeat(x, "b t -> b t d", d=3)
+
+        mask[0, 1] = 1
+        mask[0, 3] = 1
+        mask[1, 2] = 1
+
+        x, orig_indices, upd_mask = Encoder.mask_tokens(x, mask)
+
+        expected_out = torch.tensor([[1, 3, 5, 0], [1, 2, 4, 5]])
         expected_out = repeat(expected_out, "b t -> b t d", d=3)
         self.assertTrue(torch.equal(x, expected_out))
-        self.assertTrue(torch.equal(kept_indices, torch.tensor([[0, 2, 4], [0, 1, 3]])))
-        self.assertTrue(torch.equal(removed_indices, torch.tensor([[1, 3], [2, 4]])))
+        self.assertTrue(
+            torch.equal(orig_indices, torch.tensor([[0, 2, 4, 1, 3], [0, 1, 3, 4, 2]]))
+        )
+        self.assertTrue(torch.equal(upd_mask, torch.tensor([[0, 0, 0, 1], [0, 0, 0, 0]])))
 
     def test_tokens_correctly_unmasked(self):
+        # add a -1, for the latlon embedding
+        masked_x = torch.tensor([[-1, 1, 3, 5], [-1, 1, 2, 4]]).float()
+        masked_x = repeat(masked_x, "b t -> b t d", d=14).clone()
+        masked_x += torch.arange(14)[None, None]
 
-        # add a -1, for the latlon embedding. The -1 value
-        # is not counted in the indices
-        masked_x = torch.tensor([[-1, 1, 3, 5], [-1, 1, 2, 4]])
+        decoder = Decoder(
+            channel_embeddings=nn.Embedding(2, 2),
+            encoder_embed_dim=14,
+            decoder_embed_dim=14,
+            decoder_num_heads=2,
+        )
+        # the mask token is initialized to 0s
+        orig_indices = torch.tensor([[0, 2, 3, 5, 1, 4], [0, 1, 3, 2, 4, 5]])
+        x_mask = torch.zeros((2, 4), dtype=torch.int)
+
+        filled_tokens = decoder.add_masked_tokens(masked_x, orig_indices, x_mask)
+
+        expected_out = torch.tensor([[-1, 0, 1, 3, 0, 5], [-1, 1, 4, 2, 0, 0]]).float()
+        expected_out = repeat(expected_out, "b t -> b t d", d=14).clone()
+        full_mask = torch.zeros((2, 6))
+        full_mask[[0, 0, 1, 1], [1, 4, 4, 5]] = 1
+        expected_out[~full_mask.bool()] += torch.arange(14)[None]
+        self.assertTrue(torch.equal(filled_tokens, expected_out))
+
+    def test_tokens_correctly_unmasked_unequal(self):
+        masked_x = torch.tensor([[-1, 1, 3, 0], [-1, 1, 2, 4]]).float()
         masked_x = repeat(masked_x, "b t -> b t d", d=14)
 
         decoder = Decoder(
@@ -132,12 +168,13 @@ class TestPresto(TestCase):
             decoder_num_heads=2,
         )
         # the mask token is initialized to 0s
-        kept_indices = torch.tensor([[0, 2, 4], [0, 1, 3]])
-        removed_indices = torch.tensor([[1, 3], [2, 4]])
+        orig_indices = torch.tensor([[0, 2, 3, 5, 1, 4], [0, 1, 3, 2, 4, 5]])
+        x_mask = torch.zeros((2, 4), dtype=torch.int)
+        x_mask[0, -1] = 1
 
-        filled_tokens = decoder.add_masked_tokens(masked_x, kept_indices, removed_indices)
+        filled_tokens = decoder.add_masked_tokens(masked_x, orig_indices, x_mask)
 
-        expected_out = torch.tensor([[-1, 1, 0, 3, 0, 5], [-1, 1, 2, 0, 4, 0]])
+        expected_out = torch.tensor([[-1, 0, 1, 3, 0, 0], [-1, 1, 4, 2, 0, 0]]).float()
         expected_out = repeat(expected_out, "b t -> b t d", d=14)
         self.assertTrue(torch.equal(filled_tokens, expected_out))
 
@@ -357,11 +394,7 @@ class TestPresto(TestCase):
 
                 tokens = tokens[:, indices]
                 all_tokens.append(tokens)
-                group_mask = repeat(
-                    torch.max(mask[:, indices, channel_idxs], dim=-1)[0],
-                    "b t -> b t d",
-                    d=tokens.shape[-1],
-                )
+                group_mask = torch.max(mask[:, indices, channel_idxs], dim=-1)[0]
                 all_masks.append(group_mask)
 
             # then, dynamic world
@@ -369,37 +402,45 @@ class TestPresto(TestCase):
             all_tokens.append(tokens)
 
             # now we calculate the mask for these [b, t] tokens
-            group_mask = repeat(
-                dynamic_world == DynamicWorld2020_2021.class_amount,
-                "b t -> b t d",
-                d=tokens.shape[-1],
-            )
+            group_mask = dynamic_world == DynamicWorld2020_2021.class_amount
             all_masks.append(group_mask)
 
             x = torch.cat(all_tokens, dim=1)  # [batch, timesteps, embedding_dim]
-            mask = torch.cat(all_masks, dim=1)  # [batch, timesteps, embedding_dim]
-            x, kept_indices, removed_indices = model.encoder.mask_tokens(x, mask)
+            mask = torch.cat(all_masks, dim=1)  # [batch, timesteps]
+            x, orig_indices, upd_mask = model.encoder.mask_tokens(x, mask)
 
             # append latlon tokens
             latlon_tokens = torch.ones((x.shape[0], 1, embedding_size)) * -1
             x = torch.cat((latlon_tokens, x), dim=1)
+            upd_mask = torch.cat(
+                (torch.zeros(x.shape[0], dtype=torch.int)[:, None].to(device), upd_mask), dim=1
+            )
+            orig_indices = torch.cat(
+                (
+                    torch.zeros(upd_mask.shape[0], dtype=torch.int)[:, None].to(device),
+                    orig_indices + 1,
+                ),
+                dim=1,
+            )
 
-            x = model.decoder.add_masked_tokens(x, kept_indices, removed_indices)
+            x = model.decoder.add_masked_tokens(x, orig_indices, upd_mask)
             return model.decoder.reconstruct_inputs(x)
 
         batch_size, timesteps = 1, 3
         x = torch.ones((batch_size, timesteps, NUM_BANDS))
         for idx, (_, indices) in enumerate(BANDS_GROUPS_IDX.items()):
             x[:, :, indices] *= idx
+        # so masked values are the only values equal to 0
+        x += 1
 
         dw_value = -2
         dynamic_world = torch.ones((batch_size, timesteps)) * dw_value
-        mask = torch.zeros_like(x)
+        mask = torch.zeros_like(x, dtype=torch.int)
 
         eo, dw = forward(x, dynamic_world, mask, model)
         for group, idxs in BANDS_GROUPS_IDX.items():
             relevant_vals = eo[:, :, idxs]
-            self.assertTrue(torch.all(relevant_vals == model.decoder.band_group_to_idx[group]))
+            self.assertTrue(torch.all(relevant_vals == model.decoder.band_group_to_idx[group] + 1))
         self.assertTrue(torch.all(dw == dw_value))
 
         mask[:, :, BANDS_GROUPS_IDX["SRTM"]] = 1
@@ -408,7 +449,9 @@ class TestPresto(TestCase):
         for group, idxs in BANDS_GROUPS_IDX.items():
             relevant_vals = eo[:, :, idxs]
             if group != "SRTM":
-                self.assertTrue(torch.all(relevant_vals == model.decoder.band_group_to_idx[group]))
+                self.assertTrue(
+                    torch.all(relevant_vals == model.decoder.band_group_to_idx[group] + 1)
+                )
             else:
                 # the mask token is initialized to 0
                 self.assertTrue(torch.all(relevant_vals == 0))
