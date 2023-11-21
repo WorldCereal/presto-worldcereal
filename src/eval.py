@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List, Optional, Sequence, Union, cast
 
 import numpy as np
@@ -15,6 +16,8 @@ from .dataset import WorldCerealLabelledDataset
 from .presto import Presto, PrestoFineTuningModel
 from .utils import DEFAULT_SEED, device
 
+logger = logging.getLogger("__main__")
+
 
 class WorldCerealEval:
     name = "WorldCerealCropland"
@@ -22,8 +25,8 @@ class WorldCerealEval:
 
     def __init__(self, train_data: pd.DataFrame, val_data: pd.DataFrame, seed: int = DEFAULT_SEED):
         self.seed = seed
-        self.train_ds = train_data
-        self.val_ds = val_data
+        self.train_df = train_data
+        self.val_df = val_data
 
     @staticmethod
     def _mask_to_batch_tensor(
@@ -90,11 +93,12 @@ class WorldCerealEval:
         if isinstance(finetuned_model, BaseEstimator):
             assert isinstance(pretrained_model, Presto)
 
+        val_ds = WorldCerealLabelledDataset(self.val_df)
         dl = DataLoader(
-            WorldCerealLabelledDataset(self.val_ds),
+            val_ds,
             batch_size=8192,
-            shuffle=False,
-            num_workers=2,
+            shuffle=False,  # keep as False!
+            num_workers=4,
         )
 
         test_preds, targets = [], []
@@ -122,17 +126,60 @@ class WorldCerealEval:
                     .cpu()
                     .numpy()
                 )
-                preds = finetuned_model.predict(encodings)
+                preds = finetuned_model.predict(np.nan_to_num(encodings, nan=0.0))
             test_preds.append(preds)
         test_preds_np = np.concatenate(test_preds) >= self.threshold
         target_np = np.concatenate(targets)
+        prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
+        result_dict = {}
 
-        prefix = finetuned_model.__class__.__name__
-        return {
-            f"{self.name}_{prefix}_f1": f1_score(target_np, test_preds_np),
-            f"{self.name}_{prefix}_recall": recall_score(target_np, test_preds_np),
-            f"{self.name}_{prefix}_precision": precision_score(target_np, test_preds_np),
-        }
+        result_dict.update(
+            {
+                f"{prefix}_f1": f1_score(target_np, test_preds_np),
+                f"{prefix}_recall": recall_score(target_np, test_preds_np),
+                f"{prefix}_precision": precision_score(target_np, test_preds_np),
+                **{
+                    f"{prefix}_{m}": val
+                    for (m, val) in self.partitioned_metrics(target_np, test_preds_np).items()
+                },
+            }
+        )
+
+    def partitioned_metrics(
+        self, target: np.ndarray, preds: np.ndarray
+    ) -> Dict[str, Union[float, int]]:
+        result_dict = {}
+        aezs = self.val_df.loc[
+            ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
+        ].aez_zoneid
+
+        for aez in aezs.unique():
+            f: pd.Series = cast(pd.Series, aezs == aez)
+            result_dict.update(
+                {
+                    f"num_samples_aez{aez}": f.sum(),
+                    f"f1_aez{aez}": f1_score(target[f], preds[f]),
+                    f"recall_aez{aez}": recall_score(target[f], preds[f]),
+                    f"precision_aez{aez}": precision_score(target[f], preds[f]),
+                }
+            )
+
+        dates = self.val_df.loc[
+            ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
+        ].end_date
+        years = dates.apply(lambda date: date[:4])
+
+        for year in years.unique():
+            f = cast(pd.Series, years == year)
+            result_dict.update(
+                {
+                    f"num_samples_y{year}": f.sum(),
+                    f"f1_y{year}": f1_score(target[f], preds[f]),
+                    f"recall_y{year}": recall_score(target[f], preds[f]),
+                    f"precision_y{year}": precision_score(target[f], preds[f]),
+                }
+            )
+        return result_dict
 
     def finetuning_results(
         self,
@@ -148,10 +195,10 @@ class WorldCerealEval:
         sklearn_modes = [x for x in model_modes if x != "finetune"]
         if len(sklearn_modes) > 0:
             dl = DataLoader(
-                WorldCerealLabelledDataset(self.train_ds),
+                WorldCerealLabelledDataset(self.train_df),
                 batch_size=8192,
                 shuffle=False,
-                num_workers=2,
+                num_workers=4,
             )
             sklearn_models = self.finetune_sklearn_model(
                 dl,
@@ -160,5 +207,6 @@ class WorldCerealEval:
                 models=sklearn_modes,
             )
             for sklearn_model in sklearn_models:
+                logger.info(f"Fitting {sklearn_model}...")
                 results_dict.update(self.evaluate(sklearn_model, pretrained_model, mask))
         return results_dict
