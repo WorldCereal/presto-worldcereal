@@ -24,7 +24,7 @@ class TestPresto(TestCase):
     def test_encoder_init(self):
         batch_size = 3
         input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS)))
-        input_mask = torch.zeros_like(input, dtype=torch.int)
+        input_mask = torch.zeros_like(input)
         dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long()
         latlons = torch.rand((batch_size, 2))
         model = Encoder()
@@ -74,7 +74,7 @@ class TestPresto(TestCase):
     def test_end_to_end(self):
         batch_size = 3
         input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS)))
-        input_mask = torch.zeros_like(input, dtype=torch.int)
+        input_mask = torch.zeros_like(input)
         dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long()
         latlons = torch.rand((batch_size, 2))
 
@@ -92,7 +92,7 @@ class TestPresto(TestCase):
 
     def test_tokens_correctly_masked(self):
         x = torch.tensor([[1, 2, 3, 4, 5], [1, 2, 3, 4, 5]])
-        mask = torch.zeros_like(x, dtype=torch.int)
+        mask = torch.zeros_like(x)
         x = repeat(x, "b t -> b t d", d=3).clone()
         x += torch.arange(3)[None, None]
 
@@ -115,7 +115,7 @@ class TestPresto(TestCase):
 
     def test_tokens_correctly_masked_unequal(self):
         x = torch.tensor([[1, 2, 3, 4, 5], [1, 2, 3, 4, 5]])
-        mask = torch.zeros_like(x, dtype=torch.int)
+        mask = torch.zeros_like(x)
         x = repeat(x, "b t -> b t d", d=3)
 
         mask[0, 1] = 1
@@ -146,7 +146,7 @@ class TestPresto(TestCase):
         )
         # the mask token is initialized to 0s
         orig_indices = torch.tensor([[0, 2, 3, 5, 1, 4], [0, 1, 3, 2, 4, 5]])
-        x_mask = torch.zeros((2, 4), dtype=torch.int)
+        x_mask = torch.zeros((2, 4))
 
         filled_tokens = decoder.add_masked_tokens(masked_x, orig_indices, x_mask)
 
@@ -169,7 +169,7 @@ class TestPresto(TestCase):
         )
         # the mask token is initialized to 0s
         orig_indices = torch.tensor([[0, 2, 3, 5, 1, 4], [0, 1, 3, 2, 4, 5]])
-        x_mask = torch.zeros((2, 4), dtype=torch.int)
+        x_mask = torch.zeros((2, 4))
         x_mask[0, -1] = 1
 
         filled_tokens = decoder.add_masked_tokens(masked_x, orig_indices, x_mask)
@@ -412,14 +412,9 @@ class TestPresto(TestCase):
             # append latlon tokens
             latlon_tokens = torch.ones((x.shape[0], 1, embedding_size)) * -1
             x = torch.cat((latlon_tokens, x), dim=1)
-            upd_mask = torch.cat(
-                (torch.zeros(x.shape[0], dtype=torch.int)[:, None].to(device), upd_mask), dim=1
-            )
+            upd_mask = torch.cat((torch.zeros(x.shape[0])[:, None].to(device), upd_mask), dim=1)
             orig_indices = torch.cat(
-                (
-                    torch.zeros(upd_mask.shape[0], dtype=torch.int)[:, None].to(device),
-                    orig_indices + 1,
-                ),
+                (torch.zeros(upd_mask.shape[0])[:, None].to(device).int(), orig_indices + 1),
                 dim=1,
             )
 
@@ -435,7 +430,7 @@ class TestPresto(TestCase):
 
         dw_value = -2
         dynamic_world = torch.ones((batch_size, timesteps)) * dw_value
-        mask = torch.zeros_like(x, dtype=torch.int)
+        mask = torch.zeros_like(x)
 
         eo, dw = forward(x, dynamic_world, mask, model)
         for group, idxs in BANDS_GROUPS_IDX.items():

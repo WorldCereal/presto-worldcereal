@@ -379,7 +379,7 @@ class Encoder(nn.Module):
         # cut off to the length of the longest sequence
         max_length = sorted_mask.sum(-1).max()
         x = x[:, :max_length]
-        updated_mask = (1 - sorted_mask[:, :max_length]).int()
+        updated_mask = 1 - sorted_mask[:, :max_length]
 
         return x, indices, updated_mask
 
@@ -395,7 +395,7 @@ class Encoder(nn.Module):
         device = x.device
 
         if mask is None:
-            mask = torch.zeros_like(x, device=x.device).bool()
+            mask = torch.zeros_like(x, device=x.device)
 
         months = month_to_tensor(month, x.shape[0], x.shape[1], device)
         month_embedding = self.month_embed(months)
@@ -460,14 +460,9 @@ class Encoder(nn.Module):
         # append latlon tokens
         latlon_tokens = self.latlon_embed(self.cartesian(latlons)).unsqueeze(1)
         x = torch.cat((latlon_tokens, x), dim=1)
-        upd_mask = torch.cat(
-            (torch.zeros(x.shape[0], dtype=torch.int)[:, None].to(device), upd_mask), dim=1
-        )
+        upd_mask = torch.cat((torch.zeros(x.shape[0])[:, None].to(device), upd_mask), dim=1)
         orig_indices = torch.cat(
-            (
-                torch.zeros(x.shape[0], dtype=torch.int)[:, None].to(device),
-                orig_indices + 1,
-            ),
+            (torch.zeros(x.shape[0])[:, None].to(device).int(), orig_indices + 1),
             dim=1,
         )
 
@@ -566,7 +561,7 @@ class Decoder(nn.Module):
         mask = torch.cat(
             (
                 x_mask,
-                torch.ones((x.shape[0], orig_indices.shape[1] - x.shape[1]), device=device).int(),
+                torch.ones((x.shape[0], orig_indices.shape[1] - x.shape[1]), device=device),
             ),
             dim=-1,
         )
