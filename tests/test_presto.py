@@ -1,5 +1,6 @@
 import json
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from unittest import TestCase
 
@@ -14,6 +15,7 @@ from src.dataops import (
     NUM_ORG_BANDS,
     NUM_TIMESTEPS,
     S1_S2_ERA5_SRTM,
+    SRTM_INDEX,
     DynamicWorld2020_2021,
 )
 from src.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
@@ -351,7 +353,10 @@ class TestPresto(TestCase):
             )
         self.assertTrue(finetuning_encoder_output.equal(seq2seq_encoder_output))
 
-    def test_masking_and_unmasking_end_to_end(self):
+
+class TestPrestoEndToEnd(TestCase):
+    @classmethod
+    def setUpClass(cls):
 
         embedding_size = 16
         model = Presto.construct(
@@ -380,13 +385,13 @@ class TestPresto(TestCase):
         )
         model.decoder.dw_decoder_pred = NoOp(DynamicWorld2020_2021.class_amount)
 
-        def forward(x, dynamic_world, mask, model):
+        def forward_encoder(x, dynamic_world, mask, encoder, eval_task=False):
             # THIS CODE IS FROM WITHIN THE PRESTO FUNCTION, WITH SLIGHT MODIFICATIONS #
             # if the presto code changes this will need to as well #
             all_tokens, all_masks = [], []
 
-            for channel_group, channel_idxs in model.encoder.band_groups.items():
-                tokens = model.encoder.eo_patch_embed[channel_group](x[:, :, channel_idxs])
+            for channel_group, channel_idxs in encoder.band_groups.items():
+                tokens = encoder.eo_patch_embed[channel_group](x[:, :, channel_idxs])
                 if channel_group == "SRTM":
                     indices = slice(0, 1)
                 else:
@@ -398,7 +403,7 @@ class TestPresto(TestCase):
                 all_masks.append(group_mask)
 
             # then, dynamic world
-            tokens = model.encoder.dw_embed(dynamic_world)
+            tokens = encoder.dw_embed(dynamic_world)
             all_tokens.append(tokens)
 
             # now we calculate the mask for these [b, t] tokens
@@ -407,7 +412,7 @@ class TestPresto(TestCase):
 
             x = torch.cat(all_tokens, dim=1)  # [batch, timesteps, embedding_dim]
             mask = torch.cat(all_masks, dim=1)  # [batch, timesteps]
-            x, orig_indices, upd_mask = model.encoder.mask_tokens(x, mask)
+            x, orig_indices, upd_mask = encoder.mask_tokens(x, mask)
 
             # append latlon tokens
             latlon_tokens = torch.ones((x.shape[0], 1, embedding_size)) * -1
@@ -417,11 +422,27 @@ class TestPresto(TestCase):
                 (torch.zeros(upd_mask.shape[0])[:, None].to(device).int(), orig_indices + 1),
                 dim=1,
             )
+            if eval_task:
+                x_for_mean = x * (1 - upd_mask.unsqueeze(-1))
+                x_mean = x_for_mean.sum(dim=1) / torch.sum(1 - upd_mask, -1, keepdim=True)
+                # skip norm
+                return x_mean
+            return x, orig_indices, upd_mask
 
-            x = model.decoder.add_masked_tokens(x, orig_indices, upd_mask)
-            return model.decoder.reconstruct_inputs(x)
+        cls.forward_encoder = partial(forward_encoder, encoder=model.encoder)
+        cls.model = model
 
-        batch_size, timesteps = 1, 3
+    def test_masking_and_unmasking_end_to_end(self):
+        def forward(x, dynamic_world, mask):
+            # THIS CODE IS FROM WITHIN THE PRESTO FUNCTION, WITH SLIGHT MODIFICATIONS #
+            # if the presto code changes this will need to as well #
+            x, orig_indices, upd_mask = self.forward_encoder(
+                x, dynamic_world, mask, eval_task=False
+            )
+            x = self.model.decoder.add_masked_tokens(x, orig_indices, upd_mask)
+            return self.model.decoder.reconstruct_inputs(x)
+
+        batch_size, timesteps = 2, 3
         x = torch.ones((batch_size, timesteps, NUM_BANDS))
         for idx, (_, indices) in enumerate(BANDS_GROUPS_IDX.items()):
             x[:, :, indices] *= idx
@@ -432,22 +453,61 @@ class TestPresto(TestCase):
         dynamic_world = torch.ones((batch_size, timesteps)) * dw_value
         mask = torch.zeros_like(x)
 
-        eo, dw = forward(x, dynamic_world, mask, model)
+        eo, dw = forward(x, dynamic_world, mask)
         for group, idxs in BANDS_GROUPS_IDX.items():
             relevant_vals = eo[:, :, idxs]
-            self.assertTrue(torch.all(relevant_vals == model.decoder.band_group_to_idx[group] + 1))
+            self.assertTrue(
+                torch.all(relevant_vals == self.model.decoder.band_group_to_idx[group] + 1)
+            )
         self.assertTrue(torch.all(dw == dw_value))
 
         mask[:, :, BANDS_GROUPS_IDX["SRTM"]] = 1
+        mask[1, 1, BANDS_GROUPS_IDX["S2_RGB"]] = 1
 
-        eo, dw = forward(x, dynamic_world, mask, model)
+        eo, dw = forward(x, dynamic_world, mask)
         for group, idxs in BANDS_GROUPS_IDX.items():
             relevant_vals = eo[:, :, idxs]
-            if group != "SRTM":
-                self.assertTrue(
-                    torch.all(relevant_vals == model.decoder.band_group_to_idx[group] + 1)
-                )
-            else:
+            if group == "SRTM":
                 # the mask token is initialized to 0
                 self.assertTrue(torch.all(relevant_vals == 0))
+            elif group == "S2_RGB":
+                self.assertTrue(torch.all(relevant_vals[1, 1] == 0))
+                self.assertTrue(torch.all(relevant_vals[[0, 0, 0, 1, 1], [0, 1, 2, 0, 2]] != 0))
+            else:
+                self.assertTrue(
+                    torch.all(relevant_vals == self.model.decoder.band_group_to_idx[group] + 1)
+                )
         self.assertTrue(torch.all(dw == dw_value))
+
+    def test_mean_tokens_end_to_end(self):
+        batch_size, timesteps = 2, 3
+        x = torch.ones((batch_size, timesteps, NUM_BANDS))
+        sum, count = 0, 0  # to compare mean token values to
+        for idx, (_, indices) in enumerate(BANDS_GROUPS_IDX.items()):
+            x[:, :, indices] *= idx
+            sum, count = sum + timesteps * (idx + 1), count + timesteps
+        # so masked values are the only values equal to 0
+        x += 1
+
+        sum, count = sum - 1, count + 1  # latlon token is -1 in `forward` above
+        # correct for srtm token that appears only once
+        sum, count = sum - (timesteps - 1) * (SRTM_INDEX + 1), count - (timesteps - 1)
+
+        dw_value = -2
+        dynamic_world = torch.ones((batch_size, timesteps)) * dw_value
+        sum, count = sum + timesteps * dw_value, count + timesteps
+        mask = torch.zeros_like(x)
+
+        enc = self.forward_encoder(x, dynamic_world, mask, eval_task=True)
+        self.assertTrue(torch.all(enc == sum / count))
+
+        mask[:, :, BANDS_GROUPS_IDX["SRTM"]] = 1
+        mask[1, 1, BANDS_GROUPS_IDX["S2_RGB"]] = 1
+
+        sum_0, count_0 = sum - (SRTM_INDEX + 1), count - 1  # first sample in batch
+        # second sample has S2_RGB masked out in 1 timestep
+        sum_1, count_1 = sum_0 - 1 * (list(BANDS_GROUPS_IDX).index("S2_RGB") + 1), count_0 - 1
+
+        enc = self.forward_encoder(x, dynamic_world, mask, eval_task=True)
+        self.assertTrue(torch.all(enc[0] == sum_0 / count_0))
+        self.assertTrue(torch.all(enc[1] == sum_1 / count_1))
