@@ -189,7 +189,7 @@ class WorldCerealEval:
 
         if self.world_shp is not None:
             latlons = gpd.GeoDataFrame(
-                geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
+                geometry=gpd.points_from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
             )
             world_attrs = gpd.sjoin(latlons, self.world_shp, how="left", op="within")
             results.update(
