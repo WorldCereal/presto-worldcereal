@@ -74,3 +74,7 @@ true_dB = 20 * np.log10(scaled_dB) - 83
 METEO variables are scaled (scale factor 100) and need to be unscaled to be compatible with Presto.
 Specifically for the precipitation sum, values are (after unscaling) expressed in `mm` and need to be converted to `m` to be compatible with Presto.
 
+## Shapefile of the world's countries and continents
+
+Download the shapefile .zip [here](https://public.opendatasoft.com/explore/dataset/world-administrative-boundaries/information/)
+and extract it into `data/world_shp/` to compute evaluation metrics per country and continent.

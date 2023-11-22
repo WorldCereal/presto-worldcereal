@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, List, Optional, Sequence, Union, cast
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import torch
@@ -12,11 +13,16 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from . import utils
 from .dataset import WorldCerealLabelledDataset
 from .presto import Presto, PrestoFineTuningModel
 from .utils import DEFAULT_SEED, device
 
 logger = logging.getLogger("__main__")
+
+# download from
+# https://public.opendatasoft.com/explore/dataset/world-administrative-boundaries/information/
+world_shp_path = "world_shp/world-administrative-boundaries.shp"
 
 
 class WorldCerealEval:
@@ -27,6 +33,7 @@ class WorldCerealEval:
         self.seed = seed
         self.train_df = train_data
         self.val_df = val_data
+        self.world_shp = gpd.read_file(utils.data_dir / world_shp_path)
 
     @staticmethod
     def _mask_to_batch_tensor(
@@ -145,28 +152,19 @@ class WorldCerealEval:
     def partitioned_metrics(
         self, target: np.ndarray, preds: np.ndarray
     ) -> Dict[str, Union[np.float32, np.int32]]:
-
-        aezs = self.val_df.loc[
-            ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
-        ].aez_zoneid
-        dates = self.val_df.loc[
-            ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
-        ].end_date
-        years = dates.apply(lambda date: date[:4])
-
         def metrics(name: str, prop_series: pd.Series) -> Dict:
             res = {}
             precisions, recalls = [], []
-            for prop in prop_series.unique():
+            for prop in prop_series.dropna().unique():
                 f: pd.Series = cast(pd.Series, prop_series == prop)
                 recalls.append(recall_score(target[f], preds[f]))
                 precisions.append(precision_score(target[f], preds[f]))
                 res.update(
                     {
-                        f"num_samples_{name}{prop}": f.sum(),
-                        f"f1_{name}{prop}": f1_score(target[f], preds[f]),
-                        f"recall_{name}{prop}": recalls[-1],
-                        f"precision_{name}{prop}": precisions[-1],
+                        f"num_samples_{name}-{prop}": f.sum(),
+                        f"f1_{name}-{prop}": f1_score(target[f], preds[f]),
+                        f"recall_{name}-{prop}": recalls[-1],
+                        f"precision_{name}-{prop}": precisions[-1],
                     }
                 )
             recall, precision = np.mean(recalls), np.mean(precisions)
@@ -179,7 +177,21 @@ class WorldCerealEval:
             )
             return res
 
-        return {**metrics("aez", aezs), **metrics("year", years)}
+        val_df = self.val_df.loc[
+            ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
+        ]
+        latlons = gpd.GeoDataFrame(
+            geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
+        )
+        world_attrs = gpd.sjoin(latlons, self.world_shp, how="left", predicate="within")
+
+        return {
+            **metrics("aez", val_df.aez_zoneid),
+            **metrics("year", val_df.end_date.apply(lambda date: date[:4])),
+            **metrics("country", world_attrs.name),
+            **metrics("continent", world_attrs.continent),
+            **metrics("region", world_attrs.region),
+        }
 
     def finetuning_results(
         self,
