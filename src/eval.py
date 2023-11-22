@@ -183,7 +183,7 @@ class WorldCerealEval:
         latlons = gpd.GeoDataFrame(
             geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
         )
-        world_attrs = gpd.sjoin(latlons, self.world_shp, how="left", predicate="within")
+        world_attrs = gpd.sjoin(latlons, self.world_shp, how="left", op="within")
 
         return {
             **metrics("aez", val_df.aez_zoneid),
