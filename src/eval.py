@@ -33,7 +33,9 @@ class WorldCerealEval:
         self.seed = seed
         self.train_df = train_data
         self.val_df = val_data
-        self.world_shp = gpd.read_file(utils.data_dir / world_shp_path)
+        self.world_shp = None
+        if (utils.data_dir / world_shp_path).is_file():
+            self.world_shp = gpd.read_file(utils.data_dir / world_shp_path)
 
     @staticmethod
     def _mask_to_batch_tensor(
@@ -180,18 +182,24 @@ class WorldCerealEval:
         val_df = self.val_df.loc[
             ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ]
-        latlons = gpd.GeoDataFrame(
-            geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
-        )
-        world_attrs = gpd.sjoin(latlons, self.world_shp, how="left", op="within")
-
-        return {
+        results = {
             **metrics("aez", val_df.aez_zoneid),
             **metrics("year", val_df.end_date.apply(lambda date: date[:4])),
-            **metrics("country", world_attrs.name),
-            **metrics("continent", world_attrs.continent),
-            **metrics("region", world_attrs.region),
         }
+
+        if self.world_shp is not None:
+            latlons = gpd.GeoDataFrame(
+                geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
+            )
+            world_attrs = gpd.sjoin(latlons, self.world_shp, how="left", op="within")
+            results.update(
+                {
+                    **metrics("country", world_attrs.name),
+                    **metrics("continent", world_attrs.continent),
+                    **metrics("region", world_attrs.region),
+                }
+            )
+        return results
 
     def finetuning_results(
         self,
