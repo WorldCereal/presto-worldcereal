@@ -5,8 +5,19 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
 
-from .dataops import BANDS, S1_S2_ERA5_SRTM, DynamicWorld2020_2021
-from .masking import MaskedExample, MaskParamsNoDw
+from .dataops import (
+    BANDS,
+    BANDS_GROUPS_IDX,
+    NORMED_BANDS,
+    S1_S2_ERA5_SRTM,
+    DynamicWorld2020_2021,
+)
+from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
+
+IDX_TO_BAND_GROUPS = {}
+for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
+    for idx in val:
+        IDX_TO_BAND_GROUPS[NORMED_BANDS[idx]] = band_group_idx
 
 
 class WorldCerealBase(Dataset):
@@ -37,7 +48,9 @@ class WorldCerealBase(Dataset):
         return self.df.shape[0]
 
     @classmethod
-    def row_to_arrays(cls, row: pd.Series) -> Tuple[np.ndarray, np.ndarray, float, int]:
+    def row_to_arrays(
+        cls, row: pd.Series
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
@@ -46,9 +59,15 @@ class WorldCerealBase(Dataset):
         month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
+        # an assumption we make here is that all timesteps for a token
+        # have the same masking
+        mask_per_token = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
         for df_val, presto_val in cls.BAND_MAPPING.items():
-            values = [float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)]
+            values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
             idx_valid = values != cls._NODATAVALUE
+            mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
+                mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
+            )
             if presto_val in ["VV", "VH"]:
                 # convert to dB
                 values[idx_valid] = 20 * np.log10(values[idx_valid]) - 83
@@ -62,7 +81,7 @@ class WorldCerealBase(Dataset):
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
 
-        return eo_data, latlon, month, row_d["LANDCOVER_LABEL"] == 11
+        return eo_data, mask_per_token.astype(bool), latlon, month, row_d["LANDCOVER_LABEL"] == 11
 
     def __getitem__(self, idx):
         raise NotImplementedError
@@ -85,8 +104,11 @@ class WorldCerealMaskedDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, latlon, month, _ = self.row_to_arrays(row)
-        mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(self.normalize_and_mask(eo))
+        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row)
+        mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
+            self.normalize_and_mask(eo), real_mask_per_token
+        )
+        real_mask_per_variable = np.repeat(real_mask_per_token, BAND_EXPANSION, axis=1)
 
         dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
         mask_dw = np.full(self.NUM_TIMESTEPS, True)
@@ -101,6 +123,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
             month,
             latlon,
             strat,
+            real_mask_per_variable,
         )
 
 
@@ -115,12 +138,15 @@ class WorldCerealLabelledDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, latlon, month, target = self.row_to_arrays(row)
-
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
+        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+        num_masked_tokens = sum(sum(mask_per_token))
         return (
             self.normalize_and_mask(eo),
             target,
             np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
             latlon,
             month,
+            num_masked_tokens,
+            mask_per_variable,
         )
