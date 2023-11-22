@@ -3,7 +3,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Tuple, cast
+from typing import Optional, Tuple, cast
 
 import pandas as pd
 import torch
@@ -161,7 +161,7 @@ logger.info("Setting up model")
 if warm_start:
     model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
     model = Presto.load_pretrained()
-    best_model_path = default_model_path
+    best_model_path: Optional[Path] = default_model_path
 else:
     if path_to_config == "":
         path_to_config = config_dir / "default.json"
