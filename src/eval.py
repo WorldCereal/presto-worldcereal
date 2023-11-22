@@ -20,8 +20,6 @@ from .utils import DEFAULT_SEED, device
 
 logger = logging.getLogger("__main__")
 
-# download from
-# https://public.opendatasoft.com/explore/dataset/world-administrative-boundaries/information/
 world_shp_path = "world_shp/world-administrative-boundaries.shp"
 
 
@@ -109,6 +107,7 @@ class WorldCerealEval:
             shuffle=False,  # keep as False!
             num_workers=4,
         )
+        assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
 
         test_preds, targets = [], []
         for x, y, dw, latlons, month in dl:
@@ -135,7 +134,7 @@ class WorldCerealEval:
                     .cpu()
                     .numpy()
                 )
-                preds = finetuned_model.predict(np.nan_to_num(encodings, nan=0.0))
+                preds = finetuned_model.predict(encodings)
             test_preds.append(preds)
         test_preds_np = np.concatenate(test_preds) >= self.threshold
         target_np = np.concatenate(targets)
@@ -191,7 +190,10 @@ class WorldCerealEval:
             latlons = gpd.GeoDataFrame(
                 geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
             )
-            world_attrs = gpd.sjoin_nearest(latlons, self.world_shp, how="left")
+            # project to non geographic CRS, otherwise geopandas gives a warning
+            world_attrs = gpd.sjoin_nearest(
+                latlons.to_crs("EPSG:3857"), self.world_shp.to_crs("EPSG:3857"), how="left"
+            )
             if world_attrs.isna().any(axis=1).any():
                 logger.warning("Some coordinates couldn't be matched to a country")
 
