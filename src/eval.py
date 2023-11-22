@@ -1,4 +1,6 @@
 import logging
+from functools import partial
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Union, cast
 
 import geopandas as gpd
@@ -31,9 +33,28 @@ class WorldCerealEval:
         self.seed = seed
         self.train_df = train_data
         self.val_df = val_data
-        self.world_shp = None
-        if (utils.data_dir / world_shp_path).is_file():
-            self.world_shp = gpd.read_file(utils.data_dir / world_shp_path)
+
+        # todo temporary
+        new_val = pd.read_parquet(
+            utils.data_dir / "worldcereal_presto_cropland_linearinterp_V2_VAL.parquet"
+        )
+        new_val = new_val.drop_duplicates(subset=["lat", "lon", "end_date", "start_date"])
+        self.val_df = pd.merge(
+            self.val_df,
+            new_val,
+            how="left",
+            on=["lat", "lon", "end_date", "start_date"],
+            suffixes=(None, "_new"),
+            validate="many_to_one",
+        )
+
+        self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
+
+        self.world_shp = gpd.read_file(utils.data_dir / world_shp_path)
+        # these columns contain nan sometimes causing difficulties
+        self.world_shp = self.world_shp.drop(
+            columns=["iso3", "status", "color_code", "iso_3166_1_"]
+        )
 
     @staticmethod
     def _mask_to_batch_tensor(
@@ -105,7 +126,7 @@ class WorldCerealEval:
             val_ds,
             batch_size=8192,
             shuffle=False,  # keep as False!
-            num_workers=4,
+            num_workers=8,
         )
         assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
 
@@ -136,75 +157,94 @@ class WorldCerealEval:
                 )
                 preds = finetuned_model.predict(encodings)
             test_preds.append(preds)
+
         test_preds_np = np.concatenate(test_preds) >= self.threshold
         target_np = np.concatenate(targets)
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
+
+        val_df = self.val_df.loc[
+            ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
+        ]
+        catboost_preds = val_df.catboost_prediction
+
+        def format_partitioned(results):
+            return {
+                "{p}_{m}".format(p=self.name if "CatBoost" in m else prefix, m=m): float(val)
+                for (m, val) in results.items()
+            }
 
         return {
             f"{prefix}_f1": float(f1_score(target_np, test_preds_np)),
             f"{prefix}_recall": float(recall_score(target_np, test_preds_np)),
             f"{prefix}_precision": float(precision_score(target_np, test_preds_np)),
-            **{
-                f"{prefix}_{m}": int(val) if "num_samples" in m else float(val)
-                for (m, val) in self.partitioned_metrics(target_np, test_preds_np).items()
-            },
+            f"{self.name}_CatBoost_f1": float(f1_score(target_np, catboost_preds)),
+            f"{self.name}_CatBoost_recall": float(recall_score(target_np, catboost_preds)),
+            f"{self.name}_CatBoost_precision": float(precision_score(target_np, catboost_preds)),
+            **format_partitioned(self.partitioned_metrics(target_np, test_preds_np)),
         }
+
+    @staticmethod
+    def metrics(
+        prefix: str, prop_series: pd.Series, preds: np.ndarray, target: np.ndarray
+    ) -> Dict:
+        res = {}
+        precisions, recalls = [], []
+        for prop in prop_series.dropna().unique():
+            f: pd.Series = cast(pd.Series, prop_series == prop)
+            recalls.append(recall_score(target[f], preds[f], zero_division=np.nan))
+            precisions.append(precision_score(target[f], preds[f], zero_division=np.nan))
+            res.update(
+                {
+                    f"{prefix}_num_samples: {prop}": f.sum(),
+                    f"{prefix}_f1: {prop}": f1_score(target[f], preds[f], zero_division=np.nan),
+                    f"{prefix}_recall: {prop}": recalls[-1],
+                    f"{prefix}_precision: {prop}": precisions[-1],
+                }
+            )
+        recall, precision = np.nanmean(recalls), np.nanmean(precisions)
+        res.update(
+            {
+                f"{prefix}_f1: macro": 2 * recall * precision / (precision + recall + 1e-6),
+                f"{prefix}_recall: macro": recall,
+                f"{prefix}_precision: macro": precision,
+            }
+        )
+        return res
 
     def partitioned_metrics(
         self, target: np.ndarray, preds: np.ndarray
     ) -> Dict[str, Union[np.float32, np.int32]]:
-        def metrics(name: str, prop_series: pd.Series) -> Dict:
-            res = {}
-            precisions, recalls = [], []
-            for prop in prop_series.dropna().unique():
-                f: pd.Series = cast(pd.Series, prop_series == prop)
-                recalls.append(recall_score(target[f], preds[f]))
-                precisions.append(precision_score(target[f], preds[f]))
-                res.update(
-                    {
-                        f"num_samples_{name}-{prop}": f.sum(),
-                        f"f1_{name}-{prop}": f1_score(target[f], preds[f]),
-                        f"recall_{name}-{prop}": recalls[-1],
-                        f"precision_{name}-{prop}": precisions[-1],
-                    }
-                )
-            recall, precision = np.mean(recalls), np.mean(precisions)
-            res.update(
-                {
-                    f"f1_{name}_macro": 2 * recall * precision / (precision + recall),
-                    f"recall_{name}_macro": recall,
-                    f"precision_{name}_macro": precision,
-                }
-            )
-            return res
 
         val_df = self.val_df.loc[
             ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ]
-        results = {
-            **metrics("aez", val_df.aez_zoneid),
-            **metrics("year", val_df.end_date.apply(lambda date: date[:4])),
+        catboost_preds = val_df.catboost_prediction
+        years = val_df.end_date.apply(lambda date: date[:4])
+
+        latlons = gpd.GeoDataFrame(
+            geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
+        )
+        # project to non geographic CRS, otherwise geopandas gives a warning
+        world_attrs = gpd.sjoin_nearest(
+            latlons.to_crs("EPSG:3857"), self.world_shp.to_crs("EPSG:3857"), how="left"
+        )
+        world_attrs = world_attrs[~world_attrs.index.duplicated(keep="first")]
+        if world_attrs.isna().any(axis=1).any():
+            logger.warning("Some coordinates couldn't be matched to a country")
+
+        metrics = partial(self.metrics, target=target)
+        return {
+            **metrics("aez", val_df.aez_zoneid, preds),
+            **metrics("year", years, preds),
+            **metrics("country", world_attrs.name, preds),
+            **metrics("continent", world_attrs.continent, preds),
+            **metrics("region", world_attrs.region, preds),
+            **metrics("CatBoost_aez", val_df.aez_zoneid, catboost_preds),
+            **metrics("CatBoost_year", years, catboost_preds),
+            **metrics("CatBoost_country", world_attrs.name, catboost_preds),
+            **metrics("CatBoost_continent", world_attrs.continent, catboost_preds),
+            **metrics("CatBoost_region", world_attrs.region, catboost_preds),
         }
-
-        if self.world_shp is not None:
-            latlons = gpd.GeoDataFrame(
-                geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
-            )
-            # project to non geographic CRS, otherwise geopandas gives a warning
-            world_attrs = gpd.sjoin_nearest(
-                latlons.to_crs("EPSG:3857"), self.world_shp.to_crs("EPSG:3857"), how="left"
-            )
-            if world_attrs.isna().any(axis=1).any():
-                logger.warning("Some coordinates couldn't be matched to a country")
-
-            results.update(
-                {
-                    **metrics("country", world_attrs.name),
-                    **metrics("continent", world_attrs.continent),
-                    **metrics("region", world_attrs.region),
-                }
-            )
-        return results
 
     def finetuning_results(
         self,
@@ -223,7 +263,7 @@ class WorldCerealEval:
                 WorldCerealLabelledDataset(self.train_df),
                 batch_size=8192,
                 shuffle=False,
-                num_workers=4,
+                num_workers=8,
             )
             sklearn_models = self.finetune_sklearn_model(
                 dl,
