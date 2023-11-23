@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 
 from src.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
-from src.dataset import WorldCerealLabelledDataset, WorldCerealMaskedDataset
+from src.dataset import (
+    WorldCerealInferenceDataset,
+    WorldCerealLabelledDataset,
+    WorldCerealMaskedDataset,
+)
 from src.masking import MaskParamsNoDw
 from src.utils import data_dir
 
@@ -43,3 +47,8 @@ class TestUtils(TestCase):
         mask[true_mask] = False
         s1_s2_mask = mask[:, :-5]
         self.assertTrue((y[:, :-5][s1_s2_mask] != 0).all())
+
+    def test_spatial_dataset(self):
+        ds = WorldCerealInferenceDataset(data_dir / "inference_areas")
+        # for now, let's just test it runs smoothly
+        _ = ds[0]
