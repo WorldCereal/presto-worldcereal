@@ -1,6 +1,8 @@
 import logging
+from copy import deepcopy
+from dataclasses import dataclass
 from functools import partial
-from typing import Dict, List, Optional, Sequence, Union, cast
+from typing import Callable, Dict, List, Optional, Sequence, Union, cast
 
 import geopandas as gpd
 import numpy as np
@@ -10,12 +12,14 @@ from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, precision_score, recall_score
+from torch import nn
+from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from . import utils
-from .dataset import WorldCerealLabelledDataset
-from .presto import Presto, PrestoFineTuningModel
+from .dataset import WorldCerealBase, WorldCerealLabelledDataset
+from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
 logger = logging.getLogger("__main__")
@@ -23,19 +27,42 @@ logger = logging.getLogger("__main__")
 world_shp_path = "world-administrative-boundaries/world-administrative-boundaries.shp"
 
 
+@dataclass
+class Hyperparams:
+    lr: float = 2e-5
+    max_epochs: int = 20
+    batch_size: int = 64
+    patience: int = 3
+    num_workers: int = 8
+
+
 class WorldCerealEval:
     name = "WorldCerealCropland"
     threshold = 0.5
+    num_outputs = 1
+    regression = False
 
     def __init__(self, train_data: pd.DataFrame, val_data: pd.DataFrame, seed: int = DEFAULT_SEED):
         self.seed = seed
-        self.train_df = train_data
+
+        # SAR cannot equal 0.0 since we take the log of it
+        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
+        self.train_df = train_data[~(train_data.loc[:, cols] == 0.0).any(axis=1)]
+
         self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
+        self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
+        self.val_df, self.test_df = WorldCerealBase.test_val_split(self.val_df)
 
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
-        # these columns contain nan sometimes causing difficulties
+        # these columns contain nan sometimes
         self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
+
+    def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
+        model = cast(Callable, pretrained_model.construct_finetuning_model)(
+            num_outputs=self.num_outputs
+        )
+        return model
 
     @torch.no_grad()
     def finetune_sklearn_model(
@@ -50,7 +77,7 @@ class WorldCerealEval:
         pretrained_model.eval()
 
         encoding_list, target_list = [], []
-        for x, y, dw, latlons, month, num_masked_tokens, variable_mask in dl:
+        for x, y, dw, latlons, month, _, variable_mask in dl:
             x_f, dw_f, latlons_f, month_f, variable_mask_f = [
                 t.to(device) for t in (x, dw, latlons, month, variable_mask)
             ]
@@ -90,16 +117,16 @@ class WorldCerealEval:
     def evaluate(
         self,
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
-        pretrained_model=None,
+        pretrained_model: Optional[Presto] = None,
         mask: Optional[np.ndarray] = None,
     ) -> Dict:
 
         if isinstance(finetuned_model, BaseEstimator):
             assert isinstance(pretrained_model, Presto)
 
-        val_ds = WorldCerealLabelledDataset(self.val_df)
+        test_ds = WorldCerealLabelledDataset(self.test_df)
         dl = DataLoader(
-            val_ds,
+            test_ds,
             batch_size=8192,
             shuffle=False,  # keep as False!
             num_workers=8,
@@ -115,18 +142,14 @@ class WorldCerealEval:
             ]
             if isinstance(finetuned_model, PrestoFineTuningModel):
                 finetuned_model.eval()
-                preds = (
-                    finetuned_model(
-                        x_f,
-                        dynamic_world=dw_f.long(),
-                        mask=variable_mask_f,
-                        latlons=latlons_f,
-                        month=month_f,
-                    )
-                    .squeeze(dim=1)
-                    .cpu()
-                    .numpy()
-                )
+                preds = finetuned_model(
+                    x_f,
+                    dynamic_world=dw_f.long(),
+                    mask=variable_mask_f,
+                    latlons=latlons_f,
+                    month=month_f,
+                ).squeeze(dim=1)
+                preds = torch.sigmoid(preds).cpu().numpy()
             elif isinstance(finetuned_model, BaseEstimator):
                 cast(Presto, pretrained_model).eval()
                 encodings = (
@@ -148,10 +171,10 @@ class WorldCerealEval:
         target_np = np.concatenate(targets)
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
-        val_df = self.val_df.loc[
-            ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
+        test_df = self.test_df.loc[
+            ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ]
-        catboost_preds = val_df.catboost_prediction
+        catboost_preds = test_df.catboost_prediction
 
         def format_partitioned(results):
             return {
@@ -201,14 +224,14 @@ class WorldCerealEval:
         self, target: np.ndarray, preds: np.ndarray
     ) -> Dict[str, Union[np.float32, np.int32]]:
 
-        val_df = self.val_df.loc[
-            ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
+        test_df = self.test_df.loc[
+            ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ]
-        catboost_preds = val_df.catboost_prediction
-        years = val_df.end_date.apply(lambda date: date[:4])
+        catboost_preds = test_df.catboost_prediction
+        years = test_df.end_date.apply(lambda date: date[:4])
 
         latlons = gpd.GeoDataFrame(
-            geometry=gpd.GeoSeries.from_xy(x=val_df.lon, y=val_df.lat), crs="EPSG:4326"
+            geometry=gpd.GeoSeries.from_xy(x=test_df.lon, y=test_df.lat), crs="EPSG:4326"
         )
         # project to non geographic CRS, otherwise geopandas gives a warning
         world_attrs = gpd.sjoin_nearest(
@@ -220,17 +243,116 @@ class WorldCerealEval:
 
         metrics = partial(self.metrics, target=target)
         return {
-            **metrics("aez", val_df.aez_zoneid, preds),
+            **metrics("aez", test_df.aez_zoneid, preds),
             **metrics("year", years, preds),
             **metrics("country", world_attrs.name, preds),
             **metrics("continent", world_attrs.continent, preds),
             **metrics("region", world_attrs.region, preds),
-            **metrics("CatBoost_aez", val_df.aez_zoneid, catboost_preds),
+            **metrics("CatBoost_aez", test_df.aez_zoneid, catboost_preds),
             **metrics("CatBoost_year", years, catboost_preds),
             **metrics("CatBoost_country", world_attrs.name, catboost_preds),
             **metrics("CatBoost_continent", world_attrs.continent, catboost_preds),
             **metrics("CatBoost_region", world_attrs.region, catboost_preds),
         }
+
+    def finetune(
+        self, pretrained_model, mask: Optional[np.ndarray] = None
+    ) -> PrestoFineTuningModel:
+        hyperparams = Hyperparams(max_epochs=3, patience=1)
+        model = self._construct_finetuning_model(pretrained_model)
+
+        parameters = param_groups_lrd(model)
+        optimizer = AdamW(parameters, lr=hyperparams.lr)
+
+        train_ds = WorldCerealLabelledDataset(self.train_df)
+        val_ds = WorldCerealLabelledDataset(self.val_df)
+
+        pos = (train_ds.df.LANDCOVER_LABEL == 11).sum()
+        wts = 1 / torch.tensor([len(train_ds.df) - pos, pos])
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=(wts / wts.sum())[1])
+
+        generator = torch.Generator()
+        generator.manual_seed(self.seed)
+        train_dl = DataLoader(
+            train_ds,
+            batch_size=hyperparams.batch_size,
+            shuffle=True,
+            num_workers=hyperparams.num_workers,
+            generator=generator,
+        )
+
+        val_dl = DataLoader(
+            val_ds,
+            batch_size=hyperparams.batch_size,
+            shuffle=False,
+            num_workers=hyperparams.num_workers,
+        )
+
+        train_loss = []
+        val_loss = []
+        best_loss = None
+        best_model_dict = None
+        epochs_since_improvement = 0
+
+        for _ in tqdm(range(hyperparams.max_epochs), desc="Finetuning"):
+            model.train()
+            epoch_train_loss = 0.0
+            for x, y, dw, latlons, month, _, variable_mask in tqdm(
+                train_dl, desc="Training", leave=False
+            ):
+                x, y, dw, latlons, month, variable_mask = [
+                    t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
+                ]
+                optimizer.zero_grad()
+                preds = model(
+                    x,
+                    dynamic_world=dw.long(),
+                    mask=variable_mask,
+                    latlons=latlons,
+                    month=month,
+                )
+                loss = loss_fn(preds.squeeze(-1), y.float())
+                epoch_train_loss += loss.item()
+                loss.backward()
+                optimizer.step()
+            train_loss.append(epoch_train_loss / len(train_dl))
+
+            model.eval()
+            all_preds, all_y = [], []
+            for x, y, dw, latlons, month, _, variable_mask in val_dl:
+                x, y, dw, latlons, month, variable_mask = [
+                    t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
+                ]
+                with torch.no_grad():
+                    preds = model(
+                        x,
+                        dynamic_world=dw.long(),
+                        mask=variable_mask,
+                        latlons=latlons,
+                        month=month,
+                    )
+                    all_preds.append(preds.squeeze(-1))
+                    all_y.append(y.float())
+
+            val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
+            if best_loss is None:
+                best_loss = val_loss[-1]
+                best_model_dict = deepcopy(model.state_dict())
+            else:
+                if val_loss[-1] < best_loss:
+                    best_loss = val_loss[-1]
+                    best_model_dict = deepcopy(model.state_dict())
+                    epochs_since_improvement = 0
+                else:
+                    epochs_since_improvement += 1
+                    if epochs_since_improvement >= hyperparams.patience:
+                        logger.info("Early stopping!")
+                        break
+        assert best_model_dict is not None
+        model.load_state_dict(best_model_dict)
+
+        model.eval()
+        return model
 
     def finetuning_results(
         self,
@@ -238,16 +360,19 @@ class WorldCerealEval:
         model_modes: List[str],
         mask: Optional[np.ndarray] = None,
     ) -> Dict:
-        results_dict = {}
         for model_mode in model_modes:
-            # TODO: "finetune"
-            assert model_mode in ["Regression", "Random Forest"]
+            assert model_mode in ["Regression", "Random Forest", "finetune"]
+
+        results_dict = {}
+        if "finetune" in model_modes:
+            model = self.finetune(pretrained_model, mask)
+            results_dict.update(self.evaluate(model, mask))
 
         sklearn_modes = [x for x in model_modes if x != "finetune"]
         if len(sklearn_modes) > 0:
             dl = DataLoader(
                 WorldCerealLabelledDataset(self.train_df),
-                batch_size=8192,
+                batch_size=2048,
                 shuffle=False,
                 num_workers=8,
             )
@@ -258,6 +383,6 @@ class WorldCerealEval:
                 models=sklearn_modes,
             )
             for sklearn_model in sklearn_models:
-                logger.info(f"Fitting {sklearn_model}...")
+                logger.info(f"Evaluating {sklearn_model}...")
                 results_dict.update(self.evaluate(sklearn_model, pretrained_model, mask))
         return results_dict

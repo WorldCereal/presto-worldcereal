@@ -323,11 +323,13 @@ logger.info(f"Trained for {num_epochs} epochs, best model at {best_model_path}")
 
 if best_model_path is not None:
     logger.info("Loading best model: %s" % best_model_path)
-    best_model = torch.load(best_model_path)
+    best_model = torch.load(best_model_path, map_location=device)
     model.load_state_dict(best_model)
 
     full_eval = WorldCerealEval(train_df, val_df)
-    results = full_eval.finetuning_results(model, model_modes=["Random Forest", "Regression"])
+    results = full_eval.finetuning_results(
+        model, model_modes=["finetune", "Random Forest", "Regression"]
+    )
     plot_results(full_eval.world_df, results, logging_dir, show=True)
 
     logger.info(json.dumps(results, indent=2))
