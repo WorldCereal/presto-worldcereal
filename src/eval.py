@@ -29,12 +29,17 @@ class WorldCerealEval:
 
     def __init__(self, train_data: pd.DataFrame, val_data: pd.DataFrame, seed: int = DEFAULT_SEED):
         self.seed = seed
-        self.train_df = train_data
+
+        # SAR cannot equal 0.0 since we take the log of it
+        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
+        self.train_df = train_data[~(train_data.loc[:, cols] == 0.0).any(axis=1)]
+
         self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
+        self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
 
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
-        # these columns contain nan sometimes causing difficulties
+        # these columns contain nan sometimes
         self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
 
     @torch.no_grad()
