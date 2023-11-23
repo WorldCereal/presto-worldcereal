@@ -1,11 +1,13 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, cast
 
 import numpy as np
 import pandas as pd
+import rioxarray
 import xarray as xr
 from einops import repeat
+from pyproj import Transformer
 from torch.utils.data import Dataset
 
 from .dataops import (
@@ -183,7 +185,8 @@ class WorldCerealInferenceDataset(Dataset):
     def nc_to_arrays(
         cls, filepath: Path
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        ds = xr.open_dataset(filepath)
+        ds = cast(xr.Dataset, rioxarray.open_rasterio(filepath, decode_times=False))
+        epsg_coords = ds.rio.crs.to_epsg()
 
         num_instances = len(ds.x) * len(ds.y)
         num_timesteps = len(ds.t)
@@ -219,10 +222,8 @@ class WorldCerealInferenceDataset(Dataset):
         start_month = (ds.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
         months = np.ones((num_instances, 1)) * start_month
 
-        # TODO - what is the original coordinate system?
-        # transformer = Transformer.from_crs("unknown", "EPSG:4326", always_xy=True)
-        # lon, lat = transformer.transform(ds.x, ds.y)
-        lon, lat = ds.x.values, ds.y.values
+        transformer = Transformer.from_crs(f"EPSG:{epsg_coords}", "EPSG:4326", always_xy=True)
+        lon, lat = transformer.transform(ds.x, ds.y)
 
         latlons = np.stack(
             [np.repeat(lat, repeats=len(lon)), repeat(lon, "c -> (h c)", h=len(lat))],
