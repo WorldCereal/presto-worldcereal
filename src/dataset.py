@@ -93,7 +93,7 @@ class WorldCerealBase(Dataset):
 
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
-        # this is copied over from dataops. Sorry
+        # TODO: this can be removed
         keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
         normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
         # TODO: fix this. For now, we replicate the previous behaviour
@@ -192,9 +192,8 @@ class WorldCerealInferenceDataset(Dataset):
         num_timesteps = len(ds.t)
         eo_data = np.zeros((num_instances, num_timesteps, len(BANDS)))
         mask = np.zeros((num_instances, num_timesteps, len(BANDS_GROUPS_IDX)))
-        # for now, B8A is missing, and therefore so is NDVI
+        # for now, B8A is missing
         mask[:, :, IDX_TO_BAND_GROUPS["B8A"]] = 1
-        mask[:, :, IDX_TO_BAND_GROUPS["NDVI"]] = 1
 
         for org_band, presto_val in cls.BAND_MAPPING.items():
             # flatten the values
@@ -234,10 +233,8 @@ class WorldCerealInferenceDataset(Dataset):
 
     def __getitem__(self, idx):
         filepath = self.all_files[idx]
-        eo_data, mask, latlons, months, y = self.nc_to_arrays(filepath)
+        eo, mask, latlons, months, y = self.nc_to_arrays(filepath)
 
-        dynamic_world = np.ones((eo_data.shape[0], eo_data.shape[1])) * (
-            DynamicWorld2020_2021.class_amount
-        )
+        dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
 
-        return eo_data, dynamic_world, mask, latlons, months, y
+        return S1_S2_ERA5_SRTM.normalize(eo), dynamic_world, mask, latlons, months, y
