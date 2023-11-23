@@ -1,6 +1,5 @@
 import logging
 from functools import partial
-from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Union, cast
 
 import geopandas as gpd
@@ -32,29 +31,12 @@ class WorldCerealEval:
     def __init__(self, train_data: pd.DataFrame, val_data: pd.DataFrame, seed: int = DEFAULT_SEED):
         self.seed = seed
         self.train_df = train_data
-        self.val_df = val_data
-
-        # todo temporary
-        new_val = pd.read_parquet(
-            utils.data_dir / "worldcereal_presto_cropland_linearinterp_V2_VAL.parquet"
-        )
-        new_val = new_val.drop_duplicates(subset=["lat", "lon", "end_date", "start_date"])
-        self.val_df = pd.merge(
-            self.val_df,
-            new_val,
-            how="left",
-            on=["lat", "lon", "end_date", "start_date"],
-            suffixes=(None, "_new"),
-            validate="many_to_one",
-        )
-
+        self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
 
-        self.world_shp = gpd.read_file(utils.data_dir / world_shp_path)
+        self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
         # these columns contain nan sometimes causing difficulties
-        self.world_shp = self.world_shp.drop(
-            columns=["iso3", "status", "color_code", "iso_3166_1_"]
-        )
+        self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
 
     @staticmethod
     def _mask_to_batch_tensor(
@@ -226,7 +208,7 @@ class WorldCerealEval:
         )
         # project to non geographic CRS, otherwise geopandas gives a warning
         world_attrs = gpd.sjoin_nearest(
-            latlons.to_crs("EPSG:3857"), self.world_shp.to_crs("EPSG:3857"), how="left"
+            latlons.to_crs("EPSG:3857"), self.world_df.to_crs("EPSG:3857"), how="left"
         )
         world_attrs = world_attrs[~world_attrs.index.duplicated(keep="first")]
         if world_attrs.isna().any(axis=1).any():

@@ -30,6 +30,7 @@ from src.utils import (
     default_model_path,
     device,
     initialize_logging,
+    plot_results,
     seed_everything,
     timestamp_dirname,
 )
@@ -79,7 +80,7 @@ argparser.add_argument(
 argparser.add_argument(
     "--val_file",
     type=str,
-    default="worldcereal_presto_cropland_linearinterp_V1_VAL.parquet",
+    default="worldcereal_presto_cropland_linearinterp_V2_VAL.parquet",
 )
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
@@ -318,6 +319,8 @@ if best_model_path is not None:
 
     full_eval = WorldCerealEval(train_df, val_df)
     results = full_eval.finetuning_results(model, model_modes=["Random Forest", "Regression"])
+    plot_results(full_eval.world_df, results, logging_dir, show=True)
+
     logger.info(json.dumps(results, indent=2))
     if wandb_enabled:
         wandb.log(results)

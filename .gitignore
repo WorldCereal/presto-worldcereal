@@ -17,3 +17,4 @@ gha-creds-*.json
 .idea
 scrap
 output/*
+imgs/*

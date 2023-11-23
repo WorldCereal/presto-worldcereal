@@ -2,10 +2,14 @@ import logging
 import os
 import sys
 from datetime import datetime
+from functools import partial
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 
+import geopandas as gpd
+import pandas as pd
 import torch
+from matplotlib import pyplot as plt
 
 from .dataops import (
     BANDS,
@@ -149,3 +153,68 @@ def construct_single_presto_input(
     else:
         x = x[:, keep_indices]
     return x, mask, dynamic_world
+
+
+def plot_results(
+    world_df: gpd.GeoDataFrame,
+    metrics: Dict,
+    output_dir: Path,
+    epoch: Optional[int] = None,
+    show: bool = False,
+):
+    def plot(title: str, plot_fn: Callable, figsize=(15, 5)):
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        plot_fn(ax=ax)
+        if epoch is not None:
+            title += f" - epoch {epoch}"
+        plt.title(title)
+        plt.tight_layout()
+        plt.savefig(output_dir / f"{title.replace(' ', '_')}.png")
+        if show:
+            plt.show()
+        plt.close()
+
+    def plot_map(scores: gpd.GeoDataFrame, ax: plt.Axes):
+        scores.plot(column="value", legend=True, ax=ax, vmin=0, vmax=1)
+
+    def plot_year(scores: pd.DataFrame, ax: plt.Axes):
+        scores.loc[:, ["year", "value"]].plot(kind="bar", legend=False, ax=ax)
+        plt.xticks(ticks=range(len(scores.index)), labels=scores.year)
+        plt.ylim(0, 1)
+        plt.ylabel("F1")
+
+    def plot_for_model(grp_df):
+        mrgd = world_df.merge(grp_df, left_on="name", right_on="country", how="left")
+        mrgd = mrgd.dropna(subset="model")
+
+        grp_df_aez = grp_df.loc[~pd.isna(grp_df.aez)]
+        grp_df_aez.loc[:, "aez"] = grp_df_aez.aez.astype(int)
+        mrgd_aez = aez_df.merge(grp_df_aez, left_on="zoneID", right_on="aez", how="left")
+        mrgd_aez = mrgd_aez.dropna(subset="model")
+
+        grp_df_y = grp_df.loc[pd.notna(grp_df.year)].sort_values("year")
+        grp_df_y.loc[:, "year"] = grp_df_y.year.astype(str)
+
+        plot(f"{grp_df.name} Country", partial(plot_map, mrgd))
+        plot(f"{grp_df.name} AEZ", partial(plot_map, mrgd_aez))
+        plot(f"{grp_df.name} Year", partial(plot_year, grp_df_y), (6, 5))
+
+    aez_df = gpd.read_file(data_dir / "AEZ.geojson")
+    aez_df = aez_df.loc[:, ["zoneID", "geometry"]]
+    aez_df.zoneID = aez_df.zoneID.astype(int)
+
+    metrics_df = pd.DataFrame.from_dict(metrics, orient="index", columns=["value"])
+    metrics_df = metrics_df.reset_index(names="metric")
+    metrics_df = metrics_df.loc[~metrics_df.metric.str.contains("macro")]
+
+    country = metrics_df.metric.apply(
+        lambda m: m.split(":")[-1].lstrip() if "country" in m else None
+    )
+    aez = metrics_df.metric.apply(lambda m: m.split(":")[-1].lstrip() if "aez" in m else None)
+    year = metrics_df.metric.apply(lambda m: m.split(":")[-1].lstrip() if "year" in m else None)
+    model = metrics_df.metric.apply(lambda m: m.split("_")[1].strip())
+    metrics_df = pd.concat((metrics_df, model, aez, year, country), axis=1)
+    metrics_df.columns = ["metric", "value", "model", "aez", "year", "country"]
+
+    f1_df = metrics_df.loc[metrics_df.metric.str.contains("f1")].copy()
+    f1_df.groupby("model").apply(plot_for_model)
