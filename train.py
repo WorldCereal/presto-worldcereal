@@ -328,7 +328,7 @@ if best_model_path is not None:
 
     full_eval = WorldCerealEval(train_df, val_df)
     results = full_eval.finetuning_results(model, model_modes=["Random Forest", "Regression"])
-    plot_results(full_eval.world_df, results, logging_dir, show=True)
+    plot_results(full_eval.world_df, results, logging_dir, show=True, to_wandb=wandb_enabled)
 
     logger.info(json.dumps(results, indent=2))
     if wandb_enabled:

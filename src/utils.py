@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Optional, Union
 import geopandas as gpd
 import pandas as pd
 import torch
+import wandb
 from matplotlib import pyplot as plt
 
 from .dataops import (
@@ -161,18 +162,21 @@ def plot_results(
     output_dir: Path,
     epoch: Optional[int] = None,
     show: bool = False,
+    to_wandb: bool = False,
 ):
-    def plot(title: str, plot_fn: Callable, figsize=(15, 5)):
+    def plot(title: str, plot_fn: Callable, figsize=(15, 5)) -> Path:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         plot_fn(ax=ax)
         if epoch is not None:
             title += f" - epoch {epoch}"
         plt.title(title)
         plt.tight_layout()
-        plt.savefig(output_dir / f"{title.replace(' ', '_')}.png")
+        path = output_dir / f"{title.replace(' ', '_')}.png"
+        plt.savefig(path)
         if show:
             plt.show()
         plt.close()
+        return path
 
     def plot_map(scores: gpd.GeoDataFrame, ax: plt.Axes):
         scores.plot(column="value", legend=True, ax=ax, vmin=0, vmax=1)
@@ -195,9 +199,17 @@ def plot_results(
         grp_df_y = grp_df.loc[pd.notna(grp_df.year)].sort_values("year")
         grp_df_y.loc[:, "year"] = grp_df_y.year.astype(str)
 
-        plot(f"{grp_df.name} Country", partial(plot_map, mrgd))
-        plot(f"{grp_df.name} AEZ", partial(plot_map, mrgd_aez))
-        plot(f"{grp_df.name} Year", partial(plot_year, grp_df_y), (6, 5))
+        path_c = plot(f"{grp_df.name} Country", partial(plot_map, mrgd))
+        path_aez = plot(f"{grp_df.name} AEZ", partial(plot_map, mrgd_aez))
+        path_y = plot(f"{grp_df.name} Year", partial(plot_year, grp_df_y), (6, 5))
+        if to_wandb:
+            wandb.log(
+                {
+                    "Countries": wandb.Image(str(path_c)),
+                    "AEZ": wandb.Image(str(path_aez)),
+                    "Year": wandb.Image(str(path_y)),
+                }
+            )
 
     aez_df = gpd.read_file(data_dir / "AEZ.geojson")
     aez_df = aez_df.loc[:, ["zoneID", "geometry"]]
