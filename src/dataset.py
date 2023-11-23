@@ -189,8 +189,9 @@ class WorldCerealInferenceDataset(Dataset):
         num_timesteps = len(ds.t)
         eo_data = np.zeros((num_instances, num_timesteps, len(BANDS)))
         mask = np.zeros((num_instances, num_timesteps, len(BANDS_GROUPS_IDX)))
-        # for now, B8A is missing
+        # for now, B8A is missing, and therefore so is NDVI
         mask[:, :, IDX_TO_BAND_GROUPS["B8A"]] = 1
+        mask[:, :, IDX_TO_BAND_GROUPS["NDVI"]] = 1
 
         for org_band, presto_val in cls.BAND_MAPPING.items():
             # flatten the values
