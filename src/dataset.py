@@ -180,7 +180,9 @@ class WorldCerealInferenceDataset(Dataset):
         self.all_files = list(path_to_files.glob("*.nc"))
 
     @classmethod
-    def nc_to_arrays(cls, filepath: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def nc_to_arrays(
+        cls, filepath: Path
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         ds = xr.open_dataset(filepath)
 
         num_instances = len(ds.x) * len(ds.y)
