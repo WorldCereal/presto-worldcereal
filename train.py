@@ -11,7 +11,6 @@ import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from wandb.sdk.wandb_run import Run
 
 from src.dataops import BANDS_GROUPS_IDX
 from src.dataset import WorldCerealMaskedDataset as WorldCerealDataset
@@ -107,7 +106,7 @@ if wandb_enabled:
         project="presto-worldcereal",
         dir=output_parent_dir,
     )
-    run_id = cast(Run, run).id
+    run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
 logging_dir = output_parent_dir / "output" / timestamp_dirname(run_id)
 logging_dir.mkdir(exist_ok=True, parents=True)

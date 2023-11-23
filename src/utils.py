@@ -9,7 +9,6 @@ from typing import Callable, Dict, List, Optional, Union
 import geopandas as gpd
 import pandas as pd
 import torch
-import wandb
 from matplotlib import pyplot as plt
 
 from .dataops import (
@@ -203,6 +202,8 @@ def plot_results(
         path_aez = plot(f"{grp_df.name} AEZ", partial(plot_map, mrgd_aez))
         path_y = plot(f"{grp_df.name} Year", partial(plot_year, grp_df_y), (6, 5))
         if to_wandb:
+            import wandb
+
             wandb.log(
                 {
                     "Countries": wandb.Image(str(path_c)),
