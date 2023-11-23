@@ -69,7 +69,6 @@ class WorldCerealEval:
         self,
         dl: DataLoader,
         pretrained_model,
-        mask: Optional[np.ndarray] = None,
         models: List[str] = ["Regression", "Random Forest"],
     ) -> Union[Sequence[BaseEstimator], Dict]:
         for model_mode in models:
@@ -118,7 +117,6 @@ class WorldCerealEval:
         self,
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
         pretrained_model: Optional[Presto] = None,
-        mask: Optional[np.ndarray] = None,
     ) -> Dict:
 
         if isinstance(finetuned_model, BaseEstimator):
@@ -255,10 +253,8 @@ class WorldCerealEval:
             **metrics("CatBoost_region", world_attrs.region, catboost_preds),
         }
 
-    def finetune(
-        self, pretrained_model, mask: Optional[np.ndarray] = None
-    ) -> PrestoFineTuningModel:
-        hyperparams = Hyperparams(max_epochs=3, patience=1)
+    def finetune(self, pretrained_model) -> PrestoFineTuningModel:
+        hyperparams = Hyperparams()
         model = self._construct_finetuning_model(pretrained_model)
 
         parameters = param_groups_lrd(model)
@@ -358,15 +354,14 @@ class WorldCerealEval:
         self,
         pretrained_model,
         model_modes: List[str],
-        mask: Optional[np.ndarray] = None,
     ) -> Dict:
         for model_mode in model_modes:
             assert model_mode in ["Regression", "Random Forest", "finetune"]
 
         results_dict = {}
         if "finetune" in model_modes:
-            model = self.finetune(pretrained_model, mask)
-            results_dict.update(self.evaluate(model, mask))
+            model = self.finetune(pretrained_model)
+            results_dict.update(self.evaluate(model, None))
 
         sklearn_modes = [x for x in model_modes if x != "finetune"]
         if len(sklearn_modes) > 0:
@@ -379,10 +374,9 @@ class WorldCerealEval:
             sklearn_models = self.finetune_sklearn_model(
                 dl,
                 pretrained_model,
-                mask=mask,
                 models=sklearn_modes,
             )
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {sklearn_model}...")
-                results_dict.update(self.evaluate(sklearn_model, pretrained_model, mask))
+                results_dict.update(self.evaluate(sklearn_model, pretrained_model))
         return results_dict
