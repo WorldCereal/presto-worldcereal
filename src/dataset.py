@@ -219,7 +219,7 @@ class WorldCerealInferenceDataset(Dataset):
         y = ds[cls.Y].values.reshape((num_timesteps, -1))
         # -1 because we index from 0
         start_month = (ds.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
-        months = np.ones((num_instances, 1)) * start_month
+        months = np.ones((num_instances)) * start_month
 
         transformer = Transformer.from_crs(f"EPSG:{epsg_coords}", "EPSG:4326", always_xy=True)
         lon, lat = transformer.transform(ds.x, ds.y)
