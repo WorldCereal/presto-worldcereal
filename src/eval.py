@@ -20,7 +20,7 @@ from .utils import DEFAULT_SEED, device
 
 logger = logging.getLogger("__main__")
 
-world_shp_path = "world_shp/world-administrative-boundaries.shp"
+world_shp_path = "world-administrative-boundaries/world-administrative-boundaries.shp"
 
 
 class WorldCerealEval:
