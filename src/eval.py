@@ -332,6 +332,20 @@ class WorldCerealEval:
                     all_y.append(y.float())
 
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
+
+            try:
+                import wandb
+
+                if wandb.run is not None:
+                    wandb.log(
+                        {
+                            f"{self.name}_finetuning_val_loss": val_loss[-1],
+                            f"{self.name}_finetuning_train_loss": train_loss[-1],
+                        }
+                    )
+            except ImportError:
+                pass
+
             if best_loss is None:
                 best_loss = val_loss[-1]
                 best_model_dict = deepcopy(model.state_dict())
