@@ -33,7 +33,7 @@ class Hyperparams:
     max_epochs: int = 20
     batch_size: int = 64
     patience: int = 3
-    num_workers: int = 8
+    num_workers: int = 4
 
 
 class WorldCerealEval:
@@ -128,7 +128,7 @@ class WorldCerealEval:
             test_ds,
             batch_size=8192,
             shuffle=False,  # keep as False!
-            num_workers=8,
+            num_workers=4,
         )
         assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
 
@@ -384,7 +384,7 @@ class WorldCerealEval:
                 WorldCerealLabelledDataset(self.train_df),
                 batch_size=2048,
                 shuffle=False,
-                num_workers=8,
+                num_workers=4,
             )
             sklearn_models = self.finetune_sklearn_model(
                 dl,
