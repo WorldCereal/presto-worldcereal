@@ -266,7 +266,7 @@ class WorldCerealEval:
 
         pos = (train_ds.df.LANDCOVER_LABEL == 11).sum()
         wts = 1 / torch.tensor([len(train_ds.df) - pos, pos])
-        loss_fn = nn.BCEWithLogitsLoss(pos_weight=(wts / wts.sum())[1])
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=(wts / wts[0])[1])
 
         generator = torch.Generator()
         generator.manual_seed(self.seed)
