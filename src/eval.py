@@ -193,7 +193,11 @@ class WorldCerealEval:
 
     @staticmethod
     def metrics(
-        prefix: str, prop_series: pd.Series, preds: np.ndarray, target: np.ndarray
+        prefix: str,
+        prop_series: pd.Series,
+        preds: np.ndarray,
+        target: np.ndarray,
+        only_macro: bool = False,
     ) -> Dict:
         res = {}
         precisions, recalls = [], []
@@ -201,26 +205,23 @@ class WorldCerealEval:
             f: pd.Series = cast(pd.Series, prop_series == prop)
             recalls.append(recall_score(target[f], preds[f], zero_division=np.nan))
             precisions.append(precision_score(target[f], preds[f], zero_division=np.nan))
-            res.update(
-                {
+            if not only_macro:
+                res |= {
                     f"{prefix}_num_samples: {prop}": f.sum(),
                     f"{prefix}_f1: {prop}": f1_score(target[f], preds[f], zero_division=np.nan),
                     f"{prefix}_recall: {prop}": recalls[-1],
                     f"{prefix}_precision: {prop}": precisions[-1],
                 }
-            )
         recall, precision = np.nanmean(recalls), np.nanmean(precisions)
-        res.update(
-            {
-                f"{prefix}_f1: macro": 2 * recall * precision / (precision + recall + 1e-6),
-                f"{prefix}_recall: macro": recall,
-                f"{prefix}_precision: macro": precision,
-            }
-        )
+        res |= {
+            f"{prefix}_f1: macro": 2 * recall * precision / (precision + recall + 1e-6),
+            f"{prefix}_recall: macro": recall,
+            f"{prefix}_precision: macro": precision,
+        }
         return res
 
     def partitioned_metrics(
-        self, target: np.ndarray, preds: np.ndarray
+        self, target: np.ndarray, preds: np.ndarray, only_macro: bool = False
     ) -> Dict[str, Union[np.float32, np.int32]]:
 
         test_df = self.test_df.loc[
@@ -240,7 +241,7 @@ class WorldCerealEval:
         if world_attrs.isna().any(axis=1).any():
             logger.warning("Some coordinates couldn't be matched to a country")
 
-        metrics = partial(self.metrics, target=target)
+        metrics = partial(self.metrics, target=target, only_macro=only_macro)
         return {
             **metrics("aez", test_df.aez_zoneid, preds),
             **metrics("year", years, preds),
@@ -255,7 +256,7 @@ class WorldCerealEval:
         }
 
     def finetune(self, pretrained_model) -> PrestoFineTuningModel:
-        hyperparams = Hyperparams()
+        hyperparams = Hyperparams(max_epochs=2)
         model = self._construct_finetuning_model(pretrained_model)
 
         parameters = param_groups_lrd(model)
@@ -381,3 +382,79 @@ class WorldCerealEval:
                 logger.info(f"Evaluating {sklearn_model}...")
                 results_dict.update(self.evaluate(sklearn_model, pretrained_model))
         return results_dict
+
+    def tune_thresholds(
+        self,
+        pretrained_model,
+        model_modes: List[str],
+    ) -> Dict:
+        assert model_modes == ["finetune"]
+        model = self.finetune(pretrained_model)
+        return self.evaluate_thresholds(model)
+
+    @torch.no_grad()
+    def evaluate_thresholds(self, finetuned_model: PrestoFineTuningModel) -> Dict:
+
+        val_ds = WorldCerealLabelledDataset(self.val_df)
+        dl = DataLoader(
+            val_ds,
+            batch_size=8192,
+            shuffle=False,  # keep as False!
+            num_workers=8,
+        )
+        assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
+
+        test_preds, targets = [], []
+
+        for x, y, dw, latlons, month, num_masked_tokens, variable_mask in dl:
+            targets.append(y)
+            x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            ]
+            finetuned_model.eval()
+            preds = finetuned_model(
+                x_f,
+                dynamic_world=dw_f.long(),
+                mask=variable_mask_f,
+                latlons=latlons_f,
+                month=month_f,
+            ).squeeze(dim=1)
+            preds = torch.sigmoid(preds).cpu().numpy()
+            test_preds.append(preds)
+
+        thresholds = np.arange(1, 10) / 10
+        target_np = np.concatenate(targets)
+        results = {}
+        for th in thresholds:
+            test_preds_np = np.concatenate(test_preds) >= th
+            prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
+
+            val_df = self.val_df.loc[
+                ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
+            ]
+            catboost_preds = val_df.catboost_confidence > th
+
+            def format_partitioned(results):
+                return {
+                    "{p}_{m}_th{th}".format(
+                        p=self.name if "CatBoost" in m else prefix, m=m, th=th
+                    ): float(val)
+                    for (m, val) in results.items()
+                }
+
+            results |= {
+                f"{prefix}_f1_th{th}": float(f1_score(target_np, test_preds_np)),
+                f"{prefix}_recall_th{th}": float(recall_score(target_np, test_preds_np)),
+                f"{prefix}_precision_th{th}": float(precision_score(target_np, test_preds_np)),
+                f"{self.name}_CatBoost_f1_th{th}": float(f1_score(target_np, catboost_preds)),
+                f"{self.name}_CatBoost_recall_th{th}": float(
+                    recall_score(target_np, catboost_preds)
+                ),
+                f"{self.name}_CatBoost_precision_th{th}": float(
+                    precision_score(target_np, catboost_preds)
+                ),
+                **format_partitioned(
+                    self.partitioned_metrics(target_np, test_preds_np, only_macro=True)
+                ),
+            }
+        return results

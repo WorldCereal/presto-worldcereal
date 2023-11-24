@@ -330,6 +330,7 @@ if best_model_path is not None:
     results = full_eval.finetuning_results(
         model, model_modes=["finetune", "Random Forest", "Regression"]
     )
+    # results = full_eval.tune_thresholds(model, model_modes=["finetune"])
     plot_results(full_eval.world_df, results, logging_dir, show=True)
 
     logger.info(json.dumps(results, indent=2))
