@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from . import utils
-from .dataset import WorldCerealBase, WorldCerealLabelledDataset
+from .dataset import WorldCerealLabelledDataset
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
@@ -52,7 +52,8 @@ class WorldCerealEval:
         self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
-        self.val_df, self.test_df = WorldCerealBase.test_val_split(self.val_df)
+        # self.val_df, self.test_df = WorldCerealBase.test_val_split(self.val_df)
+        self.test_df = self.val_df
 
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
         # these columns contain nan sometimes
