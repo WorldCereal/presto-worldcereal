@@ -397,7 +397,7 @@ class WorldCerealEval:
                 results_dict.update(self.evaluate(sklearn_model, pretrained_model))
         return results_dict
 
-    def tune_thresholds(
+    def tune_threshold(
         self,
         pretrained_model,
         model_modes: List[str],
