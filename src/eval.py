@@ -267,7 +267,7 @@ class WorldCerealEval:
 
         pos = (train_ds.df.LANDCOVER_LABEL == 11).sum()
         wts = 1 / torch.tensor([len(train_ds.df) - pos, pos])
-        loss_fn = nn.BCEWithLogitsLoss(pos_weight=(wts / wts.sum())[1])
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=(wts / wts[0])[1])
 
         generator = torch.Generator()
         generator.manual_seed(self.seed)
@@ -333,6 +333,20 @@ class WorldCerealEval:
                     all_y.append(y.float())
 
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
+
+            try:
+                import wandb
+
+                if wandb.run is not None:
+                    wandb.log(
+                        {
+                            f"{self.name}_finetuning_val_loss": val_loss[-1],
+                            f"{self.name}_finetuning_train_loss": train_loss[-1],
+                        }
+                    )
+            except ImportError:
+                pass
+
             if best_loss is None:
                 best_loss = val_loss[-1]
                 best_model_dict = deepcopy(model.state_dict())
