@@ -256,7 +256,7 @@ class WorldCerealEval:
         }
 
     def finetune(self, pretrained_model) -> PrestoFineTuningModel:
-        hyperparams = Hyperparams(max_epochs=2)
+        hyperparams = Hyperparams()
         model = self._construct_finetuning_model(pretrained_model)
 
         parameters = param_groups_lrd(model)
@@ -402,8 +402,12 @@ class WorldCerealEval:
         pretrained_model,
         model_modes: List[str],
     ) -> Dict:
-        assert model_modes == ["finetune"]
-        model = self.finetune(pretrained_model)
+        for model_mode in model_modes:
+            assert model_mode == "finetune"
+        if "finetune" in model_modes:
+            model = self.finetune(pretrained_model)
+        else:
+            model = self._construct_finetuning_model(pretrained_model)
         return self.evaluate_thresholds(model)
 
     @torch.no_grad()
@@ -446,7 +450,7 @@ class WorldCerealEval:
             val_df = self.val_df.loc[
                 ~self.val_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
             ]
-            catboost_preds = val_df.catboost_confidence > th
+            catboost_preds = (0.5 * val_df.catboost_confidence + 0.5) > th
 
             def format_partitioned(results):
                 return {
