@@ -174,18 +174,18 @@ def plot_results(
             plt.show()
         plt.close()
 
-    def plot_map(scores: gpd.GeoDataFrame, ax: plt.Axes, vmin=0):
-        scores.plot(column="value", legend=True, ax=ax, vmin=vmin, vmax=1)
+    def plot_map(scores: gpd.GeoDataFrame, ax: plt.Axes):
+        scores.plot(column="value", legend=True, ax=ax, vmin=0, vmax=1)
 
-    def plot_year(scores: pd.DataFrame, ax: plt.Axes, ymin=0):
+    def plot_year(scores: pd.DataFrame, ax: plt.Axes):
         scores.loc[:, ["year", "value"]].plot(kind="bar", legend=False, ax=ax)
         plt.xticks(ticks=range(len(scores.index)), labels=scores.year)
-        plt.ylim(ymin, 1)
+        plt.ylim(0, 1)
         plt.ylabel("F1")
 
     def plot_for_model(grp_df):
-        mrgd_country = world_df.merge(grp_df, left_on="name", right_on="country", how="left")
-        mrgd_country = mrgd_country.dropna(subset="model")
+        mrgd = world_df.merge(grp_df, left_on="name", right_on="country", how="left")
+        mrgd = mrgd.dropna(subset="model")
 
         grp_df_aez = grp_df.loc[~pd.isna(grp_df.aez)]
         grp_df_aez.loc[:, "aez"] = grp_df_aez.aez.astype(int)
@@ -195,21 +195,9 @@ def plot_results(
         grp_df_y = grp_df.loc[pd.notna(grp_df.year)].sort_values("year")
         grp_df_y.loc[:, "year"] = grp_df_y.year.astype(str)
 
-        plot(f"{grp_df.name} Country", partial(plot_map, mrgd_country))
+        plot(f"{grp_df.name} Country", partial(plot_map, mrgd))
         plot(f"{grp_df.name} AEZ", partial(plot_map, mrgd_aez))
         plot(f"{grp_df.name} Year", partial(plot_year, grp_df_y), (6, 5))
-
-        if grp_df.name != "CatBoost":
-            diff_country = mrgd_country.copy()
-            diff_country["value"] -= diff_country["value_catboost"]
-            diff_aez = mrgd_aez.copy()
-            diff_aez["value"] -= diff_aez["value_catboost"]
-            diff_y = grp_df_y.copy()
-            diff_y["value"] -= diff_y["value_catboost"]
-
-            plot(f"{grp_df.name} Country - CatBoost", partial(plot_map, diff_country, vmin=-1))
-            plot(f"{grp_df.name} AEZ - CatBoost", partial(plot_map, diff_aez, vmin=-1))
-            plot(f"{grp_df.name} Year - CatBoost", partial(plot_year, diff_y, ymin=-1), (6, 5))
 
     aez_df = gpd.read_file(data_dir / "AEZ.geojson")
     aez_df = aez_df.loc[:, ["zoneID", "geometry"]]
@@ -229,15 +217,4 @@ def plot_results(
     metrics_df.columns = ["metric", "value", "model", "aez", "year", "country"]
 
     f1_df = metrics_df.loc[metrics_df.metric.str.contains("f1")].copy()
-    f1_df.metric.str.split("_").apply(
-        lambda x: "_".join(x[-2:]) if x[-2] not in f1_df.model.unique() else x[-1]
-    )
-    # add catboost performance to other model's rows to plot difference
-    f1_df = f1_df.merge(
-        f1_df.loc[f1_df.model == "CatBoost"],
-        how="left",
-        on=["metric_wo_model", "aez", "year", "country"],
-        suffixes=(None, "_catboost"),
-    )
-
     f1_df.groupby("model").apply(plot_for_model)
