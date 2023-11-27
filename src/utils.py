@@ -198,19 +198,11 @@ def plot_results(
         grp_df_y = grp_df.loc[pd.notna(grp_df.year)].sort_values("year")
         grp_df_y.loc[:, "year"] = grp_df_y.year.astype(str)
 
-        path_c = plot(f"{grp_df.name} Country", partial(plot_map, mrgd_country))
-        path_aez = plot(f"{grp_df.name} AEZ", partial(plot_map, mrgd_aez))
-        path_y = plot(f"{grp_df.name} Year", partial(plot_year, grp_df_y), (6, 5))
-        if to_wandb:
-            import wandb
-
-            wandb.log(
-                {
-                    "Countries": wandb.Image(str(path_c)),
-                    "AEZ": wandb.Image(str(path_aez)),
-                    "Year": wandb.Image(str(path_y)),
-                }
-            )
+        img_paths = [
+            plot(f"{grp_df.name} Country", partial(plot_map, mrgd_country)),
+            plot(f"{grp_df.name} AEZ", partial(plot_map, mrgd_aez)),
+            plot(f"{grp_df.name} Year", partial(plot_year, grp_df_y), (6, 5)),
+        ]
 
         if grp_df.name != "CatBoost":
             diff_country = mrgd_country.copy()
@@ -220,9 +212,16 @@ def plot_results(
             diff_y = grp_df_y.copy()
             diff_y["value"] -= diff_y["value_catboost"]
 
-            plot(f"{grp_df.name} Country - CatBoost", partial(plot_map, diff_country, vmin=-1))
-            plot(f"{grp_df.name} AEZ - CatBoost", partial(plot_map, diff_aez, vmin=-1))
-            plot(f"{grp_df.name} Year - CatBoost", partial(plot_year, diff_y, ymin=-1), (6, 5))
+        img_paths += [
+            plot(f"{grp_df.name} Country - CatBoost", partial(plot_map, diff_country, vmin=-1)),
+            plot(f"{grp_df.name} AEZ - CatBoost", partial(plot_map, diff_aez, vmin=-1)),
+            plot(f"{grp_df.name} Year - CatBoost", partial(plot_year, diff_y, ymin=-1), (6, 5)),
+        ]
+
+        if to_wandb:
+            import wandb
+
+            wandb.log({str(p): wandb.Image(str(p)) for p in img_paths})
 
     aez_df = gpd.read_file(data_dir / "AEZ.geojson")
     aez_df = aez_df.loc[:, ["zoneID", "geometry"]]
