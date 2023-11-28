@@ -11,7 +11,6 @@ import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from wandb.sdk.wandb_run import Run
 
 from src.dataops import BANDS_GROUPS_IDX
 from src.dataset import WorldCerealMaskedDataset as WorldCerealDataset
@@ -107,7 +106,7 @@ if wandb_enabled:
         project="presto-worldcereal",
         dir=output_parent_dir,
     )
-    run_id = cast(Run, run).id
+    run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
 logging_dir = output_parent_dir / "output" / timestamp_dirname(run_id)
 logging_dir.mkdir(exist_ok=True, parents=True)
@@ -330,7 +329,7 @@ if best_model_path is not None:
     results = full_eval.finetuning_results(
         model, model_modes=["finetune", "Random Forest", "Regression"]
     )
-    plot_results(full_eval.world_df, results, logging_dir, show=True)
+    plot_results(full_eval.world_df, results, logging_dir, show=True, to_wandb=wandb_enabled)
 
     logger.info(json.dumps(results, indent=2))
     if wandb_enabled:
