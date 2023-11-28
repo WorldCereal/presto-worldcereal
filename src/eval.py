@@ -187,6 +187,8 @@ class WorldCerealEval:
             res.update(
                 {
                     f"{prefix}_num_samples: {prop}": f.sum(),
+                    f"{prefix}_num_positives: {prop}": target[f].sum(),
+                    f"{prefix}_num_predicted: {prop}": preds[f].sum(),
                     f"{prefix}_f1: {prop}": f1_score(target[f], preds[f], zero_division=np.nan),
                     f"{prefix}_recall: {prop}": recalls[-1],
                     f"{prefix}_precision: {prop}": precisions[-1],
@@ -252,7 +254,7 @@ class WorldCerealEval:
         if len(sklearn_modes) > 0:
             dl = DataLoader(
                 WorldCerealLabelledDataset(self.train_df),
-                batch_size=8192,
+                batch_size=4096,
                 shuffle=False,
                 num_workers=8,
             )
