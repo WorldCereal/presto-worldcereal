@@ -296,6 +296,14 @@ class WorldCerealEval:
         best_model_dict = None
         epochs_since_improvement = 0
 
+        run = None
+        try:
+            import wandb
+
+            run = wandb.run
+        except ImportError:
+            pass
+
         for _ in tqdm(range(hyperparams.max_epochs), desc="Finetuning"):
             model.train()
             epoch_train_loss = 0.0
@@ -338,18 +346,13 @@ class WorldCerealEval:
 
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
 
-            try:
-                import wandb
-
-                if wandb.run is not None:
-                    wandb.log(
-                        {
-                            f"{self.name}_finetuning_val_loss": val_loss[-1],
-                            f"{self.name}_finetuning_train_loss": train_loss[-1],
-                        }
-                    )
-            except ImportError:
-                pass
+            if run is not None:
+                wandb.log(
+                    {
+                        f"{self.name}_finetuning_val_loss": val_loss[-1],
+                        f"{self.name}_finetuning_train_loss": train_loss[-1],
+                    }
+                )
 
             if best_loss is None:
                 best_loss = val_loss[-1]

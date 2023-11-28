@@ -13,7 +13,6 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import DEFAULT_SEED
 
 IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
@@ -95,13 +94,6 @@ class WorldCerealBase(Dataset):
         # TODO: fix this. For now, we replicate the previous behaviour
         normed_eo = np.where(eo[:, keep_indices] != cls._NODATAVALUE, normed_eo, 0)
         return normed_eo
-
-    @staticmethod
-    def test_val_split(df: pd.DataFrame, seed=DEFAULT_SEED) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        df["year"] = df.end_date.apply(lambda date: date[:4])
-        split_test = df.groupby(["aez_zoneid", "year"]).sample(frac=0.5, random_state=seed)
-        split_val = df.drop(split_test.index)
-        return split_val.copy(), split_test.copy()
 
 
 class WorldCerealMaskedDataset(WorldCerealBase):
