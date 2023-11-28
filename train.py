@@ -324,16 +324,18 @@ if best_model_path is not None:
     logger.info("Loading best model: %s" % best_model_path)
     best_model = torch.load(best_model_path, map_location=device)
     model.load_state_dict(best_model)
+else:
+    logger.info("Running eval with randomly init weights")
 
-    full_eval = WorldCerealEval(train_df, val_df)
-    results = full_eval.finetuning_results(
-        model, model_modes=["finetune", "Random Forest", "Regression"]
-    )
-    plot_results(full_eval.world_df, results, logging_dir, show=True, to_wandb=wandb_enabled)
+full_eval = WorldCerealEval(train_df, val_df)
+results = full_eval.finetuning_results(
+    model, model_modes=["finetune", "Random Forest", "Regression"]
+)
+plot_results(full_eval.world_df, results, logging_dir, show=True, to_wandb=wandb_enabled)
 
-    logger.info(json.dumps(results, indent=2))
-    if wandb_enabled:
-        wandb.log(results)
+logger.info(json.dumps(results, indent=2))
+if wandb_enabled:
+    wandb.log(results)
 
 if wandb_enabled and run:
     run.finish()
