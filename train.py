@@ -3,7 +3,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Tuple, cast
+from typing import Optional, Tuple, cast
 
 import pandas as pd
 import torch
@@ -11,7 +11,6 @@ import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from wandb.sdk.wandb_run import Run
 
 from src.dataops import BANDS_GROUPS_IDX
 from src.dataset import WorldCerealMaskedDataset as WorldCerealDataset
@@ -27,8 +26,10 @@ from src.utils import (
     DEFAULT_SEED,
     config_dir,
     data_dir,
+    default_model_path,
     device,
     initialize_logging,
+    plot_results,
     seed_everything,
     timestamp_dirname,
 )
@@ -105,7 +106,7 @@ if wandb_enabled:
         project="presto-worldcereal",
         dir=output_parent_dir,
     )
-    run_id = cast(Run, run).id
+    run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
 logging_dir = output_parent_dir / "output" / timestamp_dirname(run_id)
 logging_dir.mkdir(exist_ok=True, parents=True)
@@ -160,11 +161,13 @@ logger.info("Setting up model")
 if warm_start:
     model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
     model = Presto.load_pretrained()
+    best_model_path: Optional[Path] = default_model_path
 else:
     if path_to_config == "":
         path_to_config = config_dir / "default.json"
     model_kwargs = json.load(Path(path_to_config).open("r"))
     model = Presto.construct(**model_kwargs)
+    best_model_path = None
 model.to(device)
 
 param_groups = param_groups_weight_decay(model, weight_decay)
@@ -315,17 +318,20 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
 
                 model.train()
 
-logger.info(f"Done training, best model saved to {best_model_path}")
+logger.info(f"Trained for {num_epochs} epochs, best model at {best_model_path}")
 
-logger.info("Loading best model: %s" % best_model_path)
-best_model = torch.load(best_model_path)
-model.load_state_dict(best_model)
+if best_model_path is not None:
+    logger.info("Loading best model: %s" % best_model_path)
+    best_model = torch.load(best_model_path)
+    model.load_state_dict(best_model)
 
-full_eval = WorldCerealEval(train_df, val_df)
-results = full_eval.finetuning_results(model, model_modes=["Random Forest", "Regression"])
-logger.info(json.dumps(results, indent=2))
-if wandb_enabled:
-    wandb.log(results)
+    full_eval = WorldCerealEval(train_df, val_df)
+    results = full_eval.finetuning_results(model, model_modes=["Random Forest", "Regression"])
+    plot_results(full_eval.world_df, results, logging_dir, show=True, to_wandb=wandb_enabled)
+
+    logger.info(json.dumps(results, indent=2))
+    if wandb_enabled:
+        wandb.log(results)
 
 if wandb_enabled and run:
     run.finish()

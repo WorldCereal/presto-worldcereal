@@ -2,10 +2,14 @@ import logging
 import os
 import sys
 from datetime import datetime
+from functools import partial
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 
+import geopandas as gpd
+import pandas as pd
 import torch
+from matplotlib import pyplot as plt
 
 from .dataops import (
     BANDS,
@@ -149,3 +153,125 @@ def construct_single_presto_input(
     else:
         x = x[:, keep_indices]
     return x, mask, dynamic_world
+
+
+def plot_results(
+    world_df: gpd.GeoDataFrame,
+    metrics: Dict,
+    output_dir: Path,
+    epoch: Optional[int] = None,
+    show: bool = False,
+    to_wandb: bool = False,
+):
+    def plot(title: str, plot_fn: Callable, figsize=(15, 5)) -> Path:
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        plot_fn(ax=ax)
+        if epoch is not None:
+            title += f" - epoch {epoch}"
+        plt.title(title)
+        plt.tight_layout()
+        path = output_dir / f"{title.replace(' ', '_')}.png"
+        plt.savefig(path)
+        if show:
+            plt.show()
+        plt.close()
+        return path
+
+    def plot_map(scores: gpd.GeoDataFrame, ax: plt.Axes, vmin=0, vmax=1, cmap="coolwarm"):
+        scores.plot(column="value", legend=True, ax=ax, vmin=vmin, vmax=vmax, cmap=cmap)
+
+    def plot_year(scores: pd.DataFrame, ax: plt.Axes, ymin=0, ymax=1, ylabel=""):
+        scores.loc[:, ["year", "value"]].plot(kind="bar", legend=False, ax=ax)
+        plt.xticks(ticks=range(len(scores.index)), labels=scores.year)
+        plt.ylim(ymin, ymax)
+        plt.ylabel(ylabel)
+
+    def plot_for_group(grp_df):
+        mrgd_country = world_df.merge(grp_df, left_on="name", right_on="country", how="left")
+        mrgd_country = mrgd_country.dropna(subset="model")
+
+        grp_df_aez = grp_df.loc[~pd.isna(grp_df.aez)]
+        grp_df_aez.loc[:, "aez"] = grp_df_aez.aez.astype(int)
+        mrgd_aez = aez_df.merge(grp_df_aez, left_on="zoneID", right_on="aez", how="left")
+        mrgd_aez = mrgd_aez.dropna(subset="model")
+
+        grp_df_y = grp_df.loc[pd.notna(grp_df.year)].sort_values("year")
+        grp_df_y.loc[:, "year"] = grp_df_y.year.astype(str)
+
+        name = " ".join(grp_df.name)
+        model, metric_type = grp_df.name
+        not_1_as_max = ("positives", "predicted", "samples")
+        upper_cntry = mrgd_country.value.max() if metric_type in not_1_as_max else 1
+        upper_aez = mrgd_aez.value.max() if metric_type in not_1_as_max else 1
+        upper_y = (1.1 * grp_df_y.value.max()) if metric_type in not_1_as_max else 1
+        img_paths = [
+            plot(f"{name} Country", partial(plot_map, mrgd_country, vmax=upper_cntry)),
+            plot(f"{name} AEZ", partial(plot_map, mrgd_aez, vmax=upper_aez)),
+            plot(
+                f"{name} Year",
+                partial(plot_year, grp_df_y, ymax=upper_y, ylabel=metric_type),
+                (6, 5),
+            ),
+        ]
+
+        if model != "CatBoost" and metric_type in ("f1", "precision", "recall"):
+            diff_country = mrgd_country.copy()
+            diff_country["value"] -= diff_country["value_catboost"]
+            diff_aez = mrgd_aez.copy()
+            diff_aez["value"] -= diff_aez["value_catboost"]
+            diff_y = grp_df_y.copy()
+            diff_y["value"] -= diff_y["value_catboost"]
+
+            img_paths += [
+                plot(
+                    f"{name} Country - CatBoost",
+                    partial(plot_map, diff_country, vmin=-1, cmap="coolwarm"),
+                ),
+                plot(
+                    f"{name} AEZ - CatBoost", partial(plot_map, diff_aez, vmin=-1, cmap="coolwarm")
+                ),
+                plot(
+                    f"{name} Year - CatBoost",
+                    partial(plot_year, diff_y, ymin=-1, ylabel=metric_type),
+                    (6, 5),
+                ),
+            ]
+
+        if to_wandb:
+            import wandb
+
+            wandb.log({str(p): wandb.Image(str(p)) for p in img_paths})
+
+    aez_df = gpd.read_file(data_dir / "AEZ.geojson")
+    aez_df = aez_df.loc[:, ["zoneID", "geometry"]]
+    aez_df.zoneID = aez_df.zoneID.astype(int)
+
+    metrics_df = pd.DataFrame.from_dict(metrics, orient="index", columns=["value"])
+    metrics_df = metrics_df.reset_index(names="metric")
+    metrics_df = metrics_df.loc[~metrics_df.metric.str.contains("macro")]
+
+    country = metrics_df.metric.apply(
+        lambda m: m.split(":")[-1].lstrip() if "country" in m else None
+    )
+    aez = metrics_df.metric.apply(lambda m: m.split(":")[-1].lstrip() if "aez" in m else None)
+    year = metrics_df.metric.apply(lambda m: m.split(":")[-1].lstrip() if "year" in m else None)
+    model = metrics_df.metric.apply(lambda m: m.split("_")[1].strip())
+    metrics_df = pd.concat((metrics_df, model, aez, year, country), axis=1)
+    metrics_df.columns = ["metric", "value", "model", "aez", "year", "country"]
+
+    # e.g. f1, aez_recall: 46172, ...
+    metrics_df["metric_wo_model"] = metrics_df.metric.str.split("_").apply(
+        lambda x: "_".join(x[-2:]) if x[-2] not in metrics_df.model.unique() else x[-1]
+    )
+    # e.g. f1, recall, precision
+    metrics_df["metric_type"] = metrics_df.metric_wo_model.str.split(":", expand=True).loc[:, 0]
+    metrics_df["metric_type"] = metrics_df["metric_type"].str.split("_").apply(lambda x: x[-1])
+    # add catboost performance to other model's rows to plot difference
+    metrics_df = metrics_df.merge(
+        metrics_df.loc[metrics_df.model == "CatBoost"],
+        how="left",
+        on=["metric_wo_model", "aez", "year", "country"],
+        suffixes=(None, "_catboost"),
+    )
+
+    metrics_df.groupby(["model", "metric_type"]).apply(plot_for_group)
