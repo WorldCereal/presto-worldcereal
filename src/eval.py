@@ -182,16 +182,20 @@ class WorldCerealEval:
         precisions, recalls = [], []
         for prop in prop_series.dropna().unique():
             f: pd.Series = cast(pd.Series, prop_series == prop)
-            recalls.append(recall_score(target[f], preds[f], zero_division=np.nan))
-            precisions.append(precision_score(target[f], preds[f], zero_division=np.nan))
+            # Recall (and hence F1) are nan iff there are no ground-truth positives
+            recall = recall_score(target[f], preds[f], zero_division=np.nan)
+            precision = precision_score(target[f], preds[f], zero_division=0.0)
+            recalls.append(recall)
+            precisions.append(precision)
             res.update(
                 {
                     f"{prefix}_num_samples: {prop}": f.sum(),
                     f"{prefix}_num_positives: {prop}": target[f].sum(),
                     f"{prefix}_num_predicted: {prop}": preds[f].sum(),
-                    f"{prefix}_f1: {prop}": f1_score(target[f], preds[f], zero_division=np.nan),
-                    f"{prefix}_recall: {prop}": recalls[-1],
-                    f"{prefix}_precision: {prop}": precisions[-1],
+                    # +1e-6 to avoid ZeroDivisionError and be 0.0 instead
+                    f"{prefix}_f1: {prop}": 2 * recall * precision / (precision + recall + 1e-6),
+                    f"{prefix}_recall: {prop}": recall,
+                    f"{prefix}_precision: {prop}": precision,
                 }
             )
         recall, precision = np.nanmean(recalls), np.nanmean(precisions)
@@ -254,7 +258,7 @@ class WorldCerealEval:
         if len(sklearn_modes) > 0:
             dl = DataLoader(
                 WorldCerealLabelledDataset(self.train_df),
-                batch_size=4096,
+                batch_size=2048,
                 shuffle=False,
                 num_workers=8,
             )
