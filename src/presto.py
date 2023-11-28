@@ -710,18 +710,15 @@ class PrestoFineTuningModel(nn.Module):
 
 
 class FinetuningHead(nn.Module):
-    def __init__(self, hidden_size: int, num_outputs: int, regression: bool) -> None:
+    def __init__(self, hidden_size: int, num_outputs: int) -> None:
         super().__init__()
 
         self.hidden_size = hidden_size
         self.num_outputs = num_outputs
-        self.regression = regression
         self.linear = nn.Linear(hidden_size, num_outputs)
 
     def forward(self, x: torch.Tensor):
         x = self.linear(x)
-        if (not self.regression) & (self.num_outputs == 1):
-            x = torch.sigmoid(x)
         return x
 
 
@@ -787,12 +784,10 @@ class Presto(nn.Module):
     def construct_finetuning_model(
         self,
         num_outputs: int,
-        regression: bool = False,
-    ):
+    ) -> PrestoFineTuningModel:
         head = FinetuningHead(
             num_outputs=num_outputs,
             hidden_size=self.encoder.embedding_size,
-            regression=regression,
         )
         model = PrestoFineTuningModel(self.encoder, head).to(self.encoder.pos_embed.device)
         model.train()
