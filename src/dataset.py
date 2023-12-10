@@ -70,6 +70,7 @@ class WorldCerealBase(Dataset):
             )
             if presto_val in ["VV", "VH"]:
                 # convert to dB
+                idx_valid = idx_valid & (values > 0)
                 values[idx_valid] = 20 * np.log10(values[idx_valid]) - 83
             elif presto_val == "total_precipitation":
                 # scaling, and AgERA5 is in mm, Presto expects m
