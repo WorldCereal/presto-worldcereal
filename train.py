@@ -242,11 +242,6 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 val_size = 0
                 model.eval()
 
-                val_task_results = validation_task.finetuning_results(
-                    model, model_modes=["Random Forest"]
-                )
-                to_log = val_task_results
-
                 with torch.no_grad():
                     for b in tqdm(val_dataloader, desc="Validate"):
                         mask, x, y, start_month, real_mask = (
@@ -285,16 +280,19 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                     if wandb_enabled:
                         wandb.config.update(training_config)
 
-                to_log.update(
-                    {
-                        "train_eo_loss": train_eo_loss,
-                        "val_eo_loss": val_eo_loss,
-                        "training_step": training_step,
-                        "epoch": epoch,
-                        "lr": lr,
-                    }
-                )
+                to_log = {
+                    "train_eo_loss": train_eo_loss,
+                    "val_eo_loss": val_eo_loss,
+                    "training_step": training_step,
+                    "epoch": epoch,
+                    "lr": lr,
+                }
                 tqdm_epoch.set_postfix(loss=val_eo_loss)
+
+                val_task_results = validation_task.finetuning_results(
+                    model, model_modes=["Random Forest"]
+                )
+                to_log.update(val_task_results)
 
                 if lowest_validation_loss is None or val_eo_loss < lowest_validation_loss:
                     lowest_validation_loss = val_eo_loss
