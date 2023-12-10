@@ -53,7 +53,7 @@ argparser.add_argument("--min_learning_rate", type=float, default=0.0)
 argparser.add_argument("--warmup_epochs", type=int, default=2)
 argparser.add_argument("--weight_decay", type=float, default=0.05)
 argparser.add_argument("--batch_size", type=int, default=4096)
-argparser.add_argument("--val_per_n_steps", type=int, default=1000)
+argparser.add_argument("--val_per_n_steps", type=int, default=-1, help="If -1, val every epoch")
 argparser.add_argument(
     "--mask_strategies",
     type=str,
@@ -156,6 +156,9 @@ validation_task = WorldCerealEval(
     train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
     val_data=val_df.sample(1000, random_state=DEFAULT_SEED),
 )
+
+if val_per_n_steps == -1:
+    val_per_n_steps = len(train_dataloader)
 
 logger.info("Setting up model")
 if warm_start:
