@@ -23,7 +23,7 @@ class TestUtils(TestCase):
         self.assertEqual(out[0, 0], 0)
 
     def test_output(self):
-        MISSING_DATA_ROW = 86268
+        MISSING_DATA_ROW = 0
         df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")
         location_index = df.index.get_loc(MISSING_DATA_ROW)
         strategies = [

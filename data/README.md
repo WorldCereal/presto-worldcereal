@@ -73,4 +73,3 @@ true_dB = 20 * np.log10(scaled_dB) - 83
 ##### 3.3  <a name='MeteoData'></a>Meteo data
 METEO variables are scaled (scale factor 100) and need to be unscaled to be compatible with Presto.
 Specifically for the precipitation sum, values are (after unscaling) expressed in `mm` and need to be converted to `m` to be compatible with Presto.
-
