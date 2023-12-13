@@ -84,7 +84,7 @@ class WorldCerealEval:
         pretrained_model.eval()
 
         encoding_list, target_list = [], []
-        for x, y, dw, latlons, month, _, variable_mask in dl:
+        for x, y, dw, latlons, month, variable_mask in dl:
             x_f, dw_f, latlons_f, month_f, variable_mask_f = [
                 t.to(device) for t in (x, dw, latlons, month, variable_mask)
             ]
@@ -379,7 +379,7 @@ class WorldCerealEval:
 
             model.eval()
             all_preds, all_y = [], []
-            for x, y, dw, latlons, month, _, variable_mask in val_dl:
+            for x, y, dw, latlons, month, variable_mask in val_dl:
                 x, y, dw, latlons, month, variable_mask = [
                     t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
                 ]
