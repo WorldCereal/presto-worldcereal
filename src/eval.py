@@ -47,8 +47,7 @@ class WorldCerealEval:
         self,
         train_data: pd.DataFrame,
         val_data: pd.DataFrame,
-        spatial_inference_path: Path,
-        spatial_inference_savedir: Path,
+        spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
     ):
         self.seed = seed
@@ -65,7 +64,6 @@ class WorldCerealEval:
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
         # these columns contain nan sometimes
         self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
-        self.spatial_inference_path = spatial_inference_path
         self.spatial_inference_savedir = spatial_inference_savedir
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
@@ -172,9 +170,9 @@ class WorldCerealEval:
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
         pretrained_model: Optional[Presto] = None,
     ):
-        # 1. construct spatial inference ds's
-        ds = WorldCerealInferenceDataset(self.spatial_inference_path)
-        for i in len(ds):
+        assert self.spatial_inference_savedir is not None
+        ds = WorldCerealInferenceDataset()
+        for i in range(len(ds)):
             eo, dynamic_world, mask, latlons, months, y = ds[i]
             dl = DataLoader(
                 TensorDataset(
@@ -192,7 +190,11 @@ class WorldCerealEval:
                 dl, finetuned_model, pretrained_model
             )
             df = ds.combine_predictions(latlons, test_preds_np, target_np)
-            df.to_xarray().to_netcdf(self.spatial_inference_savedir)
+            if pretrained_model is None:
+                filename = f"{ds.all_files[i].stem}_finetuning.nc"
+            else:
+                filename = f"{ds.all_files[i].stem}_{finetuned_model.__class__.__name__}.nc"
+            df.to_xarray().to_netcdf(self.spatial_inference_savedir / filename)
 
     @torch.no_grad()
     def evaluate(
@@ -433,6 +435,8 @@ class WorldCerealEval:
         if "finetune" in model_modes:
             model = self.finetune(pretrained_model)
             results_dict.update(self.evaluate(model, None))
+            if self.spatial_inference_savedir is not None:
+                self.spatial_inference(model, None)
 
         sklearn_modes = [x for x in model_modes if x != "finetune"]
         if len(sklearn_modes) > 0:
@@ -450,4 +454,6 @@ class WorldCerealEval:
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {sklearn_model}...")
                 results_dict.update(self.evaluate(sklearn_model, pretrained_model))
+                if self.spatial_inference_savedir is not None:
+                    self.spatial_inference(sklearn_model, pretrained_model)
         return results_dict

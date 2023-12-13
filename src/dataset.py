@@ -18,6 +18,7 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
+from .utils import data_dir
 
 IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
@@ -175,9 +176,9 @@ class WorldCerealInferenceDataset(Dataset):
         "temperature-mean": "temperature_2m",
     }
 
-    def __init__(self, path_to_files: Path):
-        self.path_to_files = path_to_files
-        self.all_files = list(path_to_files.glob("*.nc"))
+    def __init__(self):
+        self.path_to_files = data_dir / "inference_areas"
+        self.all_files = list(self.path_to_files.glob("*.nc"))
 
     def __len__(self):
         return len(self.all_files)
