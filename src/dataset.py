@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple, cast
+from typing import Dict, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -145,14 +145,12 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         row = self.df.iloc[idx, :]
         eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
-        num_masked_tokens = sum(sum(mask_per_token))
         return (
             self.normalize_and_mask(eo),
             target,
             np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
             latlon,
             month,
-            num_masked_tokens,
             mask_per_variable,
         )
 
@@ -180,6 +178,9 @@ class WorldCerealInferenceDataset(Dataset):
     def __init__(self, path_to_files: Path):
         self.path_to_files = path_to_files
         self.all_files = list(path_to_files.glob("*.nc"))
+
+    def __len__(self):
+        return len(self.all_files)
 
     @classmethod
     def nc_to_arrays(
@@ -238,3 +239,19 @@ class WorldCerealInferenceDataset(Dataset):
         dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
 
         return S1_S2_ERA5_SRTM.normalize(eo), dynamic_world, mask, latlons, months, y
+
+    @staticmethod
+    def combine_predictions(
+        latlons: np.ndarray, batch_predictions: np.ndarray, gt: np.ndarray
+    ) -> pd.DataFrame:
+        flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
+        all_preds = np.concatenate(batch_predictions, axis=0)
+        if len(all_preds.shape) == 1:
+            all_preds = np.expand_dims(all_preds, axis=-1)
+
+        data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
+        for i in range(all_preds.shape[1]):
+            prediction_label = f"prediction_{i}"
+            data_dict[prediction_label] = all_preds[:, i]
+        data_dict["ground_truth"] = gt[:, 0]
+        return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])
