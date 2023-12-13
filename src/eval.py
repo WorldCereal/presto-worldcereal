@@ -357,7 +357,7 @@ class WorldCerealEval:
         for _ in tqdm(range(hyperparams.max_epochs), desc="Finetuning"):
             model.train()
             epoch_train_loss = 0.0
-            for x, y, dw, latlons, month, _, variable_mask in tqdm(
+            for x, y, dw, latlons, month, variable_mask in tqdm(
                 train_dl, desc="Training", leave=False
             ):
                 x, y, dw, latlons, month, variable_mask = [
