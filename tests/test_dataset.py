@@ -52,7 +52,7 @@ class TestUtils(TestCase):
 
     def test_spatial_dataset(self):
         num_vals = 100
-        ds = WorldCerealInferenceDataset(data_dir / "inference_areas")
+        ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
         model = Presto.construct()
         eo, dw, mask, latlons, months, _ = ds[0]
