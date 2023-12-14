@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Union, cast
+from typing import Callable, Dict, List, Optional, Sequence, Union, Tuple, cast
 
 import geopandas as gpd
 import numpy as np
@@ -177,7 +177,7 @@ class WorldCerealEval:
             dl = DataLoader(
                 TensorDataset(
                     torch.from_numpy(eo),
-                    torch.from_numpy(y),
+                    torch.from_numpy(y.astype(np.int16)),
                     torch.from_numpy(dynamic_world),
                     torch.from_numpy(latlons),
                     torch.from_numpy(months),
