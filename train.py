@@ -333,6 +333,8 @@ results, finetuned_model = full_eval.finetuning_results(
     model, model_modes=["finetune", "Random Forest", "Regression"]
 )
 if finetuned_model is not None:
+    model_path = logging_dir / Path("models")
+    model_path.mkdir(exist_ok=True, parents=True)
     finetuned_model_path = model_path / "finetuned_model.pt"
     torch.save(model.state_dict(), finetuned_model_path)
 plot_results(full_eval.world_df, results, logging_dir, show=True, to_wandb=wandb_enabled)
