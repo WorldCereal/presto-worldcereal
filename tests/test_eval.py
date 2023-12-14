@@ -17,6 +17,6 @@ class TestUtils(TestCase):
         test_data["LANDCOVER_LABEL"] = labels
         eval_task = WorldCerealEval(test_data, test_data)
 
-        output = eval_task.finetuning_results(model, ["Regression"])
+        output, _ = eval_task.finetuning_results(model, ["Regression"])
         self.assertEqual(len(output), 564)
         self.assertTrue("WorldCerealCropland_LogisticRegression_f1" in output)

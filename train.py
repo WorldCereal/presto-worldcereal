@@ -292,7 +292,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 }
                 tqdm_epoch.set_postfix(loss=val_eo_loss)
 
-                val_task_results = validation_task.finetuning_results(
+                val_task_results, _ = validation_task.finetuning_results(
                     model, model_modes=["Random Forest"]
                 )
                 to_log.update(val_task_results)
@@ -329,9 +329,12 @@ else:
     logger.info("Running eval with randomly init weights")
 
 full_eval = WorldCerealEval(train_df, val_df)
-results = full_eval.finetuning_results(
+results, finetuned_model = full_eval.finetuning_results(
     model, model_modes=["finetune", "Random Forest", "Regression"]
 )
+if finetuned_model is not None:
+    finetuned_model_path = model_path / "finetuned_model.pt"
+    torch.save(model.state_dict(), finetuned_model_path)
 plot_results(full_eval.world_df, results, logging_dir, show=True, to_wandb=wandb_enabled)
 
 logger.info(json.dumps(results, indent=2))

@@ -2,7 +2,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Dict, List, Optional, Sequence, Union, cast
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import geopandas as gpd
 import numpy as np
@@ -377,14 +377,15 @@ class WorldCerealEval:
         self,
         pretrained_model,
         model_modes: List[str],
-    ) -> Dict:
+    ) -> Tuple[Dict, Optional[PrestoFineTuningModel]]:
         for model_mode in model_modes:
             assert model_mode in ["Regression", "Random Forest", "finetune"]
 
         results_dict = {}
+        finetuned_model: Optional[PrestoFineTuningModel] = None
         if "finetune" in model_modes:
-            model = self.finetune(pretrained_model)
-            results_dict.update(self.evaluate(model, None))
+            finetuned_model = self.finetune(pretrained_model)
+            results_dict.update(self.evaluate(finetuned_model, None))
 
         sklearn_modes = [x for x in model_modes if x != "finetune"]
         if len(sklearn_modes) > 0:
@@ -402,4 +403,4 @@ class WorldCerealEval:
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {sklearn_model}...")
                 results_dict.update(self.evaluate(sklearn_model, pretrained_model))
-        return results_dict
+        return results_dict, finetuned_model
