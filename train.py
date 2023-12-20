@@ -12,17 +12,17 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.dataops import BANDS_GROUPS_IDX
-from src.dataset import WorldCerealMaskedDataset as WorldCerealDataset
-from src.eval import WorldCerealEval
-from src.masking import MASK_STRATEGIES, MaskParamsNoDw
-from src.presto import (
+from presto.dataops import BANDS_GROUPS_IDX
+from presto.dataset import WorldCerealMaskedDataset as WorldCerealDataset
+from presto.eval import WorldCerealEval
+from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
+from presto.presto import (
     LossWrapper,
     Presto,
     adjust_learning_rate,
     param_groups_weight_decay,
 )
-from src.utils import (
+from presto.utils import (
     DEFAULT_SEED,
     config_dir,
     data_dir,
@@ -345,4 +345,5 @@ if wandb_enabled:
 
 if wandb_enabled and run:
     run.finish()
+    logger.info(f"Wandb url: {run.url}")
     logger.info(f"Wandb url: {run.url}")

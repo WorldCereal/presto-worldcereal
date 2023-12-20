@@ -2,8 +2,8 @@ from unittest import TestCase
 
 import torch
 
-from src.dataops import NORMED_BANDS, DynamicWorld2020_2021
-from src.utils import construct_single_presto_input
+from presto.dataops import NORMED_BANDS, DynamicWorld2020_2021
+from presto.utils import construct_single_presto_input
 
 
 class TestUtils(TestCase):

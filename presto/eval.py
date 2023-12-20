@@ -118,7 +118,6 @@ class WorldCerealEval:
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
         pretrained_model: Optional[Presto] = None,
     ) -> Dict:
-
         if isinstance(finetuned_model, BaseEstimator):
             assert isinstance(pretrained_model, Presto)
 
@@ -227,7 +226,6 @@ class WorldCerealEval:
     def partitioned_metrics(
         self, target: np.ndarray, preds: np.ndarray
     ) -> Dict[str, Union[np.float32, np.int32]]:
-
         test_df = self.test_df.loc[
             ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ]

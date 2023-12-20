@@ -9,7 +9,7 @@ from einops import repeat
 from torch import nn
 from torch.optim import AdamW
 
-from src.dataops import (
+from presto.dataops import (
     BANDS_GROUPS_IDX,
     NUM_BANDS,
     NUM_ORG_BANDS,
@@ -18,8 +18,8 @@ from src.dataops import (
     SRTM_INDEX,
     DynamicWorld2020_2021,
 )
-from src.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
-from src.utils import config_dir, default_model_path, device
+from presto.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
+from presto.utils import config_dir, default_model_path, device
 
 
 class TestPresto(TestCase):
@@ -181,7 +181,6 @@ class TestPresto(TestCase):
         self.assertTrue(torch.equal(filled_tokens, expected_out))
 
     def test_encodings_correctly_added_in_decoder(self):
-
         # 1 batch, 3 timesteps, 13 dimensions (plus the latlon and srtm token)
         num_timesteps = 3
         x = torch.zeros((1, (num_timesteps * len(BANDS_GROUPS_IDX)) + 2, 14))
@@ -279,7 +278,6 @@ class TestPresto(TestCase):
             self.assertTrue(torch.equal(torch_loaded, config_loaded))
 
     def test_reconstruct_inputs(self):
-
         model = Presto.construct().decoder
 
         class NoOp(nn.Module):
@@ -328,7 +326,6 @@ class TestPresto(TestCase):
                 self.assertIsNotNone(param.grad, msg=name)
 
     def test_finetuning_model_outputs_equivalent(self):
-
         batch_size = 3
         num_outputs = 2
 
@@ -357,7 +354,6 @@ class TestPresto(TestCase):
 class TestPrestoEndToEnd(TestCase):
     @classmethod
     def setUpClass(cls):
-
         embedding_size = 16
         model = Presto.construct(
             encoder_embedding_size=embedding_size, decoder_embedding_size=embedding_size

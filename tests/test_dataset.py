@@ -3,10 +3,10 @@ from unittest import TestCase
 import numpy as np
 import pandas as pd
 
-from src.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
-from src.dataset import WorldCerealLabelledDataset, WorldCerealMaskedDataset
-from src.masking import MaskParamsNoDw
-from src.utils import data_dir
+from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
+from presto.dataset import WorldCerealLabelledDataset, WorldCerealMaskedDataset
+from presto.masking import MaskParamsNoDw
+from presto.utils import data_dir
 
 
 class TestUtils(TestCase):
