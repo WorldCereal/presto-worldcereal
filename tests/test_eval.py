@@ -2,9 +2,9 @@ from unittest import TestCase
 
 import pandas as pd
 
-from src.eval import WorldCerealEval
-from src.presto import Presto
-from src.utils import data_dir
+from presto.eval import WorldCerealEval
+from presto.presto import Presto
+from presto.utils import data_dir
 
 
 class TestUtils(TestCase):

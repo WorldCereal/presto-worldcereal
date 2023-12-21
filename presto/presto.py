@@ -336,7 +336,6 @@ class Encoder(nn.Module):
         self.initialize_weights()
 
     def initialize_weights(self):
-
         pos_embed = get_sinusoid_encoding_table(self.pos_embed.shape[1], self.pos_embed.shape[-1])
         self.pos_embed.data.copy_(pos_embed)
 
@@ -542,7 +541,6 @@ class Decoder(nn.Module):
         self.initialize_weights()
 
     def initialize_weights(self):
-
         pos_embed = get_sinusoid_encoding_table(self.pos_embed.shape[1], self.pos_embed.shape[-1])
         self.pos_embed.data.copy_(pos_embed)
 
@@ -663,7 +661,6 @@ class Decoder(nn.Module):
         return torch.cat(eo_output, dim=-1), cast(torch.Tensor, dw_output)
 
     def forward(self, x, orig_indices, x_mask, month):
-
         x = self.decoder_embed(x)
         x = self.add_masked_tokens(x, orig_indices, x_mask)
         x = self.add_embeddings(x, month)
@@ -696,7 +693,6 @@ class PrestoFineTuningModel(nn.Module):
         mask: Optional[torch.Tensor] = None,
         month: Union[torch.Tensor, int] = 0,
     ) -> torch.Tensor:
-
         return self.head(
             self.encoder(
                 x=x,
