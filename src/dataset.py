@@ -243,16 +243,13 @@ class WorldCerealInferenceDataset(Dataset):
 
     @staticmethod
     def combine_predictions(
-        latlons: np.ndarray, batch_predictions: np.ndarray, gt: np.ndarray
+        latlons: np.ndarray, all_preds: np.ndarray, gt: np.ndarray
     ) -> pd.DataFrame:
         flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
-        all_preds = np.concatenate(batch_predictions, axis=0)
         if len(all_preds.shape) == 1:
             all_preds = np.expand_dims(all_preds, axis=-1)
 
         data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
-        for i in range(all_preds.shape[1]):
-            prediction_label = f"prediction_{i}"
-            data_dict[prediction_label] = all_preds[:, i]
+        data_dict["predictions"] = all_preds
         data_dict["ground_truth"] = gt[:, 0]
         return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])
