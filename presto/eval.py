@@ -125,7 +125,7 @@ class WorldCerealEval:
         dl,
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
         pretrained_model: Optional[Presto] = None,
-    ) -> Dict:
+    ) -> Tuple:
         if isinstance(finetuned_model, BaseEstimator):
             assert isinstance(pretrained_model, Presto)
 
