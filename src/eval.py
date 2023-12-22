@@ -176,12 +176,12 @@ class WorldCerealEval:
             eo, dynamic_world, mask, latlons, months, y = ds[i]
             dl = DataLoader(
                 TensorDataset(
-                    torch.from_numpy(eo),
+                    torch.from_numpy(eo).float(),
                     torch.from_numpy(y.astype(np.int16)),
-                    torch.from_numpy(dynamic_world),
-                    torch.from_numpy(latlons),
-                    torch.from_numpy(months),
-                    torch.from_numpy(mask),
+                    torch.from_numpy(dynamic_world).long(),
+                    torch.from_numpy(latlons).float(),
+                    torch.from_numpy(months).long(),
+                    torch.from_numpy(mask).float(),
                 ),
                 batch_size=8192,
                 shuffle=False,
