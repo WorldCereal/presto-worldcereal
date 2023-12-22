@@ -328,7 +328,7 @@ if best_model_path is not None:
 else:
     logger.info("Running eval with randomly init weights")
 
-full_eval = WorldCerealEval(train_df, val_df)
+full_eval = WorldCerealEval(train_df, val_df, model_logging_dir)
 results, finetuned_model = full_eval.finetuning_results(
     model, model_modes=["finetune", "Random Forest", "Regression"]
 )
