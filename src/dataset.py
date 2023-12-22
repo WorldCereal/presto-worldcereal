@@ -250,6 +250,8 @@ class WorldCerealInferenceDataset(Dataset):
             all_preds = np.expand_dims(all_preds, axis=-1)
 
         data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
-        data_dict["predictions"] = all_preds
+        for i in range(all_preds.shape[1]):
+            prediction_label = f"prediction_{i}"
+            data_dict[prediction_label] = all_preds[:, i]
         data_dict["ground_truth"] = gt[:, 0]
         return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])
