@@ -100,7 +100,6 @@ SRTM_INDEX = list(BANDS_GROUPS_IDX.keys()).index("SRTM")
 
 
 class DynamicWorld2020_2021:
-
     class_amount = 9
 
     @classmethod

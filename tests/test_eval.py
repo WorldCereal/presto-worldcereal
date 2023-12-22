@@ -2,9 +2,9 @@ from unittest import TestCase
 
 import pandas as pd
 
-from src.eval import WorldCerealEval
-from src.presto import Presto
-from src.utils import data_dir
+from presto.eval import WorldCerealEval
+from presto.presto import Presto
+from presto.utils import data_dir
 
 
 class TestUtils(TestCase):
@@ -17,6 +17,6 @@ class TestUtils(TestCase):
         test_data["LANDCOVER_LABEL"] = labels
         eval_task = WorldCerealEval(test_data, test_data)
 
-        output = eval_task.finetuning_results(model, ["Regression"])
+        output, _ = eval_task.finetuning_results(model, ["Regression"])
         self.assertEqual(len(output), 564)
         self.assertTrue("WorldCerealCropland_LogisticRegression_f1" in output)

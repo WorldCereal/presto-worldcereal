@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Union, cast
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import geopandas as gpd
 import numpy as np
@@ -125,7 +125,10 @@ class WorldCerealEval:
         dl,
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
         pretrained_model: Optional[Presto] = None,
-    ):
+    ) -> Dict:
+        if isinstance(finetuned_model, BaseEstimator):
+            assert isinstance(pretrained_model, Presto)
+
         test_preds, targets = [], []
 
         for x, y, dw, latlons, month, variable_mask in dl:
@@ -277,7 +280,6 @@ class WorldCerealEval:
     def partitioned_metrics(
         self, target: np.ndarray, preds: np.ndarray
     ) -> Dict[str, Union[np.float32, np.int32]]:
-
         test_df = self.test_df.loc[
             ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ]
@@ -427,16 +429,17 @@ class WorldCerealEval:
         self,
         pretrained_model,
         model_modes: List[str],
-    ) -> Dict:
+    ) -> Tuple[Dict, Optional[PrestoFineTuningModel]]:
         for model_mode in model_modes:
             assert model_mode in ["Regression", "Random Forest", "finetune"]
 
         results_dict = {}
+        finetuned_model: Optional[PrestoFineTuningModel] = None
         if "finetune" in model_modes:
-            model = self.finetune(pretrained_model)
-            results_dict.update(self.evaluate(model, None))
+            finetuned_model = self.finetune(pretrained_model)
+            results_dict.update(self.evaluate(finetuned_model, None))
             if self.spatial_inference_savedir is not None:
-                self.spatial_inference(model, None)
+                self.spatial_inference(finetuned_model, None)
 
         sklearn_modes = [x for x in model_modes if x != "finetune"]
         if len(sklearn_modes) > 0:
@@ -456,4 +459,4 @@ class WorldCerealEval:
                 results_dict.update(self.evaluate(sklearn_model, pretrained_model))
                 if self.spatial_inference_savedir is not None:
                     self.spatial_inference(sklearn_model, pretrained_model)
-        return results_dict
+        return results_dict, finetuned_model

@@ -4,15 +4,15 @@ import numpy as np
 import pandas as pd
 import torch
 
-from src.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
-from src.dataset import (
+from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
+from presto.dataset import (
     WorldCerealInferenceDataset,
     WorldCerealLabelledDataset,
     WorldCerealMaskedDataset,
 )
-from src.masking import MaskParamsNoDw
-from src.presto import Presto
-from src.utils import data_dir
+from presto.masking import MaskParamsNoDw
+from presto.presto import Presto
+from presto.utils import data_dir
 
 
 class TestUtils(TestCase):

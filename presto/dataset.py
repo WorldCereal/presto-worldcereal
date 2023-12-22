@@ -71,11 +71,9 @@ class WorldCerealBase(Dataset):
         for df_val, presto_val in cls.BAND_MAPPING.items():
             values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
             idx_valid = values != cls._NODATAVALUE
-            mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
-                mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
-            )
             if presto_val in ["VV", "VH"]:
                 # convert to dB
+                idx_valid = idx_valid & (values > 0)
                 values[idx_valid] = 20 * np.log10(values[idx_valid]) - 83
             elif presto_val == "total_precipitation":
                 # scaling, and AgERA5 is in mm, Presto expects m
@@ -83,6 +81,9 @@ class WorldCerealBase(Dataset):
             elif presto_val == "temperature_2m":
                 # remove scaling
                 values[idx_valid] = values[idx_valid] / 100
+            mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
+                mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
+            )
             eo_data[:, BANDS.index(presto_val)] = values
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             eo_data[:, BANDS.index(presto_val)] = row_d[df_val]

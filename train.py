@@ -12,17 +12,17 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.dataops import BANDS_GROUPS_IDX
-from src.dataset import WorldCerealMaskedDataset as WorldCerealDataset
-from src.eval import WorldCerealEval
-from src.masking import MASK_STRATEGIES, MaskParamsNoDw
-from src.presto import (
+from presto.dataops import BANDS_GROUPS_IDX
+from presto.dataset import WorldCerealMaskedDataset as WorldCerealDataset
+from presto.eval import WorldCerealEval
+from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
+from presto.presto import (
     LossWrapper,
     Presto,
     adjust_learning_rate,
     param_groups_weight_decay,
 )
-from src.utils import (
+from presto.utils import (
     DEFAULT_SEED,
     config_dir,
     data_dir,
@@ -53,7 +53,7 @@ argparser.add_argument("--min_learning_rate", type=float, default=0.0)
 argparser.add_argument("--warmup_epochs", type=int, default=2)
 argparser.add_argument("--weight_decay", type=float, default=0.05)
 argparser.add_argument("--batch_size", type=int, default=4096)
-argparser.add_argument("--val_per_n_steps", type=int, default=1000)
+argparser.add_argument("--val_per_n_steps", type=int, default=-1, help="If -1, val every epoch")
 argparser.add_argument(
     "--mask_strategies",
     type=str,
@@ -156,6 +156,9 @@ validation_task = WorldCerealEval(
     train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
     val_data=val_df.sample(1000, random_state=DEFAULT_SEED),
 )
+
+if val_per_n_steps == -1:
+    val_per_n_steps = len(train_dataloader)
 
 logger.info("Setting up model")
 if warm_start:
@@ -289,7 +292,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 }
                 tqdm_epoch.set_postfix(loss=val_eo_loss)
 
-                val_task_results = validation_task.finetuning_results(
+                val_task_results, _ = validation_task.finetuning_results(
                     model, model_modes=["Random Forest"]
                 )
                 to_log.update(val_task_results)
@@ -325,10 +328,15 @@ if best_model_path is not None:
 else:
     logger.info("Running eval with randomly init weights")
 
-full_eval = WorldCerealEval(train_df, val_df, model_logging_dir)
-results = full_eval.finetuning_results(
+full_eval = WorldCerealEval(train_df, val_df)
+results, finetuned_model = full_eval.finetuning_results(
     model, model_modes=["finetune", "Random Forest", "Regression"]
 )
+if finetuned_model is not None:
+    model_path = model_logging_dir / Path("models")
+    model_path.mkdir(exist_ok=True, parents=True)
+    finetuned_model_path = model_path / "finetuned_model.pt"
+    torch.save(model.state_dict(), finetuned_model_path)
 plot_results(full_eval.world_df, results, model_logging_dir, show=True, to_wandb=wandb_enabled)
 
 logger.info(json.dumps(results, indent=2))
@@ -337,4 +345,5 @@ if wandb_enabled:
 
 if wandb_enabled and run:
     run.finish()
+    logger.info(f"Wandb url: {run.url}")
     logger.info(f"Wandb url: {run.url}")

@@ -2,7 +2,7 @@ from unittest import TestCase
 
 import numpy as np
 
-from src.masking import BANDS_GROUPS_IDX, NUM_TIMESTEPS, make_mask_no_dw
+from presto.masking import BANDS_GROUPS_IDX, NUM_TIMESTEPS, make_mask_no_dw
 
 TEST_MASK_RATIOS = [x / 100 for x in range(5, 100, 5)]
 
@@ -58,7 +58,6 @@ class TestMasking(TestCase):
         real_masked_tokens[0, 0] = True
         for mask_ratio in TEST_MASK_RATIOS:
             for masking_strategy in ["random_timesteps", "chunk_timesteps"]:
-
                 eo_mask = make_mask_no_dw(
                     strategy=masking_strategy,
                     mask_ratio=mask_ratio,
@@ -82,7 +81,6 @@ class TestMasking(TestCase):
                     :, [x for x in range(eo_mask.shape[1]) if x not in BANDS_GROUPS_IDX["SRTM"]]
                 ]
                 for timestep in range(total_mask.shape[0]):
-
                     timestep_vals = total_mask[timestep, :]
                     if timestep_vals.max() == timestep_vals.min() == 1:
                         num_masked_timesteps += 1
