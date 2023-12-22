@@ -218,7 +218,7 @@ class WorldCerealInferenceDataset(Dataset):
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
             )
 
-        y = ds[cls.Y].values.reshape((num_timesteps, -1))
+        y = ds[cls.Y].values.reshape((num_instances, num_timesteps))
         # -1 because we index from 0
         start_month = (ds.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
         months = np.ones((num_instances)) * start_month

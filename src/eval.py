@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Union, Tuple, cast
+from typing import Callable, Dict, List, Optional, Sequence, Union, cast
 
 import geopandas as gpd
 import numpy as np
