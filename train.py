@@ -8,6 +8,7 @@ from typing import Optional, Tuple, cast
 import pandas as pd
 import torch
 import torch.nn as nn
+import xarray as xr
 from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -30,6 +31,7 @@ from presto.utils import (
     device,
     initialize_logging,
     plot_results,
+    plot_spatial,
     seed_everything,
     timestamp_dirname,
 )
@@ -108,10 +110,10 @@ if wandb_enabled:
     )
     run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
-logging_dir = output_parent_dir / "output" / timestamp_dirname(run_id)
-logging_dir.mkdir(exist_ok=True, parents=True)
-initialize_logging(logging_dir)
-logger.info("Using output dir: %s" % logging_dir)
+model_logging_dir = output_parent_dir / "output" / timestamp_dirname(run_id)
+model_logging_dir.mkdir(exist_ok=True, parents=True)
+initialize_logging(model_logging_dir)
+logger.info("Using output dir: %s" % model_logging_dir)
 
 num_epochs = args["n_epochs"]
 val_per_n_steps = args["val_per_n_steps"]
@@ -184,7 +186,7 @@ training_config = {
     "optimizer": optimizer.__class__.__name__,
     "eo_loss": mse.loss.__class__.__name__,
     "device": device,
-    "logging_dir": logging_dir,
+    "logging_dir": model_logging_dir,
     **args,
     **model_kwargs,
 }
@@ -301,7 +303,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                     lowest_validation_loss = val_eo_loss
                     best_val_epoch = epoch
 
-                    model_path = logging_dir / Path("models")
+                    model_path = model_logging_dir / Path("models")
                     model_path.mkdir(exist_ok=True, parents=True)
 
                     best_model_path = model_path / f"{model_name}{epoch}.pt"
@@ -328,16 +330,22 @@ if best_model_path is not None:
 else:
     logger.info("Running eval with randomly init weights")
 
-full_eval = WorldCerealEval(train_df, val_df)
+full_eval = WorldCerealEval(train_df, val_df, model_logging_dir)
 results, finetuned_model = full_eval.finetuning_results(
     model, model_modes=["finetune", "Random Forest", "Regression"]
 )
 if finetuned_model is not None:
-    model_path = logging_dir / Path("models")
+    model_path = model_logging_dir / Path("models")
     model_path.mkdir(exist_ok=True, parents=True)
     finetuned_model_path = model_path / "finetuned_model.pt"
     torch.save(model.state_dict(), finetuned_model_path)
-plot_results(full_eval.world_df, results, logging_dir, show=True, to_wandb=wandb_enabled)
+plot_results(full_eval.world_df, results, model_logging_dir, show=True, to_wandb=wandb_enabled)
+all_spatial_preds = list(model_logging_dir.glob("*.nc"))
+for spatial_preds_path in all_spatial_preds:
+    preds = xr.load_dataset(spatial_preds_path)
+    output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
+    plot_spatial(preds, output_path, to_wandb=wandb_enabled)
+
 
 logger.info(json.dumps(results, indent=2))
 if wandb_enabled:

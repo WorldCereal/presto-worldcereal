@@ -2,10 +2,16 @@ from unittest import TestCase
 
 import numpy as np
 import pandas as pd
+import torch
 
 from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
-from presto.dataset import WorldCerealLabelledDataset, WorldCerealMaskedDataset
+from presto.dataset import (
+    WorldCerealInferenceDataset,
+    WorldCerealLabelledDataset,
+    WorldCerealMaskedDataset,
+)
 from presto.masking import MaskParamsNoDw
+from presto.presto import Presto
 from presto.utils import data_dir
 
 
@@ -43,3 +49,18 @@ class TestUtils(TestCase):
         mask[true_mask] = False
         s1_s2_mask = mask[:, :-5]
         self.assertTrue((y[:, :-5][s1_s2_mask] != 0).all())
+
+    def test_spatial_dataset(self):
+        num_vals = 100
+        ds = WorldCerealInferenceDataset()
+        # for now, let's just test it runs smoothly
+        model = Presto.construct()
+        eo, dw, mask, latlons, months, _ = ds[0]
+        with torch.no_grad():
+            _ = model(
+                x=torch.from_numpy(eo).float()[:num_vals],
+                dynamic_world=torch.from_numpy(dw).long()[:num_vals],
+                latlons=torch.from_numpy(latlons).float()[:num_vals],
+                mask=torch.from_numpy(mask).int()[:num_vals],
+                month=torch.from_numpy(months).long()[:num_vals],
+            )

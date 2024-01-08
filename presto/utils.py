@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Optional, Union
 import geopandas as gpd
 import pandas as pd
 import torch
+import xarray as xr
 from matplotlib import pyplot as plt
 
 from .dataops import (
@@ -275,3 +276,16 @@ def plot_results(
     )
 
     metrics_df.groupby(["model", "metric_type"]).apply(plot_for_group)
+
+
+def plot_spatial(spatial_preds: xr.Dataset, output_path: Path, to_wandb: int = False):
+    plt.clf()
+    _, axs = plt.subplots(ncols=2, figsize=(15, 6))
+    spatial_preds.ground_truth.plot(ax=axs[0])
+    spatial_preds.prediction_0.plot(ax=axs[1])
+
+    plt.savefig(output_path, bbox_inches="tight")
+    if to_wandb:
+        import wandb
+
+        wandb.log({str(output_path): wandb.Image(str(output_path))})

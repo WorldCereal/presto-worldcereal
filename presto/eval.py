@@ -2,6 +2,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import geopandas as gpd
@@ -14,11 +15,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, precision_score, recall_score
 from torch import nn
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from . import utils
-from .dataset import WorldCerealLabelledDataset
+from .dataset import WorldCerealInferenceDataset, WorldCerealLabelledDataset
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
@@ -42,7 +43,13 @@ class WorldCerealEval:
     num_outputs = 1
     regression = False
 
-    def __init__(self, train_data: pd.DataFrame, val_data: pd.DataFrame, seed: int = DEFAULT_SEED):
+    def __init__(
+        self,
+        train_data: pd.DataFrame,
+        val_data: pd.DataFrame,
+        spatial_inference_savedir: Optional[Path] = None,
+        seed: int = DEFAULT_SEED,
+    ):
         self.seed = seed
 
         # SAR cannot equal 0.0 since we take the log of it
@@ -57,6 +64,7 @@ class WorldCerealEval:
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
         # these columns contain nan sometimes
         self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
+        self.spatial_inference_savedir = spatial_inference_savedir
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model = cast(Callable, pretrained_model.construct_finetuning_model)(
@@ -76,7 +84,7 @@ class WorldCerealEval:
         pretrained_model.eval()
 
         encoding_list, target_list = [], []
-        for x, y, dw, latlons, month, _, variable_mask in dl:
+        for x, y, dw, latlons, month, variable_mask in dl:
             x_f, dw_f, latlons_f, month_f, variable_mask_f = [
                 t.to(device) for t in (x, dw, latlons, month, variable_mask)
             ]
@@ -112,27 +120,18 @@ class WorldCerealEval:
             fit_models.append(clone(model_dict[model]).fit(encodings_np, targets))
         return fit_models
 
-    @torch.no_grad()
-    def evaluate(
-        self,
+    @staticmethod
+    def _inference_for_dl(
+        dl,
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
         pretrained_model: Optional[Presto] = None,
-    ) -> Dict:
+    ) -> Tuple:
         if isinstance(finetuned_model, BaseEstimator):
             assert isinstance(pretrained_model, Presto)
 
-        test_ds = WorldCerealLabelledDataset(self.test_df)
-        dl = DataLoader(
-            test_ds,
-            batch_size=8192,
-            shuffle=False,  # keep as False!
-            num_workers=4,
-        )
-        assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
-
         test_preds, targets = [], []
 
-        for x, y, dw, latlons, month, num_masked_tokens, variable_mask in dl:
+        for x, y, dw, latlons, month, variable_mask in dl:
             targets.append(y)
             x_f, dw_f, latlons_f, month_f, variable_mask_f = [
                 t.to(device) for t in (x, dw, latlons, month, variable_mask)
@@ -164,8 +163,61 @@ class WorldCerealEval:
                 preds = finetuned_model.predict(encodings)
             test_preds.append(preds)
 
-        test_preds_np = np.concatenate(test_preds) >= self.threshold
+        test_preds_np = np.concatenate(test_preds)
         target_np = np.concatenate(targets)
+        return test_preds_np, target_np
+
+    @torch.no_grad()
+    def spatial_inference(
+        self,
+        finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
+        pretrained_model: Optional[Presto] = None,
+    ):
+        assert self.spatial_inference_savedir is not None
+        ds = WorldCerealInferenceDataset()
+        for i in range(len(ds)):
+            eo, dynamic_world, mask, latlons, months, y = ds[i]
+            dl = DataLoader(
+                TensorDataset(
+                    torch.from_numpy(eo).float(),
+                    torch.from_numpy(y.astype(np.int16)),
+                    torch.from_numpy(dynamic_world).long(),
+                    torch.from_numpy(latlons).float(),
+                    torch.from_numpy(months).long(),
+                    torch.from_numpy(mask).float(),
+                ),
+                batch_size=8192,
+                shuffle=False,
+            )
+            test_preds_np, _ = self._inference_for_dl(dl, finetuned_model, pretrained_model)
+            df = ds.combine_predictions(latlons, test_preds_np, y)
+            if pretrained_model is None:
+                filename = f"{ds.all_files[i].stem}_finetuning.nc"
+            else:
+                filename = f"{ds.all_files[i].stem}_{finetuned_model.__class__.__name__}.nc"
+            df.to_xarray().to_netcdf(self.spatial_inference_savedir / filename)
+
+    @torch.no_grad()
+    def evaluate(
+        self,
+        finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
+        pretrained_model: Optional[Presto] = None,
+    ) -> Dict:
+
+        if isinstance(finetuned_model, BaseEstimator):
+            assert isinstance(pretrained_model, Presto)
+
+        test_ds = WorldCerealLabelledDataset(self.test_df)
+        dl = DataLoader(
+            test_ds,
+            batch_size=8192,
+            shuffle=False,  # keep as False!
+            num_workers=4,
+        )
+        assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
+
+        test_preds_np, target_np = self._inference_for_dl(dl, finetuned_model, pretrained_model)
+        test_preds_np = test_preds_np >= self.threshold
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
         test_df = self.test_df.loc[
@@ -305,7 +357,7 @@ class WorldCerealEval:
         for _ in tqdm(range(hyperparams.max_epochs), desc="Finetuning"):
             model.train()
             epoch_train_loss = 0.0
-            for x, y, dw, latlons, month, _, variable_mask in tqdm(
+            for x, y, dw, latlons, month, variable_mask in tqdm(
                 train_dl, desc="Training", leave=False
             ):
                 x, y, dw, latlons, month, variable_mask = [
@@ -327,7 +379,7 @@ class WorldCerealEval:
 
             model.eval()
             all_preds, all_y = [], []
-            for x, y, dw, latlons, month, _, variable_mask in val_dl:
+            for x, y, dw, latlons, month, variable_mask in val_dl:
                 x, y, dw, latlons, month, variable_mask = [
                     t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
                 ]
@@ -384,6 +436,8 @@ class WorldCerealEval:
         if "finetune" in model_modes:
             finetuned_model = self.finetune(pretrained_model)
             results_dict.update(self.evaluate(finetuned_model, None))
+            if self.spatial_inference_savedir is not None:
+                self.spatial_inference(finetuned_model, None)
 
         sklearn_modes = [x for x in model_modes if x != "finetune"]
         if len(sklearn_modes) > 0:
@@ -401,4 +455,6 @@ class WorldCerealEval:
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {sklearn_model}...")
                 results_dict.update(self.evaluate(sklearn_model, pretrained_model))
+                if self.spatial_inference_savedir is not None:
+                    self.spatial_inference(sklearn_model, pretrained_model)
         return results_dict, finetuned_model
