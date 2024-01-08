@@ -8,6 +8,7 @@ from typing import Optional, Tuple, cast
 import pandas as pd
 import torch
 import torch.nn as nn
+import xarray as xr
 from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -30,6 +31,7 @@ from presto.utils import (
     device,
     initialize_logging,
     plot_results,
+    plot_spatial,
     seed_everything,
     timestamp_dirname,
 )
@@ -338,6 +340,12 @@ if finetuned_model is not None:
     finetuned_model_path = model_path / "finetuned_model.pt"
     torch.save(model.state_dict(), finetuned_model_path)
 plot_results(full_eval.world_df, results, model_logging_dir, show=True, to_wandb=wandb_enabled)
+all_spatial_preds = list(model_logging_dir.glob("*.nc"))
+for spatial_preds_path in all_spatial_preds:
+    preds = xr.load_dataset(spatial_preds_path)
+    output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
+    plot_spatial(preds, output_path, to_wandb=wandb_enabled)
+
 
 logger.info(json.dumps(results, indent=2))
 if wandb_enabled:

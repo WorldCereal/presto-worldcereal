@@ -46,9 +46,7 @@ class TestEval(TestCase):
             finetuned_model = eval_task._construct_finetuning_model(model)
             eval_task.spatial_inference(finetuned_model, None)
             output = xr.open_dataset(Path(tmpdirname) / f"{spatial_data_prefix}_finetuning.nc")
-            # swapaxes since the output is in lat lon (y x) and the input is x y
+            # np.flip because of how lat lons are stored vs x y
             self.assertTrue(
-                np.equal(
-                    np.swapaxes(output.ground_truth.values, 0, 1), ground_truth_one_timestep
-                ).all()
+                np.equal(np.flip(output.ground_truth.values, 0), ground_truth_one_timestep).all()
             )
