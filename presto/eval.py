@@ -189,10 +189,8 @@ class WorldCerealEval:
                 batch_size=8192,
                 shuffle=False,
             )
-            test_preds_np, target_np = self._inference_for_dl(
-                dl, finetuned_model, pretrained_model
-            )
-            df = ds.combine_predictions(latlons, test_preds_np, target_np)
+            test_preds_np, _ = self._inference_for_dl(dl, finetuned_model, pretrained_model)
+            df = ds.combine_predictions(latlons, test_preds_np, y)
             if pretrained_model is None:
                 filename = f"{ds.all_files[i].stem}_finetuning.nc"
             else:

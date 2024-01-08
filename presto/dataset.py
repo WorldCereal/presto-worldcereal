@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import rioxarray
 import xarray as xr
-from einops import repeat
+from einops import rearrange, repeat
 from pyproj import Transformer
 from torch.utils.data import Dataset
 
@@ -218,8 +218,7 @@ class WorldCerealInferenceDataset(Dataset):
             mask[:, :, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
             )
-
-        y = ds[cls.Y].values.reshape((num_instances, num_timesteps))
+        y = rearrange(ds[cls.Y].values, "t x y -> (x y) t")
         # -1 because we index from 0
         start_month = (ds.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
         months = np.ones((num_instances)) * start_month
