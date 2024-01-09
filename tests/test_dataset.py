@@ -15,7 +15,7 @@ from presto.presto import Presto
 from presto.utils import data_dir
 
 
-class TestUtils(TestCase):
+class TestDataset(TestCase):
     def test_normalize_and_mask(self):
         test_data = np.ones((NUM_TIMESTEPS, NUM_ORG_BANDS))
         test_data[0, 0] = WorldCerealLabelledDataset._NODATAVALUE
@@ -64,3 +64,34 @@ class TestUtils(TestCase):
                 mask=torch.from_numpy(mask).int()[:num_vals],
                 month=torch.from_numpy(months).long()[:num_vals],
             )
+
+    def test_combine_predictions(self):
+        # copied from https://github.com/nasaharvest/openmapflow/blob/main/tests/test_inference.py
+        flat_lat = np.array([14.95313164, 14.95313164, 14.95313164, 14.95313164, 14.95313164])
+        flat_lon = np.array([-86.25070894, -86.25061911, -86.25052928, -86.25043945, -86.25034962])
+        batch_predictions = np.array(
+            [[0.43200156], [0.55286014], [0.5265], [0.5236109], [0.4110847]]
+        )
+        worldcereal_labels = np.array([[1, 1], [0, 0], [1, 1], [0, 0], [1, 1]])
+        df_predictions = WorldCerealInferenceDataset.combine_predictions(
+            latlons=np.stack([flat_lat, flat_lon], axis=-1),
+            all_preds=batch_predictions,
+            gt=worldcereal_labels,
+        )
+
+        # Check size
+        self.assertEqual(df_predictions.index.levels[0].name, "lat")
+        self.assertEqual(df_predictions.index.levels[1].name, "lon")
+        self.assertEqual(len(df_predictions.index.levels[0]), 1)
+        self.assertEqual(len(df_predictions.index.levels[1]), 5)
+
+        # Check coords
+        self.assertTrue((df_predictions.index.levels[0].values == flat_lat[0:1]).all())
+        self.assertTrue((df_predictions.index.levels[1].values == flat_lon).all())
+
+        # Check all predictions between 0 and 1
+        self.assertTrue(df_predictions["prediction_0"].min() >= 0)
+        self.assertTrue(df_predictions["prediction_0"].max() <= 1)
+
+        # check all the worldcereal labels are 0 or 1
+        self.assertTrue(df_predictions["ground_truth"].isin([0, 1]).all())
