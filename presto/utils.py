@@ -278,14 +278,15 @@ def plot_results(
     metrics_df.groupby(["model", "metric_type"]).apply(plot_for_group)
 
 
-def plot_spatial(spatial_preds: xr.Dataset, output_path: Path, to_wandb: int = False):
+def plot_spatial(spatial_preds: xr.Dataset, output_path: Path, to_wandb: bool = False):
     plt.clf()
-    _, axs = plt.subplots(ncols=2, figsize=(15, 6))
+    _, axs = plt.subplots(ncols=3, figsize=(20, 4))
     spatial_preds.ground_truth.plot(ax=axs[0])
     spatial_preds.prediction_0.plot(ax=axs[1])
-
+    (spatial_preds.prediction_0 > 0.5).plot(ax=axs[2])
     plt.savefig(output_path, bbox_inches="tight")
     if to_wandb:
         import wandb
 
         wandb.log({str(output_path): wandb.Image(str(output_path))})
+    plt.close()
