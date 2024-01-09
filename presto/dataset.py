@@ -81,9 +81,7 @@ class WorldCerealBase(Dataset):
             elif presto_val == "temperature_2m":
                 # remove scaling
                 values[idx_valid] = values[idx_valid] / 100
-            mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
-                mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
-            )
+            mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             eo_data[:, BANDS.index(presto_val)] = values
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
@@ -214,10 +212,8 @@ class WorldCerealInferenceDataset(Dataset):
                 values = values / 100
 
             eo_data[:, :, BANDS.index(presto_val)] = values
+            mask[:, :, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
-            mask[:, :, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
-                mask[:, :, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
-            )
         y = rearrange(ds[cls.Y].values, "t x y -> (x y) t")
         # -1 because we index from 0
         start_month = (ds.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
