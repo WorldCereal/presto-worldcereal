@@ -1,8 +1,13 @@
 from datetime import datetime
-from typing import Tuple
+from pathlib import Path
+from typing import Dict, Tuple, cast
 
 import numpy as np
 import pandas as pd
+import rioxarray
+import xarray as xr
+from einops import rearrange, repeat
+from pyproj import Transformer
 from torch.utils.data import Dataset
 
 from .dataops import (
@@ -13,6 +18,7 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
+from .utils import data_dir
 
 IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
@@ -75,9 +81,7 @@ class WorldCerealBase(Dataset):
             elif presto_val == "temperature_2m":
                 # remove scaling
                 values[idx_valid] = values[idx_valid] / 100
-            mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] = np.clip(
-                mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] + (~idx_valid), a_min=0, a_max=1
-            )
+            mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             eo_data[:, BANDS.index(presto_val)] = values
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
@@ -89,7 +93,7 @@ class WorldCerealBase(Dataset):
 
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
-        # this is copied over from dataops. Sorry
+        # TODO: this can be removed
         keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
         normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
         # TODO: fix this. For now, we replicate the previous behaviour
@@ -141,13 +145,109 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         row = self.df.iloc[idx, :]
         eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
-        num_masked_tokens = sum(sum(mask_per_token))
         return (
             self.normalize_and_mask(eo),
             target,
             np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
             latlon,
             month,
-            num_masked_tokens,
             mask_per_variable,
         )
+
+
+class WorldCerealInferenceDataset(Dataset):
+    _NODATAVALUE = 65535
+    Y = "worldcereal_cropland"
+    BAND_MAPPING = {
+        "B02": "B2",
+        "B03": "B3",
+        "B04": "B4",
+        "B05": "B5",
+        "B06": "B6",
+        "B07": "B7",
+        "B08": "B8",
+        # B8A is missing
+        "B11": "B11",
+        "B12": "B12",
+        "VH": "VH",
+        "VV": "VV",
+        "precipitation-flux": "total_precipitation",
+        "temperature-mean": "temperature_2m",
+    }
+
+    def __init__(self):
+        self.path_to_files = data_dir / "inference_areas"
+        self.all_files = list(self.path_to_files.glob("*.nc"))
+
+    def __len__(self):
+        return len(self.all_files)
+
+    @classmethod
+    def nc_to_arrays(
+        cls, filepath: Path
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        ds = cast(xr.Dataset, rioxarray.open_rasterio(filepath, decode_times=False))
+        epsg_coords = ds.rio.crs.to_epsg()
+
+        num_instances = len(ds.x) * len(ds.y)
+        num_timesteps = len(ds.t)
+        eo_data = np.zeros((num_instances, num_timesteps, len(BANDS)))
+        mask = np.zeros((num_instances, num_timesteps, len(BANDS_GROUPS_IDX)))
+        # for now, B8A is missing
+        mask[:, :, IDX_TO_BAND_GROUPS["B8A"]] = 1
+
+        for org_band, presto_val in cls.BAND_MAPPING.items():
+            # flatten the values
+            values = np.swapaxes(ds[org_band].values.reshape((num_timesteps, -1)), 0, 1)
+            idx_valid = values != cls._NODATAVALUE
+
+            if presto_val in ["VV", "VH"]:
+                # convert to dB
+                values = 20 * np.log10(values) - 83
+            elif presto_val == "total_precipitation":
+                # scaling, and AgERA5 is in mm, Presto expects m
+                values = values / (100 * 1000.0)
+            elif presto_val == "temperature_2m":
+                # remove scaling
+                values = values / 100
+
+            eo_data[:, :, BANDS.index(presto_val)] = values
+            mask[:, :, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
+
+        y = rearrange(ds[cls.Y].values, "t x y -> (x y) t")
+        # -1 because we index from 0
+        start_month = (ds.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
+        months = np.ones((num_instances)) * start_month
+
+        transformer = Transformer.from_crs(f"EPSG:{epsg_coords}", "EPSG:4326", always_xy=True)
+        lon, lat = transformer.transform(ds.x, ds.y)
+
+        latlons = np.stack(
+            [np.repeat(lat, repeats=len(lon)), repeat(lon, "c -> (h c)", h=len(lat))],
+            axis=-1,
+        )
+
+        return eo_data, np.repeat(mask, BAND_EXPANSION, axis=-1), latlons, months, y
+
+    def __getitem__(self, idx):
+        filepath = self.all_files[idx]
+        eo, mask, latlons, months, y = self.nc_to_arrays(filepath)
+
+        dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
+
+        return S1_S2_ERA5_SRTM.normalize(eo), dynamic_world, mask, latlons, months, y
+
+    @staticmethod
+    def combine_predictions(
+        latlons: np.ndarray, all_preds: np.ndarray, gt: np.ndarray
+    ) -> pd.DataFrame:
+        flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
+        if len(all_preds.shape) == 1:
+            all_preds = np.expand_dims(all_preds, axis=-1)
+
+        data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
+        for i in range(all_preds.shape[1]):
+            prediction_label = f"prediction_{i}"
+            data_dict[prediction_label] = all_preds[:, i]
+        data_dict["ground_truth"] = gt[:, 0]
+        return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])
