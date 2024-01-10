@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -133,6 +133,39 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 
 
 class WorldCerealLabelledDataset(WorldCerealBase):
+    # 0: no information, 10: could be both annual or perennial
+    FILTER_LABELS = [0, 10]
+
+    def __init__(
+        self,
+        dataframe: pd.DataFrame,
+        aezs_to_remove: Optional[List[int]] = None,
+        years_to_remove: Optional[List[int]] = None,
+    ):
+        dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
+
+        if aezs_to_remove is not None:
+            dataframe = dataframe[(~dataframe.aez_zoneid.isin(aezs_to_remove))]
+        if years_to_remove is not None:
+            dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
+        super().__init__(dataframe)
+
+    def __getitem__(self, idx):
+        # Get the sample
+        row = self.df.iloc[idx, :]
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
+        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+        return (
+            self.normalize_and_mask(eo),
+            target,
+            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            latlon,
+            month,
+            mask_per_variable,
+        )
+
+
+class WorldCerealFilteredAndLabelledDataset(WorldCerealBase):
     # 0: no information, 10: could be both annual or perennial
     FILTER_LABELS = [0, 10]
 
