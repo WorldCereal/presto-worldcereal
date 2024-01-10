@@ -165,29 +165,6 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         )
 
 
-class WorldCerealFilteredAndLabelledDataset(WorldCerealBase):
-    # 0: no information, 10: could be both annual or perennial
-    FILTER_LABELS = [0, 10]
-
-    def __init__(self, dataframe: pd.DataFrame):
-        dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
-        super().__init__(dataframe)
-
-    def __getitem__(self, idx):
-        # Get the sample
-        row = self.df.iloc[idx, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
-        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
-        return (
-            self.normalize_and_mask(eo),
-            target,
-            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
-            latlon,
-            month,
-            mask_per_variable,
-        )
-
-
 class WorldCerealInferenceDataset(Dataset):
     _NODATAVALUE = 65535
     Y = "worldcereal_cropland"
