@@ -147,6 +147,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if aezs_to_remove is not None:
             dataframe = dataframe[(~dataframe.aez_zoneid.isin(aezs_to_remove))]
         if years_to_remove is not None:
+            dataframe["end_date"] = pd.to_datetime(dataframe.end_Date)
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         super().__init__(dataframe)
 
