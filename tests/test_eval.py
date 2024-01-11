@@ -42,7 +42,9 @@ class TestEval(TestCase):
         )
         ground_truth_one_timestep = spatial_data.worldcereal_cropland.values[0, :, :]
         with tempfile.TemporaryDirectory() as tmpdirname:
-            eval_task = WorldCerealEval(test_data, test_data, Path(tmpdirname))
+            eval_task = WorldCerealEval(
+                test_data, test_data, spatial_inference_savedir=Path(tmpdirname)
+            )
             finetuned_model = eval_task._construct_finetuning_model(model)
             eval_task.spatial_inference(finetuned_model, None)
             output = xr.open_dataset(Path(tmpdirname) / f"{spatial_data_prefix}_finetuning.nc")
