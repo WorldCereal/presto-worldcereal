@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Tuple, cast
 
@@ -251,3 +251,42 @@ class WorldCerealInferenceDataset(Dataset):
             data_dict[prediction_label] = all_preds[:, i]
         data_dict["ground_truth"] = gt[:, 0]
         return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])
+
+
+class WorldCerealLabelled10DDataset(WorldCerealBase):
+    # 0: no information, 10: could be both annual or perennial
+    FILTER_LABELS = [0, 10]
+
+    def __init__(self, dataframe: pd.DataFrame):
+        dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
+        super().__init__(dataframe)
+
+    def __getitem__(self, idx):
+        # Get the sample
+        row = self.df.iloc[idx, :]
+        self.NUM_TIMESTEPS = 36
+        eo, mask_per_token, latlon, _, target = self.row_to_arrays(row)
+        month = self.get_month_array(row)
+        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+        return (
+            self.normalize_and_mask(eo),
+            target,
+            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            latlon,
+            month,
+            mask_per_variable,
+        )
+
+    def get_month_array(self, row: pd.Series) -> np.ndarray:
+        start_date, end_date = datetime.strptime(
+            row.start_date, "%Y-%m-%d"), datetime.strptime(row.end_date, "%Y-%m-%d")
+
+        # Calculate the step size for 10-day intervals and create a list of dates
+        step = int((end_date - start_date).days / (self.NUM_TIMESTEPS - 1))
+        date_vector = [start_date + timedelta(days=i * step) for i in range(self.NUM_TIMESTEPS)]
+
+        # Ensure last date is not beyond the end date
+        if date_vector[-1] > end_date:
+            date_vector[-1] = end_date
+
+        return np.array([d.month - 1 for d in date_vector])

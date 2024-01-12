@@ -84,6 +84,7 @@ argparser.add_argument(
     default="worldcereal_presto_cropland_nointerp_V2_VAL.parquet",
 )
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
+argparser.add_argument("--datadir", type=str, default="")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
 args = argparser.parse_args().__dict__
@@ -98,6 +99,8 @@ wandb_org: str = args["wandb_org"]
 
 seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
+if args["data_dir"]:
+    data_dir = Path(args["data_dir"])
 run_id = None
 
 if wandb_enabled:
