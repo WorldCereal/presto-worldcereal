@@ -83,8 +83,9 @@ argparser.add_argument(
     type=str,
     default="worldcereal_presto_cropland_nointerp_V2_VAL.parquet",
 )
+argparser.add_argument("--dekadal", type=bool, default=False)
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
-argparser.add_argument("--datadir", type=str, default="")
+argparser.add_argument("--data_dir", type=str, default="")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
 args = argparser.parse_args().__dict__
@@ -134,6 +135,7 @@ mask_ratio: float = args["mask_ratio"]
 
 train_file: str = args["train_file"]
 val_file: str = args["val_file"]
+dekadal: bool = args["dekadal"]
 
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
@@ -160,6 +162,7 @@ val_dataloader = DataLoader(
 validation_task = WorldCerealEval(
     train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
     val_data=val_df.sample(1000, random_state=DEFAULT_SEED),
+    dekadal=dekadal,
 )
 
 if val_per_n_steps == -1:
@@ -170,6 +173,11 @@ if warm_start:
     model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
     model = Presto.load_pretrained()
     best_model_path: Optional[Path] = default_model_path
+    if dekadal:
+        model = Presto.reinitialize_pos_embedding(model, max_sequence_length=72)
+        dekadal_model_path = default_model_path.parent / "dekadal_model.pt"
+        torch.save(model.state_dict(), dekadal_model_path)
+        best_model_path: Optional[Path] = dekadal_model_path
 else:
     if path_to_config == "":
         path_to_config = config_dir / "default.json"
@@ -333,7 +341,7 @@ if best_model_path is not None:
 else:
     logger.info("Running eval with randomly init weights")
 
-full_eval = WorldCerealEval(train_df, val_df, model_logging_dir)
+full_eval = WorldCerealEval(train_df, val_df, model_logging_dir, dekadal=dekadal)
 results, finetuned_model = full_eval.finetuning_results(
     model, model_modes=["finetune", "Random Forest", "Regression"]
 )

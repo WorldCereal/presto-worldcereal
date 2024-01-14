@@ -795,6 +795,17 @@ class Presto(nn.Module):
         model.load_state_dict(torch.load(model_path, map_location=device))
         return model
 
+    @classmethod
+    def reinitialize_pos_embedding(cls, model: PrestoFineTuningModel, max_sequence_length: int):
+        # reinitialize to stretch max length of time series
+        model.encoder.pos_embed = nn.Parameter(
+            torch.zeros(1, max_sequence_length, model.encoder.pos_embed.shape[-1]),
+            requires_grad=False
+        )
+        pos_embed = get_sinusoid_encoding_table(
+            model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1])
+        model.encoder.pos_embed.data.copy_(pos_embed)
+        return model
 
 def param_groups_lrd(
     model: PrestoFineTuningModel, weight_decay=0.05, no_weight_decay_list=[], layer_decay=0.75
