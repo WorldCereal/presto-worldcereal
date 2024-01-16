@@ -35,7 +35,7 @@ class Hyperparams:
     max_epochs: int = 20
     batch_size: int = 64
     patience: int = 3
-    num_workers: int = 4
+    num_workers: int = 0
 
 
 class WorldCerealEval:
@@ -81,7 +81,7 @@ class WorldCerealEval:
         models: List[str] = ["Regression", "Random Forest"],
     ) -> Union[Sequence[BaseEstimator], Dict]:
         for model_mode in models:
-            assert model_mode in ["Regression", "Random Forest"]
+            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
         pretrained_model.eval()
 
         encoding_list, target_list = [], []
@@ -211,7 +211,7 @@ class WorldCerealEval:
             test_ds,
             batch_size=8192,
             shuffle=False,  # keep as False!
-            num_workers=4,
+            num_workers=Hyperparams.num_workers,
         )
         assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
 
