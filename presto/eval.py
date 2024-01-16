@@ -162,7 +162,10 @@ class WorldCerealEval:
                     .cpu()
                     .numpy()
                 )
-                preds = finetuned_model.predict(encodings)
+                if isinstance(finetuned_model, CatBoostClassifier):
+                    preds = finetuned_model.predict(encodings, prediction_type="Probability")
+                else:
+                    preds = finetuned_model.predict(encodings)
             test_preds.append(preds)
 
         test_preds_np = np.concatenate(test_preds)
