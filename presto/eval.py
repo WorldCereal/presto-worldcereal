@@ -148,7 +148,7 @@ class WorldCerealEval:
                     month=month_f,
                 ).squeeze(dim=1)
                 preds = torch.sigmoid(preds).cpu().numpy()
-            elif isinstance(finetuned_model, BaseEstimator):
+            elif isinstance(finetuned_model, (BaseEstimator, CatBoostClassifier)):
                 cast(Presto, pretrained_model).eval()
                 encodings = (
                     cast(Presto, pretrained_model)
