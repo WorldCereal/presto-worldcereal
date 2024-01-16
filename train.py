@@ -295,7 +295,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 tqdm_epoch.set_postfix(loss=val_eo_loss)
 
                 val_task_results, _ = validation_task.finetuning_results(
-                    model, model_modes=["Random Forest"]
+                    model, sklearn_model_modes=["Random Forest"]
                 )
                 to_log.update(val_task_results)
 
@@ -332,7 +332,7 @@ else:
 
 full_eval = WorldCerealEval(train_df, val_df, model_logging_dir)
 results, finetuned_model = full_eval.finetuning_results(
-    model, model_modes=["finetune", "Random Forest", "Regression"]
+    model, sklearn_model_modes=["Random Forest", "Regression"]
 )
 if finetuned_model is not None:
     model_path = model_logging_dir / Path("models")
