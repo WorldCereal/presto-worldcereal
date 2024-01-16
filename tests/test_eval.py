@@ -22,9 +22,9 @@ class TestEval(TestCase):
         test_data["LANDCOVER_LABEL"] = labels
         eval_task = WorldCerealEval(test_data, test_data)
 
-        output, _ = eval_task.finetuning_results(model, ["Regression"])
-        self.assertEqual(len(output), 564)
-        self.assertTrue("WorldCerealCropland_LogisticRegression_f1" in output)
+        output, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
+        self.assertEqual(len(output), 564 * 2)
+        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
 
     def test_spatial_inference(
         self,

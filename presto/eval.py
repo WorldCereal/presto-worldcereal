@@ -9,6 +9,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import torch
+from catboost import CatBoostClassifier
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -114,6 +115,9 @@ class WorldCerealEval:
             ),
             "Random Forest": RandomForestClassifier(
                 class_weight="balanced", random_state=self.seed
+            ),
+            "CatBoostClassifier": CatBoostClassifier(
+                random_state=self.seed, auto_class_weights="balanced"
             ),
         }
         for model in tqdm(models, desc="Fitting sklearn models"):
