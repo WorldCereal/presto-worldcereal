@@ -35,7 +35,7 @@ class Hyperparams:
     max_epochs: int = 20
     batch_size: int = 64
     patience: int = 3
-    num_workers: int = 0
+    num_workers: int = 4
 
 
 class WorldCerealEval:
