@@ -332,7 +332,7 @@ else:
 
 full_eval = WorldCerealEval(train_df, val_df, model_logging_dir)
 results, finetuned_model = full_eval.finetuning_results(
-    model, sklearn_model_modes=["Random Forest", "Regression"]
+    model, sklearn_model_modes=["Random Forest", "Regression", "CatBoostClassifier"]
 )
 if finetuned_model is not None:
     model_path = model_logging_dir / Path("models")

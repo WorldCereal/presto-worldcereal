@@ -428,7 +428,7 @@ class WorldCerealEval:
         sklearn_model_modes: List[str],
     ) -> Tuple[Dict, Optional[PrestoFineTuningModel]]:
         for model_mode in sklearn_model_modes:
-            assert model_mode in ["Regression", "Random Forest"]
+            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
 
         results_dict = {}
         # we want to always finetune the model, since the sklearn models
