@@ -29,6 +29,9 @@ logger = logging.getLogger("__main__")
 world_shp_path = "world-administrative-boundaries/world-administrative-boundaries.shp"
 
 
+SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
+
+
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
@@ -127,7 +130,7 @@ class WorldCerealEval:
     @staticmethod
     def _inference_for_dl(
         dl,
-        finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
+        finetuned_model: Union[PrestoFineTuningModel, SklearnStyleModel],
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Tuple:
 
@@ -148,7 +151,7 @@ class WorldCerealEval:
                     month=month_f,
                 ).squeeze(dim=1)
                 preds = torch.sigmoid(preds).cpu().numpy()
-            elif isinstance(finetuned_model, (BaseEstimator, CatBoostClassifier)):
+            else:
                 cast(Presto, pretrained_model).eval()
                 encodings = (
                     cast(Presto, pretrained_model)
@@ -175,7 +178,7 @@ class WorldCerealEval:
     @torch.no_grad()
     def spatial_inference(
         self,
-        finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
+        finetuned_model: Union[PrestoFineTuningModel, SklearnStyleModel],
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ):
         assert self.spatial_inference_savedir is not None
