@@ -295,7 +295,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 tqdm_epoch.set_postfix(loss=val_eo_loss)
 
                 val_task_results, _ = validation_task.finetuning_results(
-                    model, model_modes=["Random Forest"]
+                    model, sklearn_model_modes=["Random Forest"]
                 )
                 to_log.update(val_task_results)
 
@@ -330,9 +330,10 @@ if best_model_path is not None:
 else:
     logger.info("Running eval with randomly init weights")
 
-model_modes = ["finetune", "Random Forest", "Regression"]
+
+model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
 full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
-results, finetuned_model = full_eval.finetuning_results(model, model_modes=model_modes)
+results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
 if finetuned_model is not None:
     model_path = model_logging_dir / Path("models")
@@ -350,13 +351,13 @@ for spatial_preds_path in all_spatial_preds:
 missing_aez = WorldCerealEval(
     train_df, val_df, aezs_to_remove=[22190], spatial_inference_savedir=model_logging_dir
 )
-aez_results, _ = missing_aez.finetuning_results(model, model_modes=model_modes)
+aez_results, _ = missing_aez.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(aez_results, indent=2))
 
 missing_year = WorldCerealEval(
     train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
 )
-year_results, _ = missing_year.finetuning_results(model, model_modes=model_modes)
+year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))
 
 both_missing = WorldCerealEval(
