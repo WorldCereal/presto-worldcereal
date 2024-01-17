@@ -23,7 +23,9 @@ class TestEval(TestCase):
         eval_task = WorldCerealEval(test_data, test_data)
 
         output, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
-        self.assertEqual(len(output), 564 * 2)
+        # * 283 per model: WorldCereal CatBoost, Presto finetuned, Presto + CatBoost3
+        self.assertEqual(len(output), 282 * 3)
+        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
         self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
 
     def test_spatial_inference(
