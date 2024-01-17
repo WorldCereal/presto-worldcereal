@@ -100,7 +100,7 @@ class WorldCerealEval:
                         dynamic_world=dw_f.long(),
                         mask=variable_mask_f,
                         latlons=latlons_f,
-                        month=month_f,
+                        months=month_f,
                     )
                     .cpu()
                     .numpy()
@@ -148,7 +148,7 @@ class WorldCerealEval:
                     dynamic_world=dw_f.long(),
                     mask=variable_mask_f,
                     latlons=latlons_f,
-                    month=month_f,
+                    months=month_f,
                 ).squeeze(dim=1)
                 preds = torch.sigmoid(preds).cpu().numpy()
             else:
@@ -160,7 +160,7 @@ class WorldCerealEval:
                         dynamic_world=dw_f.long(),
                         mask=variable_mask_f,
                         latlons=latlons_f,
-                        month=month_f,
+                        months=month_f,
                     )
                     .cpu()
                     .numpy()
@@ -374,7 +374,7 @@ class WorldCerealEval:
                     dynamic_world=dw.long(),
                     mask=variable_mask,
                     latlons=latlons,
-                    month=month,
+                    months=month,
                 )
                 loss = loss_fn(preds.squeeze(-1), y.float())
                 epoch_train_loss += loss.item()
@@ -394,7 +394,7 @@ class WorldCerealEval:
                         dynamic_world=dw.long(),
                         mask=variable_mask,
                         latlons=latlons,
-                        month=month,
+                        months=month,
                     )
                     all_preds.append(preds.squeeze(-1))
                     all_y.append(y.float())

@@ -18,7 +18,7 @@ from presto.dataops import (
     SRTM_INDEX,
     DynamicWorld2020_2021,
 )
-from presto.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
+from presto.presto import Decoder, Encoder, Presto, month_to_array, param_groups_lrd
 from presto.utils import config_dir, default_model_path, device
 
 
@@ -207,7 +207,7 @@ class TestPresto(TestCase):
         output = output[:, [i for i in range(output.shape[1]) if i != srtm_index], :]
         expected_positional_encodings = decoder.pos_embed[:, :num_timesteps, :]
         expected_month_encodings = decoder.month_embed(
-            month_to_tensor(1, 1, num_timesteps, device)
+            torch.from_numpy(month_to_array(1, 1, num_timesteps)).to(device)
         )
         # then, for each group of channels lets make sure the embeddings are correct
         for idx in range(len(BANDS_GROUPS_IDX) + 1):

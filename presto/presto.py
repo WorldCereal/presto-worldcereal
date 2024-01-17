@@ -249,26 +249,22 @@ def get_month_encoding_table(d_hid):
         return torch.FloatTensor(month_table)
 
 
-def month_to_tensor(
-    month: Union[torch.Tensor, int], batch_size: int, seq_len: int, device: torch.device
-):
+def month_to_array(month: Union[np.ndarray, int], batch_size: int, seq_len: int):
     if isinstance(month, int):
         assert cast(int, month) < 12
     else:
-        assert max(cast(torch.Tensor, month.flatten())) < 12
+        assert max(cast(np.ndarray, month.flatten())) < 12
 
     if isinstance(month, int):
         # >>> torch.fmod(torch.tensor([9., 10, 11, 12, 13, 14]), 12)
         # tensor([ 9., 10., 11.,  0.,  1.,  2.])
-        month = (
-            torch.fmod(torch.arange(month, month + seq_len, dtype=torch.long), 12)
-            .expand(batch_size, seq_len)
-            .to(device)
+        month = repeat(
+            np.fmod(np.arange(month, month + seq_len), 12),
+            "b s -> (repeat b) s",
+            repeat=batch_size,
         )
     elif len(month.shape) == 1:
-        month = torch.stack(
-            [torch.fmod(torch.arange(m, m + seq_len, dtype=torch.long), 12) for m in month]
-        ).to(device)
+        month = np.stack([np.fmod(np.arange(m, m + seq_len), 12) for m in month])
     return month
 
 
@@ -387,8 +383,8 @@ class Encoder(nn.Module):
         x: torch.Tensor,
         dynamic_world: torch.Tensor,
         latlons: torch.Tensor,
+        months: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-        month: Union[torch.Tensor, int] = 0,
         eval_task: bool = True,
     ):
         device = x.device
@@ -396,7 +392,6 @@ class Encoder(nn.Module):
         if mask is None:
             mask = torch.zeros_like(x, device=x.device)
 
-        months = month_to_tensor(month, x.shape[0], x.shape[1], device)
         month_embedding = self.month_embed(months)
         positional_embedding = repeat(
             self.pos_embed[:, : x.shape[1], :], "b t d -> (repeat b) t d", repeat=x.shape[0]
@@ -574,13 +569,12 @@ class Decoder(nn.Module):
         out = out.scatter(1, orig_indices[:, :, None].expand_as(out), out)
         return out
 
-    def add_embeddings(self, x, month: Union[torch.Tensor, int]):
+    def add_embeddings(self, x, months: torch.Tensor):
         num_channel_groups = len(self.band_group_to_idx)
         # -2 since we remove srtm and latlon, and -1 since the srtm
         # channel group doesn't have timesteps
         num_timesteps = int((x.shape[1] - 2) / (num_channel_groups - 1))
         srtm_index = self.band_group_to_idx["SRTM"] * num_timesteps
-        months = month_to_tensor(month, x.shape[0], num_timesteps, x.device)
 
         # when we expand the encodings, each channel_group gets num_timesteps
         # encodings. However, there is only one SRTM token so we remove the
@@ -660,10 +654,10 @@ class Decoder(nn.Module):
         # is ordered
         return torch.cat(eo_output, dim=-1), cast(torch.Tensor, dw_output)
 
-    def forward(self, x, orig_indices, x_mask, month):
+    def forward(self, x, orig_indices, x_mask, months):
         x = self.decoder_embed(x)
         x = self.add_masked_tokens(x, orig_indices, x_mask)
-        x = self.add_embeddings(x, month)
+        x = self.add_embeddings(x, months)
 
         # apply Transformer blocks
         for blk in self.decoder_blocks:
@@ -691,7 +685,7 @@ class PrestoFineTuningModel(nn.Module):
         dynamic_world: torch.Tensor,
         latlons: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-        month: Union[torch.Tensor, int] = 0,
+        months: Union[torch.Tensor, int] = 0,
     ) -> torch.Tensor:
         return self.head(
             self.encoder(
@@ -699,7 +693,7 @@ class PrestoFineTuningModel(nn.Module):
                 dynamic_world=dynamic_world,
                 latlons=latlons,
                 mask=mask,
-                month=month,
+                months=months,
                 eval_task=True,
             )
         )
@@ -730,18 +724,18 @@ class Presto(nn.Module):
         dynamic_world: torch.Tensor,
         latlons: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-        month: Union[torch.Tensor, int] = 0,
+        months: Union[torch.Tensor, int] = 0,
     ) -> torch.Tensor:
         x, orig_indices, x_mask = self.encoder(
             x=x,
             dynamic_world=dynamic_world,
             latlons=latlons,
             mask=mask,
-            month=month,
+            months=months,
             eval_task=False,
         )
 
-        return self.decoder(x, orig_indices, x_mask, month)
+        return self.decoder(x, orig_indices, x_mask, months)
 
     @classmethod
     def construct(
