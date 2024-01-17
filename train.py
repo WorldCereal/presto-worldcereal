@@ -367,7 +367,7 @@ both_missing = WorldCerealEval(
     years_to_remove=[2021],
     spatial_inference_savedir=model_logging_dir,
 )
-both_results, _ = both_missing.finetuning_results(model, model_modes=model_modes)
+both_results, _ = both_missing.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(both_results, indent=2))
 
 if wandb_enabled:
