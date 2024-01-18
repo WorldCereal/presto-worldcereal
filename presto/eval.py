@@ -62,7 +62,7 @@ class WorldCerealEval:
         cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
         self.train_df = train_data[~(train_data.loc[:, cols] == 0.0).any(axis=1)]
 
-        self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
+        self.val_df = val_data.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
         self.test_df = self.val_df
