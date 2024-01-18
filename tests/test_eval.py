@@ -19,7 +19,11 @@ class TestEval(TestCase):
         test_data = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
         # this is to align the parquet file with the new parquet files
         # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
-        test_data.rename({"pixelids": "sample_id"}, axis=1, inplace=True)
+        test_data.rename(
+            {"pixelids": "sample_id", "catboost_predictions": "worldcereal_predictions"},
+            axis=1,
+            inplace=True,
+        )
         labels = [99] * len(test_data)  # 99 = No cropland
         labels[:10] = [11] * 10  # 11 = Annual cropland
         test_data["LANDCOVER_LABEL"] = labels
@@ -39,7 +43,11 @@ class TestEval(TestCase):
         test_data = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
         # this is to align the parquet file with the new parquet files
         # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
-        test_data.rename({"pixelids": "sample_id"}, axis=1, inplace=True)
+        test_data.rename(
+            {"pixelids": "sample_id", "catboost_predictions": "worldcereal_predictions"},
+            axis=1,
+            inplace=True,
+        )
         labels = [99] * len(test_data)  # 99 = No cropland
         labels[:10] = [11] * 10  # 11 = Annual cropland
         test_data["LANDCOVER_LABEL"] = labels
