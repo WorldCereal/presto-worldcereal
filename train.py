@@ -339,7 +339,8 @@ if finetuned_model is not None:
     model_path.mkdir(exist_ok=True, parents=True)
     finetuned_model_path = model_path / "finetuned_model.pt"
     torch.save(model.state_dict(), finetuned_model_path)
-plot_results(full_eval.world_df, results, model_logging_dir, show=True, to_wandb=wandb_enabled)
+# not saving plots to wandb
+plot_results(full_eval.world_df, results, model_logging_dir, show=True, to_wandb=False)
 all_spatial_preds = list(model_logging_dir.glob("*.nc"))
 for spatial_preds_path in all_spatial_preds:
     preds = xr.load_dataset(spatial_preds_path)
