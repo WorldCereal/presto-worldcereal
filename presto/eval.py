@@ -359,7 +359,7 @@ class WorldCerealEval:
         except ImportError:
             pass
 
-        for _ in tqdm(range(hyperparams.max_epochs), desc="Finetuning"):
+        for _ in (pbar := tqdm(range(hyperparams.max_epochs), desc="Finetuning")):
             model.train()
             epoch_train_loss = 0.0
             for x, y, dw, latlons, month, variable_mask in tqdm(
@@ -400,6 +400,7 @@ class WorldCerealEval:
                     all_y.append(y.float())
 
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
+            pbar.set_description(f"Train metric: {train_loss[-1]}, Val metric: {val_loss[-1]}")
 
             if run is not None:
                 wandb.log(
