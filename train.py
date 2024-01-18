@@ -73,16 +73,7 @@ argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
 argparser.add_argument("--num_workers", type=int, default=4)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
-argparser.add_argument(
-    "--train_file",
-    type=str,
-    default="worldcereal_presto_cropland_nointerp_V1_TRAIN.parquet",
-)
-argparser.add_argument(
-    "--val_file",
-    type=str,
-    default="worldcereal_presto_cropland_nointerp_V2_VAL.parquet",
-)
+argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
@@ -129,8 +120,7 @@ if (len(mask_strategies) == 1) and (mask_strategies[0] == "all"):
     mask_strategies = MASK_STRATEGIES
 mask_ratio: float = args["mask_ratio"]
 
-train_file: str = args["train_file"]
-val_file: str = args["val_file"]
+parquet_file: str = args["parquet_file"]
 
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
@@ -140,8 +130,8 @@ logger.info("Setting up dataloaders")
 # Load the mask parameters
 mask_params = MaskParamsNoDw(mask_strategies, mask_ratio)
 
-train_df = pd.read_parquet(data_dir / train_file)
-val_df = pd.read_parquet(data_dir / val_file)
+df = pd.read_parquet(data_dir / parquet_file)
+train_df, val_df = WorldCerealDataset.split_df(df)
 train_dataloader = DataLoader(
     WorldCerealDataset(train_df, mask_params=mask_params),
     batch_size=batch_size,

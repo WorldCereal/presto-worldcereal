@@ -238,7 +238,7 @@ class WorldCerealEval:
         test_df = self.test_df.loc[
             ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ]
-        catboost_preds = test_df.catboost_prediction
+        catboost_preds = test_df.worldcereal_prediction
 
         def format_partitioned(results):
             return {

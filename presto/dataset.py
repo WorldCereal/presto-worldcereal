@@ -18,7 +18,7 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import data_dir
+from .utils import DEFAULT_SEED, data_dir
 
 IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
@@ -104,6 +104,13 @@ class WorldCerealBase(Dataset):
     def check(array: np.ndarray) -> np.ndarray:
         assert not np.isnan(array).any()
         return array
+
+    @staticmethod
+    def split_df(df: pd.DataFrame, val_size: float = 0.2) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        val, train = np.split(
+            df.sample(frac=1, random_state=DEFAULT_SEED), [int(val_size * len(df))]
+        )
+        return train, val
 
 
 class WorldCerealMaskedDataset(WorldCerealBase):
