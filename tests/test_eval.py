@@ -20,7 +20,7 @@ class TestEval(TestCase):
         # this is to align the parquet file with the new parquet files
         # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
         test_data.rename(
-            {"pixelids": "sample_id", "catboost_predictions": "worldcereal_predictions"},
+            {"pixelids": "sample_id", "catboost_prediction": "worldcereal_prediction"},
             axis=1,
             inplace=True,
         )
@@ -44,7 +44,7 @@ class TestEval(TestCase):
         # this is to align the parquet file with the new parquet files
         # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
         test_data.rename(
-            {"pixelids": "sample_id", "catboost_predictions": "worldcereal_predictions"},
+            {"pixelids": "sample_id", "catboost_prediction": "worldcereal_prediction"},
             axis=1,
             inplace=True,
         )

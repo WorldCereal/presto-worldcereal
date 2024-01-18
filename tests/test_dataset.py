@@ -27,7 +27,7 @@ class TestDataset(TestCase):
         df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")
         # this is to align the parquet file with the new parquet files
         # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
-        df.rename({"catboost_predictions": "worldcereal_predictions"}, axis=1, inplace=True)
+        df.rename({"catboost_prediction": "worldcereal_prediction"}, axis=1, inplace=True)
 
         location_index = df.index.get_loc(MISSING_DATA_ROW)
         strategies = [
