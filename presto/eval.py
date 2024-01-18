@@ -296,7 +296,7 @@ class WorldCerealEval:
         test_df = self.test_df.loc[
             ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
         ]
-        catboost_preds = test_df.catboost_prediction
+        catboost_preds = test_df.worldcereal_prediction
         years = test_df.end_date.apply(lambda date: date[:4])
 
         latlons = gpd.GeoDataFrame(
