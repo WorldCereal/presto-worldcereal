@@ -1,28 +1,33 @@
-##  <a name='WorldCerealtrainingdata'></a>WorldCereal training data
+##  <a name='WorldCerealdata'></a>WorldCereal benchmarking data
 
-This document describes the specifications of WorldCereal training data prepared for Presto training.
+This document describes the specifications of WorldCereal benchmarking data .
+
+The benchmarking data is available on [OneDrive](https://vitoresearch-my.sharepoint.com/:f:/g/personal/kristof_vantricht_vito_be/Eq8ElrvwZzFNoUTVByzEiowBUc2fWhgWfAxMCdsNhf3V1g) (permission required).
 
 
-#### 1. <a name='Downloadlinks'></a>Download links
+#### 1. <a name='FileDescription'></a>File Description
 
-Currently two versions of the training data are available:
+The following files are currently available:
 
-1) With linear interpolation
+- **rawts-monthly_calval.parquet (309MB)**
+  This dataframe contains the original monthly (masked) time series that can be used as an input to Presto or to compute classification features manually.
+- **rawts-10d_calval.parquet (824MB)**
+  This dataframe contains the original dekadal (10-day) (masked) time series that can be used as an input to *modified* Presto or to compute classification features manually.
+- **expertfts-10d_calval.parquet (501MB)**
+  This dataframe contains the official WorldCereal expert features that were used in V1 of the crop/no-crop WorldCereal product, computed for `rawts-10d_calval.parquet`.
+- **prestofts-monthly_calval.parquet (566MB)**
+  This dataframe contains the Presto embeddings using the currently best-performing finetuned Presto model on WorldCereal data. These embeddings were computed for `rawts-monthly_calval.parquet`.
 
-- [Cropland TRAIN data (251MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_linearinterp_V1_TRAIN.parquet)
-- [Cropland VAL data (78MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_linearinterp_V2_VAL.parquet)
+As the name suggests, the files are a (shuffled) concatenation of the original **CAL** and **VAL** files. Benchmarking experiments should now do their own split based on certain scenarios. It's crucial to keep track of how this split is done for different scenarios.
 
-2) Without linear interpolation
-
-- [Cropland TRAIN data (242MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_nointerp_V1_TRAIN.parquet)
-- [Cropland VAL data (76MB)](https://artifactory.vgt.vito.be/auxdata-public/worldcereal/presto/trainingdata/annual/worldcereal_presto_cropland_nointerp_V2_VAL.parquet)
+The parquet files mentioned above are now fully aligned and contain the exact same samples (pixels), identified by as unique `sample_id`. Any dynamic generation of a hold-out set should be based on this `sample_id` so other experiments using the other files can use the same splitting strategy.
 
 
 #### 2.  <a name='ContentofaWorldCerealsample'></a>Content of a WorldCereal sample
 
 Training data comes in the form of a parquet file which can be loaded as a Pandas DataFrame, e.g.:
 
-`df = pd.read_parquet('worldcereal_presto_cropland_linearinterp_V2_VAL.parquet')`
+`df = pd.read_parquet('rawts-monthly_calval.parquet')`
 
 Let's explore the contents of one sample or row in the dataframe:
 
@@ -30,18 +35,24 @@ Let's explore the contents of one sample or row in the dataframe:
 
 We find following relevant attributes:
 
+- Unique identifier of a sample: `sample_id`
+- Identifier of the dataset to which the sample belongs: `ref_id`
 - Latitude/Longitude: `lat, lon`
-- Start month in Presto format (note the `-1`): `datetime.strptime(start_date, "%Y-%m-%d").month - 1`
+- Year to which the sample belongs: `year`
+- Validity date (e.g. observation date) of the sample: `valid_date`
+- Start date of the time series: `start_date`
+- End date of the time series: `end_date`
 - WorldCover label: `WORLDCOVER-LABEL-10m`
 - Potapov label: `POTAPOV-LABEL-10m`
 - WorldCereal AEZ zone ID: `aez_zoneid`
 - Land cover label: `LANDCOVER_LABEL`
 - Crop type label: `CROPTYPE_LABEL`
-- Irrigation label: `IRRIGATION_LABEL`
 - Altitude in meters: `DEM-alt-20m`
 - Slope: `DEM-slo-20m`
-- WorldCereal V1 prediction label (0|1): `catboost_prediction`
-- WorldCereal V1 prediction confidence (0-1): `catboost_confidence`
+- WorldCereal V1 prediction label (0|1): `worldcereal_prediction`
+- WorldCereal V1 prediction confidence (0-1): `worldcereal_confidence`
+
+Presto requires the start month. This can be computed using (note the `-1`): `datetime.strptime(start_date, "%Y-%m-%d").month - 1`
 
 Monthly composited time series inputs are organized following the pattern:
 
@@ -53,11 +64,14 @@ where:
 - {time_step} is the monthly timestep **since the start of each time series** (0-11)
 - {resolution} is the original resolution of each band (though all bands and sensors have been resampled to 10m)
 
+Note that `expertfts` and `prestofts` dataframes have already computed features/embeddings on these time series. Their names should be clear.
+Note also that for 10D data, the time series span 36 steps for the entire year.
+
 #### 3.  <a name='Conversioninformation'></a>Conversion information
 
 Some things need to be taken into account for converting the raw WorldCereal data into Presto compatible inputs as outlined below. A [`WorldCerealDataset`](/src/dataset.py)class is provided to take care of these conversions using the `convert_inputs` method.
 
-The general no data value is set at `65535`. Currently, [Presto does not allow to mask elements both in input and target](https://github.com/nasaharvest/presto/issues/26#issuecomment-1777120102). So this no data value needs to be dealt with somehow. In the **interpolated** version of the WorldCereal training data, most of these were removed by linear interpolation but occasional no data might still occur. In the **non-interpolated**, many more no data elements will occur (e.g. due to the absence of any non-clouded observation in a month).
+The general no data value is set at `65535`. [Presto now supports a real mask](https://github.com/WorldCereal/presto-worldcereal/pull/11) and the data loader is configured to pass this no data through as masked values.
 
 ##### 3.1  <a name='OpticalData'></a>Optical data
 Optical data is in scaled radiances (scalefactor 10,000) and is therefore directly compatible with Presto.
