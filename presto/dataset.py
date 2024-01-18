@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -141,8 +141,19 @@ class WorldCerealLabelledDataset(WorldCerealBase):
     # 0: no information, 10: could be both annual or perennial
     FILTER_LABELS = [0, 10]
 
-    def __init__(self, dataframe: pd.DataFrame):
+    def __init__(
+        self,
+        dataframe: pd.DataFrame,
+        aezs_to_remove: Optional[List[int]] = None,
+        years_to_remove: Optional[List[int]] = None,
+    ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
+
+        if aezs_to_remove is not None:
+            dataframe = dataframe[(~dataframe.aez_zoneid.isin(aezs_to_remove))]
+        if years_to_remove is not None:
+            dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
+            dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         super().__init__(dataframe)
 
     def __getitem__(self, idx):

@@ -51,6 +51,8 @@ class WorldCerealEval:
         self,
         train_data: pd.DataFrame,
         val_data: pd.DataFrame,
+        aezs_to_remove: Optional[List[int]] = None,
+        years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
     ):
@@ -69,6 +71,14 @@ class WorldCerealEval:
         # these columns contain nan sometimes
         self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
         self.spatial_inference_savedir = spatial_inference_savedir
+
+        self.aezs_to_remove = aezs_to_remove
+        self.years_to_remove = years_to_remove
+
+        if self.aezs_to_remove is not None:
+            self.name = f"{self.name}_removed_aezs_{aezs_to_remove}"
+        if self.years_to_remove is not None:
+            self.name = f"{self.name}_removed_years_{years_to_remove}"
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model = cast(Callable, pretrained_model.construct_finetuning_model)(
@@ -321,8 +331,12 @@ class WorldCerealEval:
         parameters = param_groups_lrd(model)
         optimizer = AdamW(parameters, lr=hyperparams.lr)
 
-        train_ds = WorldCerealLabelledDataset(self.train_df)
-        val_ds = WorldCerealLabelledDataset(self.val_df)
+        train_ds = WorldCerealLabelledDataset(
+            self.train_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+        )
+        val_ds = WorldCerealLabelledDataset(
+            self.val_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+        )
 
         pos = (train_ds.df.LANDCOVER_LABEL == 11).sum()
         wts = 1 / torch.tensor([len(train_ds.df) - pos, pos])
@@ -448,7 +462,11 @@ class WorldCerealEval:
 
         if len(sklearn_model_modes) > 0:
             dl = DataLoader(
-                WorldCerealLabelledDataset(self.train_df),
+                WorldCerealLabelledDataset(
+                    self.train_df,
+                    aezs_to_remove=self.aezs_to_remove,
+                    years_to_remove=self.years_to_remove,
+                ),
                 batch_size=2048,
                 shuffle=False,
                 num_workers=4,

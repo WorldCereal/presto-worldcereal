@@ -330,10 +330,11 @@ if best_model_path is not None:
 else:
     logger.info("Running eval with randomly init weights")
 
-full_eval = WorldCerealEval(train_df, val_df, model_logging_dir)
-results, finetuned_model = full_eval.finetuning_results(
-    model, sklearn_model_modes=["Random Forest", "Regression", "CatBoostClassifier"]
-)
+
+model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
+full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
+results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
+logger.info(json.dumps(results, indent=2))
 if finetuned_model is not None:
     model_path = model_logging_dir / Path("models")
     model_path.mkdir(exist_ok=True, parents=True)
@@ -347,10 +348,34 @@ for spatial_preds_path in all_spatial_preds:
     output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
     plot_spatial(preds, output_path, to_wandb=wandb_enabled)
 
+# missing data experiments
+missing_aez = WorldCerealEval(
+    train_df, val_df, aezs_to_remove=[22190], spatial_inference_savedir=model_logging_dir
+)
+aez_results, _ = missing_aez.finetuning_results(model, sklearn_model_modes=model_modes)
+logger.info(json.dumps(aez_results, indent=2))
 
-logger.info(json.dumps(results, indent=2))
+missing_year = WorldCerealEval(
+    train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
+)
+year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
+logger.info(json.dumps(year_results, indent=2))
+
+both_missing = WorldCerealEval(
+    train_df,
+    val_df,
+    aezs_to_remove=[22190],
+    years_to_remove=[2021],
+    spatial_inference_savedir=model_logging_dir,
+)
+both_results, _ = both_missing.finetuning_results(model, sklearn_model_modes=model_modes)
+logger.info(json.dumps(both_results, indent=2))
+
 if wandb_enabled:
     wandb.log(results)
+    wandb.log(aez_results)
+    wandb.log(year_results)
+    wandb.log(both_results)
 
 if wandb_enabled and run:
     run.finish()
