@@ -86,6 +86,8 @@ class WorldCerealBase(Dataset):
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             eo_data[:, BANDS.index(presto_val)] = values
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
+            # this occurs for the DEM values in one point in Fiji
+            values = np.nan_to_num(values, nan=cls._NODATAVALUE)
             eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
 
         return cls.check(eo_data), mask.astype(bool), latlon, month, row_d["LANDCOVER_LABEL"] == 11
