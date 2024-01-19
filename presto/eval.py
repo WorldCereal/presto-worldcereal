@@ -9,6 +9,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import torch
+from catboost import CatBoostClassifier
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -26,7 +27,9 @@ from .utils import DEFAULT_SEED, device
 logger = logging.getLogger("__main__")
 
 world_shp_path = "world-administrative-boundaries/world-administrative-boundaries.shp"
-        
+
+SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
+
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
@@ -46,6 +49,8 @@ class WorldCerealEval:
         self,
         train_data: pd.DataFrame,
         val_data: pd.DataFrame,
+        aezs_to_remove: Optional[List[int]] = None,
+        years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
         dekadal: bool = False,
@@ -61,21 +66,37 @@ class WorldCerealEval:
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
         self.test_df = self.val_df
+        
+        self.aezs_to_remove = aezs_to_remove
+        self.years_to_remove = years_to_remove
 
+        if self.aezs_to_remove is not None:
+            self.name = f"{self.name}_removed_aezs_{aezs_to_remove}"
+        if self.years_to_remove is not None:
+            self.name = f"{self.name}_removed_years_{years_to_remove}"
+            
         if dekadal:
-            self.train_ds = WorldCerealLabelled10DDataset(self.train_df)
-            self.val_ds = WorldCerealLabelled10DDataset(self.val_df)
+            self.train_ds = WorldCerealLabelled10DDataset(
+              self.train_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+            )
+            self.val_ds = WorldCerealLabelled10DDataset(
+              self.val_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+            )
             self.filter_labels = WorldCerealLabelled10DDataset.FILTER_LABELS
         else:
-            self.train_ds = WorldCerealLabelledDataset(self.train_df)
-            self.val_ds = WorldCerealLabelledDataset(self.val_df)
+            self.train_ds = WorldCerealLabelledDataset(
+              self.train_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+            )
+            self.val_ds = WorldCerealLabelledDataset(
+              self.val_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+            )
             self.filter_labels = WorldCerealLabelledDataset.FILTER_LABELS
             
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
         # these columns contain nan sometimes
         self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
         self.spatial_inference_savedir = spatial_inference_savedir
-                   
+            
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model = cast(Callable, pretrained_model.construct_finetuning_model)(
             num_outputs=self.num_outputs
@@ -90,7 +111,7 @@ class WorldCerealEval:
         models: List[str] = ["Regression", "Random Forest"],
     ) -> Union[Sequence[BaseEstimator], Dict]:
         for model_mode in models:
-            assert model_mode in ["Regression", "Random Forest"]
+            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
         pretrained_model.eval()
 
         encoding_list, target_list = [], []
@@ -125,6 +146,9 @@ class WorldCerealEval:
             "Random Forest": RandomForestClassifier(
                 class_weight="balanced", random_state=self.seed
             ),
+            "CatBoostClassifier": CatBoostClassifier(
+                random_state=self.seed, auto_class_weights="Balanced"
+            ),
         }
         for model in tqdm(models, desc="Fitting sklearn models"):
             fit_models.append(clone(model_dict[model]).fit(encodings_np, targets))
@@ -133,11 +157,9 @@ class WorldCerealEval:
     @staticmethod
     def _inference_for_dl(
         dl,
-        finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
-        pretrained_model: Optional[Presto] = None,
+        finetuned_model: Union[PrestoFineTuningModel, SklearnStyleModel],
+        pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Tuple:
-        if isinstance(finetuned_model, BaseEstimator):
-            assert isinstance(pretrained_model, Presto)
 
         test_preds, targets = [], []
 
@@ -156,7 +178,7 @@ class WorldCerealEval:
                     month=month_f,
                 ).squeeze(dim=1)
                 preds = torch.sigmoid(preds).cpu().numpy()
-            elif isinstance(finetuned_model, BaseEstimator):
+            else:
                 cast(Presto, pretrained_model).eval()
                 encodings = (
                     cast(Presto, pretrained_model)
@@ -170,7 +192,10 @@ class WorldCerealEval:
                     .cpu()
                     .numpy()
                 )
-                preds = finetuned_model.predict(encodings)
+                if isinstance(finetuned_model, CatBoostClassifier):
+                    preds = finetuned_model.predict_proba(encodings)[:, 1]
+                else:
+                    preds = finetuned_model.predict(encodings)
             test_preds.append(preds)
 
         test_preds_np = np.concatenate(test_preds)
@@ -180,8 +205,8 @@ class WorldCerealEval:
     @torch.no_grad()
     def spatial_inference(
         self,
-        finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
-        pretrained_model: Optional[Presto] = None,
+        finetuned_model: Union[PrestoFineTuningModel, SklearnStyleModel],
+        pretrained_model: Optional[PrestoFineTuningModel] = None,
     ):
         assert self.spatial_inference_savedir is not None
         ds = WorldCerealInferenceDataset()
@@ -211,18 +236,16 @@ class WorldCerealEval:
     def evaluate(
         self,
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
-        pretrained_model: Optional[Presto] = None,
+        pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Dict:
-
-        if isinstance(finetuned_model, BaseEstimator):
-            assert isinstance(pretrained_model, Presto)
         
         test_ds = self.val_ds
+
         dl = DataLoader(
             test_ds,
             batch_size=2048, #4096, #8192,
             shuffle=False,  # keep as False!
-            num_workers=4,
+            num_workers=Hyperparams.num_workers,
         )
         assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
 
@@ -329,6 +352,7 @@ class WorldCerealEval:
 
         pos = (self.train_ds.df.LANDCOVER_LABEL == 11).sum()
         wts = 1 / torch.tensor([len(self.train_ds.df) - pos, pos])
+
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=(wts / wts[0])[1])
 
         generator = torch.Generator()
@@ -362,7 +386,7 @@ class WorldCerealEval:
         except ImportError:
             pass
 
-        for _ in tqdm(range(hyperparams.max_epochs), desc="Finetuning"):
+        for _ in (pbar := tqdm(range(hyperparams.max_epochs), desc="Finetuning")):
             model.train()
             epoch_train_loss = 0.0
             for x, y, dw, latlons, month, variable_mask in tqdm(
@@ -403,6 +427,7 @@ class WorldCerealEval:
                     all_y.append(y.float())
 
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
+            pbar.set_description(f"Train metric: {train_loss[-1]}, Val metric: {val_loss[-1]}")
 
             if run is not None:
                 wandb.log(
@@ -434,25 +459,22 @@ class WorldCerealEval:
     def finetuning_results(
         self,
         pretrained_model,
-        model_modes: List[str],
+        sklearn_model_modes: List[str],
     ) -> Tuple[Dict, Optional[PrestoFineTuningModel]]:
-        for model_mode in model_modes:
-            assert model_mode in ["Regression", "Random Forest", "finetune"]
+        for model_mode in sklearn_model_modes:
+            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
 
         results_dict = {}
-        finetuned_model: Optional[PrestoFineTuningModel] = None
-        if "finetune" in model_modes:
-            finetuned_model = self.finetune(pretrained_model)
-            # save model for debugging
-            # from presto.utils import default_model_path
-            # dekadal_ft = default_model_path.parent / "dekadal_finetuned_model.pt"
-            # torch.save(finetuned_model.state_dict(), dekadal_ft)
-            results_dict.update(self.evaluate(finetuned_model, None))
-            if self.spatial_inference_savedir is not None:
-                self.spatial_inference(finetuned_model, None)
 
-        sklearn_modes = [x for x in model_modes if x != "finetune"]
-        if len(sklearn_modes) > 0:
+        # we want to always finetune the model, since the sklearn models
+        # will use the finetuned model as a base. This better reflects
+        # the deployment scenario for WorldCereal
+        finetuned_model = self.finetune(pretrained_model)
+        results_dict.update(self.evaluate(finetuned_model, None))
+        if self.spatial_inference_savedir is not None:
+            self.spatial_inference(finetuned_model, None)
+
+        if len(sklearn_model_modes) > 0:
             dl = DataLoader(
                 self.train_ds,
                 batch_size=2048,
@@ -461,13 +483,13 @@ class WorldCerealEval:
             )
             sklearn_models = self.finetune_sklearn_model(
                 dl,
-                pretrained_model,
-                models=sklearn_modes,
+                finetuned_model,
+                models=sklearn_model_modes,
             )
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {sklearn_model}...")
-                results_dict.update(self.evaluate(sklearn_model, pretrained_model))
+                results_dict.update(self.evaluate(sklearn_model, finetuned_model))
                 if self.spatial_inference_savedir is not None:
-                    self.spatial_inference(sklearn_model, pretrained_model)
+                    self.spatial_inference(sklearn_model, finetuned_model)
         return results_dict, finetuned_model
 

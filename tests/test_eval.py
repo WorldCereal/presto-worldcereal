@@ -22,9 +22,11 @@ class TestEval(TestCase):
         test_data["LANDCOVER_LABEL"] = labels
         eval_task = WorldCerealEval(test_data, test_data)
 
-        output, _ = eval_task.finetuning_results(model, ["Regression"])
-        self.assertEqual(len(output), 564)
-        self.assertTrue("WorldCerealCropland_LogisticRegression_f1" in output)
+        output, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
+        # * 283 per model: WorldCereal CatBoost, Presto finetuned, Presto + CatBoost3
+        self.assertEqual(len(output), 282 * 3)
+        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
+        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
 
     def test_spatial_inference(
         self,
@@ -42,7 +44,9 @@ class TestEval(TestCase):
         )
         ground_truth_one_timestep = spatial_data.worldcereal_cropland.values[0, :, :]
         with tempfile.TemporaryDirectory() as tmpdirname:
-            eval_task = WorldCerealEval(test_data, test_data, Path(tmpdirname))
+            eval_task = WorldCerealEval(
+                test_data, test_data, spatial_inference_savedir=Path(tmpdirname)
+            )
             finetuned_model = eval_task._construct_finetuning_model(model)
             eval_task.spatial_inference(finetuned_model, None)
             output = xr.open_dataset(Path(tmpdirname) / f"{spatial_data_prefix}_finetuning.nc")

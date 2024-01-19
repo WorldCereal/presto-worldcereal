@@ -14,3 +14,4 @@ mypy==1.1.1
 geopandas==0.14.1
 rtree==1.1.0
 matplotlib==3.8.2
+catboost==1.2.2
