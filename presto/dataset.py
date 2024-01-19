@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Tuple, cast
+from typing import Dict, Tuple, cast, Optional, List
 
 import numpy as np
 import pandas as pd
@@ -276,8 +276,19 @@ class WorldCerealLabelled10DDataset(WorldCerealBase):
     }
     STATIC_BAND_MAPPING = {"DEM-alt-20m": "elevation", "DEM-slo-20m": "slope"}
     
-    def __init__(self, dataframe: pd.DataFrame):
+    def __init__(
+        self,
+        dataframe: pd.DataFrame,
+        aezs_to_remove: Optional[List[int]] = None,
+        years_to_remove: Optional[List[int]] = None,
+    ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
+
+        if aezs_to_remove is not None:
+            dataframe = dataframe[(~dataframe.aez_zoneid.isin(aezs_to_remove))]
+        if years_to_remove is not None:
+            dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
+            dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         super().__init__(dataframe)
 
     def __getitem__(self, idx):
