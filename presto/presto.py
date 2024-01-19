@@ -796,7 +796,7 @@ class Presto(nn.Module):
         return model
 
     @classmethod
-    def reinitialize_pos_embedding(cls, model: PrestoFineTuningModel, max_sequence_length: int):
+    def reinitialize_pos_embedding(cls, model, max_sequence_length: int): #PrestoFineTuningModel
         # reinitialize to stretch max length of time series
         model.encoder.pos_embed = nn.Parameter(
             torch.zeros(1, max_sequence_length, model.encoder.pos_embed.shape[-1]),

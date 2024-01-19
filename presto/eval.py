@@ -53,7 +53,8 @@ class WorldCerealEval:
         self.seed = seed
         
         # SAR cannot equal 0.0 since we take the log of it
-        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
+        r = 36 if dekadal else 12
+        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(r)]
         self.train_df = train_data[~(train_data.loc[:, cols] == 0.0).any(axis=1)]
 
         self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
@@ -219,7 +220,7 @@ class WorldCerealEval:
         test_ds = self.val_ds
         dl = DataLoader(
             test_ds,
-            batch_size=8192,
+            batch_size=2048, #4096, #8192,
             shuffle=False,  # keep as False!
             num_workers=4,
         )
@@ -232,6 +233,7 @@ class WorldCerealEval:
         test_df = self.test_df.loc[
             ~self.test_df.LANDCOVER_LABEL.isin(self.filter_labels)
         ]
+        
         catboost_preds = test_df.catboost_prediction
 
         def format_partitioned(results):
@@ -441,6 +443,10 @@ class WorldCerealEval:
         finetuned_model: Optional[PrestoFineTuningModel] = None
         if "finetune" in model_modes:
             finetuned_model = self.finetune(pretrained_model)
+            # save model for debugging
+            # from presto.utils import default_model_path
+            # dekadal_ft = default_model_path.parent / "dekadal_finetuned_model.pt"
+            # torch.save(finetuned_model.state_dict(), dekadal_ft)
             results_dict.update(self.evaluate(finetuned_model, None))
             if self.spatial_inference_savedir is not None:
                 self.spatial_inference(finetuned_model, None)
