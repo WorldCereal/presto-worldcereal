@@ -70,6 +70,8 @@ class WorldCerealBase(Dataset):
         mask = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
         for df_val, presto_val in cls.BAND_MAPPING.items():
             values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
+            # this occurs for the DEM values in one point in Fiji
+            values[np.isnan(values)] = cls._NODATAVALUE
             idx_valid = values != cls._NODATAVALUE
             if presto_val in ["VV", "VH"]:
                 # convert to dB
