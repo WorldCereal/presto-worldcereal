@@ -1,8 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Tuple, cast, Optional, List
-
-
 import numpy as np
 import pandas as pd
 import rioxarray
