@@ -235,10 +235,7 @@ class WorldCerealEval:
         test_preds_np = test_preds_np >= self.threshold
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
-        test_df = self.test_df.loc[
-            ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
-        ]
-        catboost_preds = test_df.worldcereal_prediction
+        catboost_preds = test_ds.df.worldcereal_prediction
 
         def format_partitioned(results):
             return {
@@ -253,7 +250,7 @@ class WorldCerealEval:
             f"{self.name}_CatBoost_f1": float(f1_score(target_np, catboost_preds)),
             f"{self.name}_CatBoost_recall": float(recall_score(target_np, catboost_preds)),
             f"{self.name}_CatBoost_precision": float(precision_score(target_np, catboost_preds)),
-            **format_partitioned(self.partitioned_metrics(target_np, test_preds_np)),
+            **format_partitioned(self.partitioned_metrics(target_np, test_preds_np, test_ds.df)),
         }
 
     @staticmethod
@@ -291,11 +288,11 @@ class WorldCerealEval:
         return res
 
     def partitioned_metrics(
-        self, target: np.ndarray, preds: np.ndarray
+        self,
+        target: np.ndarray,
+        preds: np.ndarray,
+        test_df: pd.DataFrame,
     ) -> Dict[str, Union[np.float32, np.int32]]:
-        test_df = self.test_df.loc[
-            ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
-        ]
         catboost_preds = test_df.worldcereal_prediction
         years = test_df.end_date.apply(lambda date: date[:4])
 
