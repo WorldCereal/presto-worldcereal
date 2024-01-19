@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -67,7 +67,7 @@ class WorldCerealBase(Dataset):
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
         # an assumption we make here is that all timesteps for a token
         # have the same masking
-        mask_per_token = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
+        mask = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
         for df_val, presto_val in cls.BAND_MAPPING.items():
             values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
             idx_valid = values != cls._NODATAVALUE
@@ -81,12 +81,12 @@ class WorldCerealBase(Dataset):
             elif presto_val == "temperature_2m":
                 # remove scaling
                 values[idx_valid] = values[idx_valid] / 100
-            mask_per_token[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
+            mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             eo_data[:, BANDS.index(presto_val)] = values
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
 
-        return eo_data, mask_per_token.astype(bool), latlon, month, row_d["LANDCOVER_LABEL"] == 11
+        return cls.check(eo_data), mask.astype(bool), latlon, month, row_d["LANDCOVER_LABEL"] == 11
 
     def __getitem__(self, idx):
         raise NotImplementedError
@@ -99,6 +99,11 @@ class WorldCerealBase(Dataset):
         # TODO: fix this. For now, we replicate the previous behaviour
         normed_eo = np.where(eo[:, keep_indices] != cls._NODATAVALUE, normed_eo, 0)
         return normed_eo
+
+    @staticmethod
+    def check(array: np.ndarray) -> np.ndarray:
+        assert not np.isnan(array).any()
+        return array
 
 
 class WorldCerealMaskedDataset(WorldCerealBase):
@@ -136,8 +141,19 @@ class WorldCerealLabelledDataset(WorldCerealBase):
     # 0: no information, 10: could be both annual or perennial
     FILTER_LABELS = [0, 10]
 
-    def __init__(self, dataframe: pd.DataFrame):
+    def __init__(
+        self,
+        dataframe: pd.DataFrame,
+        aezs_to_remove: Optional[List[int]] = None,
+        years_to_remove: Optional[List[int]] = None,
+    ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
+
+        if aezs_to_remove is not None:
+            dataframe = dataframe[(~dataframe.aez_zoneid.isin(aezs_to_remove))]
+        if years_to_remove is not None:
+            dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
+            dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         super().__init__(dataframe)
 
     def __getitem__(self, idx):
