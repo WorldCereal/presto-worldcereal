@@ -23,8 +23,8 @@ from . import utils
 from .dataset import (
     WorldCerealInferenceDataset, 
     WorldCerealLabelledDataset, 
-    WorldCerealLabelled10DDataset
-)
+    WorldCerealLabelled10DDataset,
+    )
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
