@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, cast
 
@@ -303,8 +303,7 @@ class WorldCerealLabelled10DDataset(WorldCerealBase):
         if aezs_to_remove is not None:
             dataframe = dataframe[(~dataframe.aez_zoneid.isin(aezs_to_remove))]
         if years_to_remove is not None:
-            dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
-            dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
+            dataframe = dataframe[(~pd.to_datetime(dataframe.end_date).dt.year.isin(years_to_remove))]
         super().__init__(dataframe)
 
     def __getitem__(self, idx):

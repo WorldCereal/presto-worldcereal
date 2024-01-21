@@ -21,10 +21,10 @@ from tqdm import tqdm
 
 from . import utils
 from .dataset import (
-    WorldCerealInferenceDataset, 
+    WorldCerealInferenceDataset,
     WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset, 
-    )
+    WorldCerealLabelledDataset,
+)
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
@@ -69,7 +69,6 @@ class WorldCerealEval:
         self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
-        self.test_df = self.val_df
         
         self.aezs_to_remove = aezs_to_remove
         self.years_to_remove = years_to_remove
@@ -95,6 +94,11 @@ class WorldCerealEval:
               self.val_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
             )
             self.filter_labels = WorldCerealLabelledDataset.FILTER_LABELS
+        
+        # reassign in case we removed some years and/or aezs
+        self.train_df = self.train_ds.df
+        self.val_df = self.val_ds.df
+        self.test_df = self.val_ds.df
             
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
         # these columns contain nan sometimes

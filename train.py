@@ -362,13 +362,13 @@ for spatial_preds_path in all_spatial_preds:
 
 # missing data experiments
 missing_aez = WorldCerealEval(
-    train_df, val_df, aezs_to_remove=[22190], spatial_inference_savedir=model_logging_dir
+    train_df, val_df, aezs_to_remove=[22190], spatial_inference_savedir=model_logging_dir, dekadal=dekadal
 )
 aez_results, _ = missing_aez.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(aez_results, indent=2))
 
 missing_year = WorldCerealEval(
-    train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
+    train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir, dekadal=dekadal
 )
 year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))
@@ -379,6 +379,7 @@ both_missing = WorldCerealEval(
     aezs_to_remove=[22190],
     years_to_remove=[2021],
     spatial_inference_savedir=model_logging_dir,
+    dekadal=dekadal,
 )
 both_results, _ = both_missing.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(both_results, indent=2))
