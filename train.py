@@ -26,7 +26,6 @@ from presto.presto import (
 from presto.utils import (
     DEFAULT_SEED,
     config_dir,
-    data_dir,
     default_model_path,
     device,
     initialize_logging,
@@ -83,7 +82,9 @@ argparser.add_argument(
     type=str,
     default="worldcereal_presto_cropland_nointerp_V2_VAL.parquet",
 )
+argparser.add_argument("--dekadal", type=bool, default=False)
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
+argparser.add_argument("--data_dir", type=str, default="")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
 args = argparser.parse_args().__dict__
@@ -98,6 +99,11 @@ wandb_org: str = args["wandb_org"]
 
 seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
+if args["data_dir"]:
+    data_dir = Path(args["data_dir"])
+else:
+    from presto.utils import data_dir
+
 run_id = None
 
 if wandb_enabled:
@@ -131,6 +137,7 @@ mask_ratio: float = args["mask_ratio"]
 
 train_file: str = args["train_file"]
 val_file: str = args["val_file"]
+dekadal: bool = args["dekadal"]
 
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
@@ -157,6 +164,7 @@ val_dataloader = DataLoader(
 validation_task = WorldCerealEval(
     train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
     val_data=val_df.sample(1000, random_state=DEFAULT_SEED),
+    dekadal=dekadal,
 )
 
 if val_per_n_steps == -1:
@@ -167,6 +175,11 @@ if warm_start:
     model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
     model = Presto.load_pretrained()
     best_model_path: Optional[Path] = default_model_path
+    if dekadal:
+        model = Presto.reinitialize_pos_embedding(model, max_sequence_length=72)
+        dekadal_model_path = default_model_path.parent / "dekadal_model.pt"
+        torch.save(model.state_dict(), dekadal_model_path)
+        best_model_path: Optional[Path] = dekadal_model_path
 else:
     if path_to_config == "":
         path_to_config = config_dir / "default.json"
@@ -332,9 +345,12 @@ else:
 
 
 model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
-full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
+full_eval = WorldCerealEval(
+    train_df, val_df, spatial_inference_savedir=model_logging_dir, dekadal=dekadal
+)
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
+
 if finetuned_model is not None:
     model_path = model_logging_dir / Path("models")
     model_path.mkdir(exist_ok=True, parents=True)
@@ -350,13 +366,21 @@ for spatial_preds_path in all_spatial_preds:
 
 # missing data experiments
 missing_aez = WorldCerealEval(
-    train_df, val_df, aezs_to_remove=[22190], spatial_inference_savedir=model_logging_dir
+    train_df,
+    val_df,
+    aezs_to_remove=[22190],
+    spatial_inference_savedir=model_logging_dir,
+    dekadal=dekadal,
 )
 aez_results, _ = missing_aez.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(aez_results, indent=2))
 
 missing_year = WorldCerealEval(
-    train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
+    train_df,
+    val_df,
+    years_to_remove=[2021],
+    spatial_inference_savedir=model_logging_dir,
+    dekadal=dekadal,
 )
 year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))
@@ -367,6 +391,7 @@ both_missing = WorldCerealEval(
     aezs_to_remove=[22190],
     years_to_remove=[2021],
     spatial_inference_savedir=model_logging_dir,
+    dekadal=dekadal,
 )
 both_results, _ = both_missing.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(both_results, indent=2))
