@@ -291,7 +291,7 @@ class WorldCerealLabelled10DDataset(WorldCerealBase):
         "METEO-temperature_mean-ts{}-100m": "temperature_2m",
     }
     STATIC_BAND_MAPPING = {"DEM-alt-20m": "elevation", "DEM-slo-20m": "slope"}
-    
+
     def __init__(
         self,
         dataframe: pd.DataFrame,
@@ -303,7 +303,9 @@ class WorldCerealLabelled10DDataset(WorldCerealBase):
         if aezs_to_remove is not None:
             dataframe = dataframe[(~dataframe.aez_zoneid.isin(aezs_to_remove))]
         if years_to_remove is not None:
-            dataframe = dataframe[(~pd.to_datetime(dataframe.end_date).dt.year.isin(years_to_remove))]
+            dataframe = dataframe[
+                (~pd.to_datetime(dataframe.end_date).dt.year.isin(years_to_remove))
+            ]
         super().__init__(dataframe)
 
     def __getitem__(self, idx):
@@ -319,7 +321,7 @@ class WorldCerealLabelled10DDataset(WorldCerealBase):
             month,
             mask_per_variable,
         )
-        
+
     @classmethod
     def row_to_arrays(
         cls, row: pd.Series
@@ -329,8 +331,8 @@ class WorldCerealLabelled10DDataset(WorldCerealBase):
         row_d = pd.Series.to_dict(row)
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
-        
-        # create month array 
+
+        # create month array
         month = cls.get_month_array(row)
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
@@ -359,8 +361,9 @@ class WorldCerealLabelled10DDataset(WorldCerealBase):
 
     @classmethod
     def get_month_array(cls, row: pd.Series) -> np.ndarray:
-        start_date, end_date = datetime.strptime(
-            row.start_date, "%Y-%m-%d"), datetime.strptime(row.end_date, "%Y-%m-%d")
+        start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
+            row.end_date, "%Y-%m-%d"
+        )
 
         # Calculate the step size for 10-day intervals and create a list of dates
         step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))

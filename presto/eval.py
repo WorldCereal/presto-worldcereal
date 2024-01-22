@@ -34,6 +34,7 @@ world_shp_path = "world-administrative-boundaries/world-administrative-boundarie
 
 SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 
+
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
@@ -60,7 +61,7 @@ class WorldCerealEval:
         dekadal: bool = False,
     ):
         self.seed = seed
-        
+
         # SAR cannot equal 0.0 since we take the log of it
         r = 36 if dekadal else 12
         cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(r)]
@@ -69,7 +70,7 @@ class WorldCerealEval:
         self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
-        
+
         self.aezs_to_remove = aezs_to_remove
         self.years_to_remove = years_to_remove
 
@@ -77,34 +78,42 @@ class WorldCerealEval:
             self.name = f"{self.name}_removed_aezs_{aezs_to_remove}"
         if self.years_to_remove is not None:
             self.name = f"{self.name}_removed_years_{years_to_remove}"
-            
+
         if dekadal:
             self.train_ds = WorldCerealLabelled10DDataset(
-              self.train_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+                self.train_df,
+                aezs_to_remove=self.aezs_to_remove,
+                years_to_remove=self.years_to_remove,
             )
             self.val_ds = WorldCerealLabelled10DDataset(
-              self.val_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+                self.val_df,
+                aezs_to_remove=self.aezs_to_remove,
+                years_to_remove=self.years_to_remove,
             )
             self.filter_labels = WorldCerealLabelled10DDataset.FILTER_LABELS
         else:
             self.train_ds = WorldCerealLabelledDataset(
-              self.train_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+                self.train_df,
+                aezs_to_remove=self.aezs_to_remove,
+                years_to_remove=self.years_to_remove,
             )
             self.val_ds = WorldCerealLabelledDataset(
-              self.val_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+                self.val_df,
+                aezs_to_remove=self.aezs_to_remove,
+                years_to_remove=self.years_to_remove,
             )
             self.filter_labels = WorldCerealLabelledDataset.FILTER_LABELS
-        
+
         # reassign in case we removed some years and/or aezs
         self.train_df = self.train_ds.df
         self.val_df = self.val_ds.df
         self.test_df = self.val_ds.df
-            
+
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
         # these columns contain nan sometimes
         self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
         self.spatial_inference_savedir = spatial_inference_savedir
-            
+
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model = cast(Callable, pretrained_model.construct_finetuning_model)(
             num_outputs=self.num_outputs
@@ -168,7 +177,6 @@ class WorldCerealEval:
         finetuned_model: Union[PrestoFineTuningModel, SklearnStyleModel],
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Tuple:
-
         test_preds, targets = [], []
 
         for x, y, dw, latlons, month, variable_mask in dl:
@@ -246,12 +254,11 @@ class WorldCerealEval:
         finetuned_model: Union[PrestoFineTuningModel, BaseEstimator],
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Dict:
-        
         test_ds = self.val_ds
 
         dl = DataLoader(
             test_ds,
-            batch_size=2048, #4096, #8192,
+            batch_size=2048,  # 4096, #8192,
             shuffle=False,  # keep as False!
             num_workers=Hyperparams.num_workers,
         )
@@ -261,10 +268,8 @@ class WorldCerealEval:
         test_preds_np = test_preds_np >= self.threshold
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
-        test_df = self.test_df.loc[
-            ~self.test_df.LANDCOVER_LABEL.isin(self.filter_labels)
-        ]
-        
+        test_df = self.test_df.loc[~self.test_df.LANDCOVER_LABEL.isin(self.filter_labels)]
+
         catboost_preds = test_df.catboost_prediction
 
         def format_partitioned(results):
@@ -320,9 +325,7 @@ class WorldCerealEval:
     def partitioned_metrics(
         self, target: np.ndarray, preds: np.ndarray
     ) -> Dict[str, Union[np.float32, np.int32]]:
-        test_df = self.test_df.loc[
-            ~self.test_df.LANDCOVER_LABEL.isin(self.filter_labels)
-        ]
+        test_df = self.test_df.loc[~self.test_df.LANDCOVER_LABEL.isin(self.filter_labels)]
         catboost_preds = test_df.catboost_prediction
         years = test_df.end_date.apply(lambda date: date[:4])
 
@@ -500,4 +503,3 @@ class WorldCerealEval:
                 if self.spatial_inference_savedir is not None:
                     self.spatial_inference(sklearn_model, finetuned_model)
         return results_dict, finetuned_model
-
