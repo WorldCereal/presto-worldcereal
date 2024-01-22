@@ -26,7 +26,6 @@ from presto.presto import (
 from presto.utils import (
     DEFAULT_SEED,
     config_dir,
-    data_dir,
     default_model_path,
     device,
     initialize_logging,
@@ -102,6 +101,9 @@ seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
 if args["data_dir"]:
     data_dir = Path(args["data_dir"])
+else:
+    from presto.utils import data_dir
+
 run_id = None
 
 if wandb_enabled:
