@@ -74,6 +74,7 @@ argparser.add_argument("--num_workers", type=int, default=4)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
+argparser.add_argument("--val_samples_file", type=str, default="VAL_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
@@ -121,6 +122,7 @@ if (len(mask_strategies) == 1) and (mask_strategies[0] == "all"):
 mask_ratio: float = args["mask_ratio"]
 
 parquet_file: str = args["parquet_file"]
+val_samples_file: str = args["val_samples_file"]
 
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
@@ -131,7 +133,12 @@ logger.info("Setting up dataloaders")
 mask_params = MaskParamsNoDw(mask_strategies, mask_ratio)
 
 df = pd.read_parquet(data_dir / parquet_file)
-train_df, val_df = WorldCerealDataset.split_df(df)
+if (data_dir / val_samples_file).exists():
+    val_samples_df = pd.read_csv(data_dir / val_samples_file)
+    val_samples = val_samples_df.tolist()
+    train_df, val_df = WorldCerealDataset.split_df(df, val_sample_ids=val_samples)
+else:
+    train_df, val_df = WorldCerealDataset.split_df(df)
 train_dataloader = DataLoader(
     WorldCerealDataset(train_df, mask_params=mask_params),
     batch_size=batch_size,

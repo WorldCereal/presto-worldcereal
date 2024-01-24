@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, cast
@@ -19,6 +20,8 @@ from .dataops import (
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir
+
+logger = logging.getLogger("__main__")
 
 IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
@@ -112,10 +115,19 @@ class WorldCerealBase(Dataset):
         return array
 
     @staticmethod
-    def split_df(df: pd.DataFrame, val_size: float = 0.2) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        val, train = np.split(
-            df.sample(frac=1, random_state=DEFAULT_SEED), [int(val_size * len(df))]
-        )
+    def split_df(
+        df: pd.DataFrame, val_sample_ids: List[str] = None, val_size: float = 0.2
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        if val_sample_ids is None:
+            logger.warning(f"No val_ids; randomly splitting {val_size} to the val set instead")
+            val, train = np.split(
+                df.sample(frac=1, random_state=DEFAULT_SEED), [int(val_size * len(df))]
+            )
+        else:
+            is_val = df.sample_id.isin(val_sample_ids)
+            logger.info(f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples")
+            train = df[~is_val]
+            val = df[is_val]
         return train, val
 
 
