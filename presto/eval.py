@@ -62,9 +62,10 @@ class WorldCerealEval:
         cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
         self.train_df = train_data[~(train_data.loc[:, cols] == 0.0).any(axis=1)]
 
-        self.val_df = val_data.drop_duplicates(subset=["pixelids", "lat", "lon", "end_date"])
+        self.val_df = val_data.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
+        self.val_df = self.val_df.set_index("sample_id")
         self.test_df = self.val_df
 
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
@@ -209,10 +210,11 @@ class WorldCerealEval:
             )
             test_preds_np, _ = self._inference_for_dl(dl, finetuned_model, pretrained_model)
             df = ds.combine_predictions(latlons, test_preds_np, y)
+            prefix = f"{self.name}_{ds.all_files[i].stem}"
             if pretrained_model is None:
-                filename = f"{ds.all_files[i].stem}_finetuning.nc"
+                filename = f"{prefix}_finetuning.nc"
             else:
-                filename = f"{ds.all_files[i].stem}_{finetuned_model.__class__.__name__}.nc"
+                filename = f"{prefix}_{finetuned_model.__class__.__name__}.nc"
             df.to_xarray().to_netcdf(self.spatial_inference_savedir / filename)
 
     @torch.no_grad()
@@ -235,10 +237,7 @@ class WorldCerealEval:
         test_preds_np = test_preds_np >= self.threshold
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
-        test_df = self.test_df.loc[
-            ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
-        ]
-        catboost_preds = test_df.catboost_prediction
+        catboost_preds = test_ds.df.worldcereal_prediction
 
         def format_partitioned(results):
             return {
@@ -253,7 +252,7 @@ class WorldCerealEval:
             f"{self.name}_CatBoost_f1": float(f1_score(target_np, catboost_preds)),
             f"{self.name}_CatBoost_recall": float(recall_score(target_np, catboost_preds)),
             f"{self.name}_CatBoost_precision": float(precision_score(target_np, catboost_preds)),
-            **format_partitioned(self.partitioned_metrics(target_np, test_preds_np)),
+            **format_partitioned(self.partitioned_metrics(target_np, test_preds_np, test_ds.df)),
         }
 
     @staticmethod
@@ -291,16 +290,17 @@ class WorldCerealEval:
         return res
 
     def partitioned_metrics(
-        self, target: np.ndarray, preds: np.ndarray
+        self,
+        target: np.ndarray,
+        preds: np.ndarray,
+        test_df: pd.DataFrame,
     ) -> Dict[str, Union[np.float32, np.int32]]:
-        test_df = self.test_df.loc[
-            ~self.test_df.LANDCOVER_LABEL.isin(WorldCerealLabelledDataset.FILTER_LABELS)
-        ]
-        catboost_preds = test_df.catboost_prediction
+        catboost_preds = test_df.worldcereal_prediction
         years = test_df.end_date.apply(lambda date: date[:4])
 
         latlons = gpd.GeoDataFrame(
-            geometry=gpd.GeoSeries.from_xy(x=test_df.lon, y=test_df.lat), crs="EPSG:4326"
+            geometry=gpd.GeoSeries.from_xy(x=test_df.lon, y=test_df.lat),
+            crs="EPSG:4326",
         )
         # project to non geographic CRS, otherwise geopandas gives a warning
         world_attrs = gpd.sjoin_nearest(

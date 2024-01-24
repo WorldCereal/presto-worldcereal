@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, cast
@@ -18,7 +19,9 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import data_dir
+from .utils import DEFAULT_SEED, data_dir
+
+logger = logging.getLogger("__main__")
 
 IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
@@ -70,6 +73,8 @@ class WorldCerealBase(Dataset):
         mask = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
         for df_val, presto_val in cls.BAND_MAPPING.items():
             values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
+            # this occurs for the DEM values in one point in Fiji
+            values = np.nan_to_num(values, nan=cls._NODATAVALUE)
             idx_valid = values != cls._NODATAVALUE
             if presto_val in ["VV", "VH"]:
                 # convert to dB
@@ -84,7 +89,11 @@ class WorldCerealBase(Dataset):
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             eo_data[:, BANDS.index(presto_val)] = values
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
-            eo_data[:, BANDS.index(presto_val)] = row_d[df_val]
+            # this occurs for the DEM values in one point in Fiji
+            values = np.nan_to_num(row_d[df_val], nan=cls._NODATAVALUE)
+            idx_valid = values != cls._NODATAVALUE
+            eo_data[:, BANDS.index(presto_val)] = values
+            mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
         return cls.check(eo_data), mask.astype(bool), latlon, month, row_d["LANDCOVER_LABEL"] == 11
 
@@ -104,6 +113,22 @@ class WorldCerealBase(Dataset):
     def check(array: np.ndarray) -> np.ndarray:
         assert not np.isnan(array).any()
         return array
+
+    @staticmethod
+    def split_df(
+        df: pd.DataFrame, val_sample_ids: Optional[List[str]] = None, val_size: float = 0.2
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        if val_sample_ids is None:
+            logger.warning(f"No val_ids; randomly splitting {val_size} to the val set instead")
+            val, train = np.split(
+                df.sample(frac=1, random_state=DEFAULT_SEED), [int(val_size * len(df))]
+            )
+        else:
+            is_val = df.sample_id.isin(val_sample_ids)
+            logger.info(f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples")
+            train = df[~is_val]
+            val = df[is_val]
+        return train, val
 
 
 class WorldCerealMaskedDataset(WorldCerealBase):

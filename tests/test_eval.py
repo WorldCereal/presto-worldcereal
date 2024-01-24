@@ -13,13 +13,28 @@ from presto.utils import data_dir
 
 
 class TestEval(TestCase):
+    @staticmethod
+    def read_test_file() -> pd.DataFrame:
+        test_df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
+        # this is to align the parquet file with the new parquet files
+        # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
+        test_df.rename(
+            {"catboost_prediction": "worldcereal_prediction"},
+            axis=1,
+            inplace=True,
+        )
+        test_df["sample_id"] = np.arange(len(test_df))
+        test_df["year"] = 2021
+        labels = [99] * len(test_df)  # 99 = No cropland
+        labels[:10] = [11] * 10  # 11 = Annual cropland
+        test_df["LANDCOVER_LABEL"] = labels
+
+        return test_df
+
     def test_eval(self):
         model = Presto.load_pretrained()
 
-        test_data = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
-        labels = [99] * len(test_data)  # 99 = No cropland
-        labels[:10] = [11] * 10  # 11 = Annual cropland
-        test_data["LANDCOVER_LABEL"] = labels
+        test_data = self.read_test_file()
         eval_task = WorldCerealEval(test_data, test_data)
 
         output, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
@@ -33,11 +48,7 @@ class TestEval(TestCase):
     ):
         model = Presto.load_pretrained()
 
-        test_data = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
-        labels = [99] * len(test_data)  # 99 = No cropland
-        labels[:10] = [11] * 10  # 11 = Annual cropland
-        test_data["LANDCOVER_LABEL"] = labels
-
+        test_data = self.read_test_file()
         spatial_data_prefix = "belgium_good_2020-12-01_2021-11-30"
         spatial_data = rioxarray.open_rasterio(
             data_dir / f"inference_areas/{spatial_data_prefix}.nc", decode_times=False
@@ -49,7 +60,9 @@ class TestEval(TestCase):
             )
             finetuned_model = eval_task._construct_finetuning_model(model)
             eval_task.spatial_inference(finetuned_model, None)
-            output = xr.open_dataset(Path(tmpdirname) / f"{spatial_data_prefix}_finetuning.nc")
+            output = xr.open_dataset(
+                Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning.nc"
+            )
             # np.flip because of how lat lons are stored vs x y
             self.assertTrue(
                 np.equal(np.flip(output.ground_truth.values, 0), ground_truth_one_timestep).all()
