@@ -19,10 +19,11 @@ class TestEval(TestCase):
         # this is to align the parquet file with the new parquet files
         # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
         test_df.rename(
-            {"pixelids": "sample_id", "catboost_prediction": "worldcereal_prediction"},
+            {"catboost_prediction": "worldcereal_prediction"},
             axis=1,
             inplace=True,
         )
+        test_df["sample_id"] = np.arange(len(test_df))
         test_df["year"] = 2021
         labels = [99] * len(test_df)  # 99 = No cropland
         labels[:10] = [11] * 10  # 11 = Annual cropland
