@@ -13,7 +13,6 @@ from presto.utils import data_dir
 
 
 class TestEval(TestCase):
-
     @staticmethod
     def read_test_file() -> pd.DataFrame:
         test_df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]

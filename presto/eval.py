@@ -65,6 +65,7 @@ class WorldCerealEval:
         self.val_df = val_data.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
+        self.val_df = self.val_df.set_index("sample_id")
         self.test_df = self.val_df
 
         self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
