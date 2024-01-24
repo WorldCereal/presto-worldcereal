@@ -210,10 +210,11 @@ class WorldCerealEval:
             )
             test_preds_np, _ = self._inference_for_dl(dl, finetuned_model, pretrained_model)
             df = ds.combine_predictions(latlons, test_preds_np, y)
+            prefix = f"{self.name}_{ds.all_files[i].stem}"
             if pretrained_model is None:
-                filename = f"{ds.all_files[i].stem}_finetuning.nc"
+                filename = f"{prefix}_finetuning.nc"
             else:
-                filename = f"{ds.all_files[i].stem}_{finetuned_model.__class__.__name__}.nc"
+                filename = f"{prefix}_{finetuned_model.__class__.__name__}.nc"
             df.to_xarray().to_netcdf(self.spatial_inference_savedir / filename)
 
     @torch.no_grad()
