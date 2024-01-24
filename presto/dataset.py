@@ -116,7 +116,7 @@ class WorldCerealBase(Dataset):
 
     @staticmethod
     def split_df(
-        df: pd.DataFrame, val_sample_ids: List[str] = None, val_size: float = 0.2
+        df: pd.DataFrame, val_sample_ids: Optional[List[str]] = None, val_size: float = 0.2
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         if val_sample_ids is None:
             logger.warning(f"No val_ids; randomly splitting {val_size} to the val set instead")

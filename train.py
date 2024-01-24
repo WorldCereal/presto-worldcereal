@@ -135,7 +135,7 @@ mask_params = MaskParamsNoDw(mask_strategies, mask_ratio)
 df = pd.read_parquet(data_dir / parquet_file)
 if (data_dir / val_samples_file).exists():
     val_samples_df = pd.read_csv(data_dir / val_samples_file)
-    val_samples = val_samples_df.tolist()
+    val_samples = val_samples_df.sample_id.tolist()
     train_df, val_df = WorldCerealDataset.split_df(df, val_sample_ids=val_samples)
 else:
     train_df, val_df = WorldCerealDataset.split_df(df)
