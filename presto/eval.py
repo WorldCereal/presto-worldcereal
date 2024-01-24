@@ -297,7 +297,9 @@ class WorldCerealEval:
         years = test_df.end_date.apply(lambda date: date[:4])
 
         latlons = gpd.GeoDataFrame(
-            geometry=gpd.GeoSeries.from_xy(x=test_df.lon, y=test_df.lat), crs="EPSG:4326"
+            data={"year": test_df.year},
+            geometry=gpd.GeoSeries.from_xy(x=test_df.lon, y=test_df.lat),
+            crs="EPSG:4326",
         )
         # project to non geographic CRS, otherwise geopandas gives a warning
         world_attrs = gpd.sjoin_nearest(
