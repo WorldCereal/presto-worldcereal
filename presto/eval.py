@@ -297,7 +297,6 @@ class WorldCerealEval:
         years = test_df.end_date.apply(lambda date: date[:4])
 
         latlons = gpd.GeoDataFrame(
-            data={"year": test_df.year},
             geometry=gpd.GeoSeries.from_xy(x=test_df.lon, y=test_df.lat),
             crs="EPSG:4326",
         )

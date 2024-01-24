@@ -13,20 +13,28 @@ from presto.utils import data_dir
 
 
 class TestEval(TestCase):
-    def test_eval(self):
-        model = Presto.load_pretrained()
 
-        test_data = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
+    @staticmethod
+    def read_test_file() -> pd.DataFrame:
+        test_df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
         # this is to align the parquet file with the new parquet files
         # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
-        test_data.rename(
+        test_df.rename(
             {"pixelids": "sample_id", "catboost_prediction": "worldcereal_prediction"},
             axis=1,
             inplace=True,
         )
-        labels = [99] * len(test_data)  # 99 = No cropland
+        test_df["year"] = 2021
+        labels = [99] * len(test_df)  # 99 = No cropland
         labels[:10] = [11] * 10  # 11 = Annual cropland
-        test_data["LANDCOVER_LABEL"] = labels
+        test_df["LANDCOVER_LABEL"] = labels
+
+        return test_df
+
+    def test_eval(self):
+        model = Presto.load_pretrained()
+
+        test_data = self.read_test_file()
         eval_task = WorldCerealEval(test_data, test_data)
 
         output, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
@@ -40,18 +48,7 @@ class TestEval(TestCase):
     ):
         model = Presto.load_pretrained()
 
-        test_data = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
-        # this is to align the parquet file with the new parquet files
-        # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
-        test_data.rename(
-            {"pixelids": "sample_id", "catboost_prediction": "worldcereal_prediction"},
-            axis=1,
-            inplace=True,
-        )
-        labels = [99] * len(test_data)  # 99 = No cropland
-        labels[:10] = [11] * 10  # 11 = Annual cropland
-        test_data["LANDCOVER_LABEL"] = labels
-
+        test_data = self.read_test_file()
         spatial_data_prefix = "belgium_good_2020-12-01_2021-11-30"
         spatial_data = rioxarray.open_rasterio(
             data_dir / f"inference_areas/{spatial_data_prefix}.nc", decode_times=False
