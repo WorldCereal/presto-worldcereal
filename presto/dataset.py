@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -216,8 +216,8 @@ class WorldCerealInferenceDataset(Dataset):
         "temperature-mean": "temperature_2m",
     }
 
-    def __init__(self):
-        self.path_to_files = data_dir / "inference_areas"
+    def __init__(self, input_dir: Union[str, Path] = None):
+        self.path_to_files = data_dir / "inference_areas" if input_dir is None else input_dir
         self.all_files = list(self.path_to_files.glob("*.nc"))
 
     def __len__(self):
