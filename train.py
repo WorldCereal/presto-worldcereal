@@ -347,11 +347,17 @@ for spatial_preds_path in all_spatial_preds:
     plot_spatial(preds, output_path, to_wandb=wandb_enabled)
 
 # missing data experiments
-missing_country = WorldCerealEval(
-    train_df, val_df, countries_to_remove=["Latvia"], spatial_inference_savedir=model_logging_dir
-)
-country_results, _ = missing_country.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(country_results, indent=2))
+country_results = []
+for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
+    eval_task = WorldCerealEval(
+        train_df,
+        val_df,
+        countries_to_remove=[country],
+        spatial_inference_savedir=model_logging_dir,
+    )
+    results, _ = eval_task.finetuning_results(model, sklearn_model_modes=model_modes)
+    logger.info(json.dumps(results, indent=2))
+    country_results.append(results)
 
 missing_year = WorldCerealEval(
     train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
@@ -359,21 +365,11 @@ missing_year = WorldCerealEval(
 year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))
 
-both_missing = WorldCerealEval(
-    train_df,
-    val_df,
-    countries_to_remove=["Latvia"],
-    years_to_remove=[2021],
-    spatial_inference_savedir=model_logging_dir,
-)
-both_results, _ = both_missing.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(both_results, indent=2))
-
 if wandb_enabled:
     wandb.log(results)
-    wandb.log(country_results)
+    for results in country_results:
+        wandb.log(results)
     wandb.log(year_results)
-    wandb.log(both_results)
 
 if wandb_enabled and run:
     run.finish()
