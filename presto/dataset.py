@@ -205,7 +205,6 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             geometry=gpd.GeoSeries.from_xy(x=dataframe.lon, y=dataframe.lat),
             crs="EPSG:4326",
         )
-        print(dataframe.columns)
         # project to non geographic CRS, otherwise geopandas gives a warning
         joined = gpd.sjoin_nearest(
             dataframe.to_crs("EPSG:3857"), world_df.to_crs("EPSG:3857"), how="left"
@@ -213,7 +212,6 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         joined = joined[~joined.index.duplicated(keep="first")]
         if joined.isna().any(axis=1).any():
             logger.warning("Some coordinates couldn't be matched to a country")
-        print(joined.columns)
         return joined.to_crs("EPSG:4326")
 
 

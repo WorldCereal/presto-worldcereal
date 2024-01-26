@@ -293,10 +293,10 @@ class WorldCerealEval:
         if "continent" not in test_df.columns:
             # might not be None if we have filtered by country
             world_attrs = WorldCerealLabelledDataset.join_with_world_df(test_df)[
-                ["aez_zone_id", "name", "continent", "region"]
+                ["aez_zoneid", "name", "continent", "region"]
             ]
         else:
-            world_attrs = test_df[["aez_zone_id", "name", "continent", "region"]]
+            world_attrs = test_df[["aez_zoneid", "name", "continent", "region"]]
 
         metrics = partial(self.metrics, target=target)
         return {
