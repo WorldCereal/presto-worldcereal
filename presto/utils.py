@@ -291,3 +291,11 @@ def plot_spatial(spatial_preds: xr.Dataset, output_path: Path, to_wandb: bool = 
 
         wandb.log({str(output_path): wandb.Image(str(output_path))})
     plt.close()
+
+
+def load_world_df() -> pd.DataFrame:
+    # this could be memoized, but it should only be called 2 or 3 times in a run
+    filename = "world-administrative-boundaries/world-administrative-boundaries.shp"
+    world_df = gpd.read_file(data_dir / filename)
+    world_df = world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
+    return world_df

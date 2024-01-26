@@ -30,6 +30,7 @@ from presto.utils import (
     default_model_path,
     device,
     initialize_logging,
+    load_world_df,
     plot_results,
     plot_spatial,
     seed_everything,
@@ -338,7 +339,7 @@ if finetuned_model is not None:
     finetuned_model_path = model_path / "finetuned_model.pt"
     torch.save(model.state_dict(), finetuned_model_path)
 # not saving plots to wandb
-plot_results(full_eval.world_df, results, model_logging_dir, show=True, to_wandb=False)
+plot_results(load_world_df(), results, model_logging_dir, show=True, to_wandb=False)
 all_spatial_preds = list(model_logging_dir.glob("*.nc"))
 for spatial_preds_path in all_spatial_preds:
     preds = xr.load_dataset(spatial_preds_path)
@@ -346,11 +347,11 @@ for spatial_preds_path in all_spatial_preds:
     plot_spatial(preds, output_path, to_wandb=wandb_enabled)
 
 # missing data experiments
-missing_aez = WorldCerealEval(
-    train_df, val_df, aezs_to_remove=[22190], spatial_inference_savedir=model_logging_dir
+missing_country = WorldCerealEval(
+    train_df, val_df, countries_to_remove=["Latvia"], spatial_inference_savedir=model_logging_dir
 )
-aez_results, _ = missing_aez.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(aez_results, indent=2))
+country_results, _ = missing_country.finetuning_results(model, sklearn_model_modes=model_modes)
+logger.info(json.dumps(country_results, indent=2))
 
 missing_year = WorldCerealEval(
     train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
@@ -361,7 +362,7 @@ logger.info(json.dumps(year_results, indent=2))
 both_missing = WorldCerealEval(
     train_df,
     val_df,
-    aezs_to_remove=[22190],
+    countries_to_remove=["Latvia"],
     years_to_remove=[2021],
     spatial_inference_savedir=model_logging_dir,
 )
@@ -370,7 +371,7 @@ logger.info(json.dumps(both_results, indent=2))
 
 if wandb_enabled:
     wandb.log(results)
-    wandb.log(aez_results)
+    wandb.log(country_results)
     wandb.log(year_results)
     wandb.log(both_results)
 

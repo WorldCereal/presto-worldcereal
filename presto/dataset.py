@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, cast
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rioxarray
@@ -19,7 +20,7 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import DEFAULT_SEED, data_dir
+from .utils import DEFAULT_SEED, data_dir, load_world_df
 
 logger = logging.getLogger("__main__")
 
@@ -169,13 +170,18 @@ class WorldCerealLabelledDataset(WorldCerealBase):
     def __init__(
         self,
         dataframe: pd.DataFrame,
-        aezs_to_remove: Optional[List[int]] = None,
+        countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
-        if aezs_to_remove is not None:
-            dataframe = dataframe[(~dataframe.aez_zoneid.isin(aezs_to_remove))]
+        if countries_to_remove is not None:
+            dataframe = self.join_with_world_df(dataframe)
+            for country in countries_to_remove:
+                assert dataframe.name.contains(
+                    country
+                ), f"Tried removing {country} but it is not in the dataframe"
+            dataframe = dataframe[(~dataframe.name.isin(countries_to_remove))]
         if years_to_remove is not None:
             dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
@@ -194,6 +200,23 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             month,
             mask_per_variable,
         )
+
+    @staticmethod
+    def join_with_world_df(dataframe: pd.DataFrame) -> pd.DataFrame:
+        world_df = load_world_df()
+        dataframe = gpd.GeoDataFrame(
+            data=dataframe,
+            geometry=gpd.GeoSeries.from_xy(x=dataframe.lon, y=dataframe.lat),
+            crs="EPSG:4326",
+        )
+        # project to non geographic CRS, otherwise geopandas gives a warning
+        joined = gpd.sjoin_nearest(
+            dataframe.to_crs("EPSG:3857"), world_df.to_crs("EPSG:3857"), how="left"
+        )
+        joined = joined[~joined.index.duplicated(keep="first")]
+        if joined.isna().any(axis=1).any():
+            logger.warning("Some coordinates couldn't be matched to a country")
+        return joined.to_crs("EPSG:4326")
 
 
 class WorldCerealInferenceDataset(Dataset):
@@ -216,8 +239,8 @@ class WorldCerealInferenceDataset(Dataset):
         "temperature-mean": "temperature_2m",
     }
 
-    def __init__(self):
-        self.path_to_files = data_dir / "inference_areas"
+    def __init__(self, path_to_files: Path = data_dir / "inference_areas"):
+        self.path_to_files = path_to_files
         self.all_files = list(self.path_to_files.glob("*.nc"))
 
     def __len__(self):
