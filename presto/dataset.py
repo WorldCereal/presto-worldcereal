@@ -216,8 +216,8 @@ class WorldCerealInferenceDataset(Dataset):
         "temperature-mean": "temperature_2m",
     }
 
-    def __init__(self):
-        self.path_to_files = data_dir / "inference_areas"
+    def __init__(self, path_to_files: Path = data_dir / "inference_areas"):
+        self.path_to_files = path_to_files
         self.all_files = list(self.path_to_files.glob("*.nc"))
 
     def __len__(self):
