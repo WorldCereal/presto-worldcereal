@@ -216,8 +216,8 @@ class WorldCerealInferenceDataset(Dataset):
         "temperature-mean": "temperature_2m",
     }
 
-    def __init__(self, input_dir: Optional[Union[str, Path]] = None):
-        self.path_to_files = data_dir / "inference_areas" if input_dir is None else Path(input_dir)
+    def __init__(self, path_to_files: Path = data_dir / "inference_areas"):
+        self.path_to_files = path_to_files
         self.all_files = list(self.path_to_files.glob("*.nc"))
 
     def __len__(self):
