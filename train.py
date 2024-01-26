@@ -340,11 +340,6 @@ if finetuned_model is not None:
     torch.save(model.state_dict(), finetuned_model_path)
 # not saving plots to wandb
 plot_results(load_world_df(), results, model_logging_dir, show=True, to_wandb=False)
-all_spatial_preds = list(model_logging_dir.glob("*.nc"))
-for spatial_preds_path in all_spatial_preds:
-    preds = xr.load_dataset(spatial_preds_path)
-    output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
-    plot_spatial(preds, output_path, to_wandb=wandb_enabled)
 
 # missing data experiments
 country_results = []
@@ -364,6 +359,12 @@ missing_year = WorldCerealEval(
 )
 year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))
+
+all_spatial_preds = list(model_logging_dir.glob("*.nc"))
+for spatial_preds_path in all_spatial_preds:
+    preds = xr.load_dataset(spatial_preds_path)
+    output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
+    plot_spatial(preds, output_path, to_wandb=False)
 
 if wandb_enabled:
     wandb.log(results)
