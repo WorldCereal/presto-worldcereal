@@ -290,7 +290,7 @@ class WorldCerealEval:
         catboost_preds = test_df.worldcereal_prediction
         years = test_df.end_date.apply(lambda date: date[:4])
 
-        if "continent" not in test_df.columns():
+        if "continent" not in test_df.columns:
             # might not be None if we have filtered by country
             world_attrs = WorldCerealLabelledDataset.join_with_world_df(test_df)[
                 ["aez_zone_id", "name", "continent", "region"]
