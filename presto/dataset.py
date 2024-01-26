@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
