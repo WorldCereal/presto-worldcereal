@@ -20,7 +20,11 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from . import utils
-from .dataset import WorldCerealInferenceDataset, WorldCerealLabelledDataset, NORMED_BANDS
+from .dataset import (
+    NORMED_BANDS,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelledDataset,
+)
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
