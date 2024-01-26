@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from . import utils
-from .dataset import WorldCerealInferenceDataset, WorldCerealLabelledDataset
+from .dataset import WorldCerealInferenceDataset, WorldCerealLabelledDataset, NORMED_BANDS
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
@@ -206,7 +206,11 @@ class WorldCerealEval:
                 shuffle=False,
             )
             test_preds_np, _ = self._inference_for_dl(dl, finetuned_model, pretrained_model)
-            df = ds.combine_predictions(latlons, test_preds_np, y)
+
+            # take the middle timestep's ndvi
+            middle_timestep = eo.shape[1] // 2
+            ndvi = eo[:, middle_timestep, NORMED_BANDS.index("NDVI")]
+            df = ds.combine_predictions(latlons, test_preds_np, y, ndvi)
             prefix = f"{self.name}_{ds.all_files[i].stem}"
             if pretrained_model is None:
                 filename = f"{prefix}_finetuning.nc"

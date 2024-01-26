@@ -67,3 +67,5 @@ class TestEval(TestCase):
             self.assertTrue(
                 np.equal(np.flip(output.ground_truth.values, 0), ground_truth_one_timestep).all()
             )
+            self.assertTrue(np.max(output.ndvi) <= 1)
+            self.assertTrue(np.max(output.ndvi) >= 0)
