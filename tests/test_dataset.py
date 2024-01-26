@@ -76,11 +76,13 @@ class TestDataset(TestCase):
         batch_predictions = np.array(
             [[0.43200156], [0.55286014], [0.5265], [0.5236109], [0.4110847]]
         )
+        ndvi = np.array([0.43200156, 0.55286014, 0.5265, 0.5236109, 0.4110847])
         worldcereal_labels = np.array([[1, 1], [0, 0], [1, 1], [0, 0], [1, 1]])
         df_predictions = WorldCerealInferenceDataset.combine_predictions(
             latlons=np.stack([flat_lat, flat_lon], axis=-1),
             all_preds=batch_predictions,
             gt=worldcereal_labels,
+            ndvi=ndvi,
         )
 
         # Check size
@@ -96,6 +98,9 @@ class TestDataset(TestCase):
         # Check all predictions between 0 and 1
         self.assertTrue(df_predictions["prediction_0"].min() >= 0)
         self.assertTrue(df_predictions["prediction_0"].max() <= 1)
+        # Check all ndvi values between 0 and 1
+        self.assertTrue(df_predictions["ndvi"].min() >= 0)
+        self.assertTrue(df_predictions["ndvi"].max() <= 1)
 
         # check all the worldcereal labels are 0 or 1
         self.assertTrue(df_predictions["ground_truth"].isin([0, 1]).all())
