@@ -5,7 +5,6 @@ from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 import torch
@@ -19,15 +18,11 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from . import utils
 from .dataset import WorldCerealInferenceDataset, WorldCerealLabelledDataset
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
 logger = logging.getLogger("__main__")
-
-world_shp_path = "world-administrative-boundaries/world-administrative-boundaries.shp"
-
 
 SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 
@@ -51,7 +46,7 @@ class WorldCerealEval:
         self,
         train_data: pd.DataFrame,
         val_data: pd.DataFrame,
-        aezs_to_remove: Optional[List[int]] = None,
+        countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
@@ -68,16 +63,13 @@ class WorldCerealEval:
         self.val_df = self.val_df.set_index("sample_id")
         self.test_df = self.val_df
 
-        self.world_df = gpd.read_file(utils.data_dir / world_shp_path)
-        # these columns contain nan sometimes
-        self.world_df = self.world_df.drop(columns=["iso3", "status", "color_code", "iso_3166_1_"])
         self.spatial_inference_savedir = spatial_inference_savedir
 
-        self.aezs_to_remove = aezs_to_remove
+        self.countries_to_remove = countries_to_remove
         self.years_to_remove = years_to_remove
 
-        if self.aezs_to_remove is not None:
-            self.name = f"{self.name}_removed_aezs_{aezs_to_remove}"
+        if self.countries_to_remove is not None:
+            self.name = f"{self.name}_removed_countries_{countries_to_remove}"
         if self.years_to_remove is not None:
             self.name = f"{self.name}_removed_years_{years_to_remove}"
 
@@ -298,17 +290,13 @@ class WorldCerealEval:
         catboost_preds = test_df.worldcereal_prediction
         years = test_df.end_date.apply(lambda date: date[:4])
 
-        latlons = gpd.GeoDataFrame(
-            geometry=gpd.GeoSeries.from_xy(x=test_df.lon, y=test_df.lat),
-            crs="EPSG:4326",
-        )
-        # project to non geographic CRS, otherwise geopandas gives a warning
-        world_attrs = gpd.sjoin_nearest(
-            latlons.to_crs("EPSG:3857"), self.world_df.to_crs("EPSG:3857"), how="left"
-        )
-        world_attrs = world_attrs[~world_attrs.index.duplicated(keep="first")]
-        if world_attrs.isna().any(axis=1).any():
-            logger.warning("Some coordinates couldn't be matched to a country")
+        if "continent" not in test_df.columns():
+            # might not be None if we have filtered by country
+            world_attrs = WorldCerealLabelledDataset.join_with_world_df(test_df)[
+                ["aez_zone_id", "name", "continent", "region"]
+            ]
+        else:
+            world_attrs = test_df[["aez_zone_id", "name", "continent", "region"]]
 
         metrics = partial(self.metrics, target=target)
         return {
@@ -332,10 +320,14 @@ class WorldCerealEval:
         optimizer = AdamW(parameters, lr=hyperparams.lr)
 
         train_ds = WorldCerealLabelledDataset(
-            self.train_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+            self.train_df,
+            countries_to_remove=self.countries_to_remove,
+            years_to_remove=self.years_to_remove,
         )
         val_ds = WorldCerealLabelledDataset(
-            self.val_df, aezs_to_remove=self.aezs_to_remove, years_to_remove=self.years_to_remove
+            self.val_df,
+            countries_to_remove=self.countries_to_remove,
+            years_to_remove=self.years_to_remove,
         )
 
         pos = (train_ds.df.LANDCOVER_LABEL == 11).sum()
@@ -464,7 +456,7 @@ class WorldCerealEval:
             dl = DataLoader(
                 WorldCerealLabelledDataset(
                     self.train_df,
-                    aezs_to_remove=self.aezs_to_remove,
+                    countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                 ),
                 batch_size=2048,
