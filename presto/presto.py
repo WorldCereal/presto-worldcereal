@@ -792,7 +792,7 @@ class Presto(nn.Module):
     @classmethod
     def load_pretrained(cls, model_path: Union[str, Path] = default_model_path):
         model = cls.construct()
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
         return model
 
 
