@@ -58,11 +58,8 @@ class WorldCerealBase(Dataset):
         return self.df.shape[0]
 
     @staticmethod
-    def target_from_row_dict(row_dict: Dict) -> int:
-        # in the non-implemented case, we might not
-        # care about it (e.g. in the masked case).
-        # Other classes should override this method.
-        return 0
+    def target_from_row_dict(row_d: Dict) -> int:
+        return row_d["LANDCOVER_LABEL"] == 11
 
     @classmethod
     def row_to_arrays(
@@ -200,10 +197,6 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         super().__init__(dataframe)
 
-    @staticmethod
-    def target_from_row_dict(row_d) -> int:
-        return row_d["LANDCOVER_LABEL"] == 11
-
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
@@ -236,11 +229,11 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         return joined.to_crs("EPSG:4326")
 
 
-class WorldCerealLabelledMaizeDataset(WorldCerealBase):
+class WorldCerealLabelledMaizeDataset(WorldCerealLabelledDataset):
     @staticmethod
     def target_from_row_dict(row_d) -> int:
         # 1200 is maize
-        return row_d["LANDCOVER_LABEL"] == 1200
+        return row_d["CROPTYPE_LABEL"] == 1200
 
 
 class WorldCerealInferenceDataset(Dataset):

@@ -59,7 +59,7 @@ class WorldCerealEval:
         self.seed = seed
         self.predict_maize = predict_maize
         if predict_maize:
-            self.name = f"WorldCerealMaize"
+            self.name = "WorldCerealMaize"
             self.ds_class = WorldCerealLabelledMaizeDataset
         else:
             self.ds_class = WorldCerealLabelledDataset
