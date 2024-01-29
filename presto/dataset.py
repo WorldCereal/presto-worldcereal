@@ -180,7 +180,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             for country in countries_to_remove:
                 assert dataframe.name.str.contains(
                     country
-                ), f"Tried removing {country} but it is not in the dataframe"
+                ).any(), f"Tried removing {country} but it is not in the dataframe"
             dataframe = dataframe[(~dataframe.name.isin(countries_to_remove))]
         if years_to_remove is not None:
             dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
