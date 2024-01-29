@@ -444,7 +444,7 @@ class WorldCerealEval:
         self,
         pretrained_model,
         sklearn_model_modes: List[str],
-    ) -> Tuple[Dict, Optional[PrestoFineTuningModel]]:
+    ) -> Tuple[Dict, PrestoFineTuningModel]:
         for model_mode in sklearn_model_modes:
             assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
 

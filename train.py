@@ -333,11 +333,12 @@ model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
 full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
-if finetuned_model is not None:
-    model_path = model_logging_dir / Path("models")
-    model_path.mkdir(exist_ok=True, parents=True)
-    finetuned_model_path = model_path / "finetuned_model.pt"
-    torch.save(model.state_dict(), finetuned_model_path)
+
+model_path = model_logging_dir / Path("models")
+model_path.mkdir(exist_ok=True, parents=True)
+finetuned_model_path = model_path / "finetuned_model.pt"
+torch.save(finetuned_model.state_dict(), finetuned_model_path)
+
 # not saving plots to wandb
 plot_results(load_world_df(), results, model_logging_dir, show=True, to_wandb=False)
 
@@ -350,9 +351,11 @@ for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
         countries_to_remove=[country],
         spatial_inference_savedir=model_logging_dir,
     )
-    results, _ = eval_task.finetuning_results(model, sklearn_model_modes=model_modes)
+    results, finetuned_model = eval_task.finetuning_results(model, sklearn_model_modes=model_modes)
     logger.info(json.dumps(results, indent=2))
     country_results.append(results)
+    finetuned_model_path = model_path / f"finetuned_{country}_removed_model.pt"
+    torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 missing_year = WorldCerealEval(
     train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
