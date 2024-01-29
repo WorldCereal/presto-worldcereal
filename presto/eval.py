@@ -18,7 +18,11 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import WorldCerealInferenceDataset, WorldCerealLabelledDataset
+from .dataset import (
+    WorldCerealInferenceDataset,
+    WorldCerealLabelledDataset,
+    WorldCerealLabelledMaizeDataset,
+)
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
 
@@ -46,12 +50,19 @@ class WorldCerealEval:
         self,
         train_data: pd.DataFrame,
         val_data: pd.DataFrame,
+        predict_maize: bool = False,
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
     ):
         self.seed = seed
+        self.predict_maize = predict_maize
+        if predict_maize:
+            self.name = f"WorldCerealMaize"
+            self.ds_class = WorldCerealLabelledMaizeDataset
+        else:
+            self.ds_class = WorldCerealLabelledDataset
 
         # SAR cannot equal 0.0 since we take the log of it
         cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
@@ -216,7 +227,7 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Dict:
 
-        test_ds = WorldCerealLabelledDataset(self.test_df)
+        test_ds = self.ds_class(self.test_df)
         dl = DataLoader(
             test_ds,
             batch_size=8192,
@@ -319,12 +330,12 @@ class WorldCerealEval:
         parameters = param_groups_lrd(model)
         optimizer = AdamW(parameters, lr=hyperparams.lr)
 
-        train_ds = WorldCerealLabelledDataset(
+        train_ds = self.ds_class(
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
         )
-        val_ds = WorldCerealLabelledDataset(
+        val_ds = self.ds_class(
             self.val_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
@@ -454,7 +465,7 @@ class WorldCerealEval:
 
         if len(sklearn_model_modes) > 0:
             dl = DataLoader(
-                WorldCerealLabelledDataset(
+                self.ds_class(
                     self.train_df,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
