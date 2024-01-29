@@ -178,7 +178,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if countries_to_remove is not None:
             dataframe = self.join_with_world_df(dataframe)
             for country in countries_to_remove:
-                assert dataframe.name.contains(
+                assert dataframe.name.str.contains(
                     country
                 ), f"Tried removing {country} but it is not in the dataframe"
             dataframe = dataframe[(~dataframe.name.isin(countries_to_remove))]
