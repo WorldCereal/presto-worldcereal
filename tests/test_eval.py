@@ -9,7 +9,6 @@ import xarray as xr
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
 from presto.utils import data_dir
-
 from tests.utils import read_test_file
 
 

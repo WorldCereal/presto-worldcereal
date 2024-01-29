@@ -12,7 +12,6 @@ from presto.dataset import (
 )
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
-
 from tests.utils import NUM_CROP_POINTS, NUM_MAIZE_POINTS, read_test_file
 
 
