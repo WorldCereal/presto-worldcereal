@@ -10,7 +10,7 @@ from presto.eval import WorldCerealEval
 from presto.presto import Presto
 from presto.utils import data_dir
 
-from .utils import read_test_file
+from tests.utils import read_test_file
 
 
 class TestEval(TestCase):
