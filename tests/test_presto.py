@@ -355,7 +355,7 @@ class TestPresto(TestCase):
         model = Presto.load_pretrained().construct_finetuning_model(num_outputs=1)
         model.load_state_dict(torch.load(path_to_finetuned_model, map_location=device))
 
-        model_2 = Presto.load_pretrained(path_to_finetuned_model)
+        model_2 = Presto.load_pretrained(path_to_finetuned_model, strict=False)
 
         for name, param in model.encoder.named_parameters():
             self.assertTrue(param.equal(model_2.encoder.state_dict()[name]))
