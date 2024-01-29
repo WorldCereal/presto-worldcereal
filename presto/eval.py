@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -60,7 +60,7 @@ class WorldCerealEval:
         self.predict_maize = predict_maize
         if predict_maize:
             self.name = "WorldCerealMaize"
-            self.ds_class = WorldCerealLabelledMaizeDataset
+            self.ds_class: Type[WorldCerealLabelledDataset] = WorldCerealLabelledMaizeDataset
         else:
             self.ds_class = WorldCerealLabelledDataset
 
