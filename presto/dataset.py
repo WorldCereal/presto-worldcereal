@@ -188,9 +188,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if countries_to_remove is not None:
             dataframe = self.join_with_world_df(dataframe)
             for country in countries_to_remove:
-                assert dataframe.name.contains(
+                assert dataframe.name.str.contains(
                     country
-                ), f"Tried removing {country} but it is not in the dataframe"
+                ).any(), f"Tried removing {country} but it is not in the dataframe"
             dataframe = dataframe[(~dataframe.name.isin(countries_to_remove))]
         if years_to_remove is not None:
             dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
@@ -320,7 +320,7 @@ class WorldCerealInferenceDataset(Dataset):
 
     @staticmethod
     def combine_predictions(
-        latlons: np.ndarray, all_preds: np.ndarray, gt: np.ndarray
+        latlons: np.ndarray, all_preds: np.ndarray, gt: np.ndarray, ndvi: np.ndarray
     ) -> pd.DataFrame:
         flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
         if len(all_preds.shape) == 1:
@@ -331,4 +331,5 @@ class WorldCerealInferenceDataset(Dataset):
             prediction_label = f"prediction_{i}"
             data_dict[prediction_label] = all_preds[:, i]
         data_dict["ground_truth"] = gt[:, 0]
+        data_dict["ndvi"] = ndvi
         return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])

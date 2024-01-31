@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from .dataset import (
+    NORMED_BANDS
     WorldCerealInferenceDataset,
     WorldCerealLabelledDataset,
     WorldCerealLabelledMaizeDataset,
@@ -179,10 +180,7 @@ class WorldCerealEval:
                     .cpu()
                     .numpy()
                 )
-                if isinstance(finetuned_model, CatBoostClassifier):
-                    preds = finetuned_model.predict_proba(encodings)[:, 1]
-                else:
-                    preds = finetuned_model.predict(encodings)
+                preds = finetuned_model.predict_proba(encodings)[:, 1]
             test_preds.append(preds)
 
         test_preds_np = np.concatenate(test_preds)
@@ -212,7 +210,11 @@ class WorldCerealEval:
                 shuffle=False,
             )
             test_preds_np, _ = self._inference_for_dl(dl, finetuned_model, pretrained_model)
-            df = ds.combine_predictions(latlons, test_preds_np, y)
+
+            # take the middle timestep's ndvi
+            middle_timestep = eo.shape[1] // 2
+            ndvi = eo[:, middle_timestep, NORMED_BANDS.index("NDVI")]
+            df = ds.combine_predictions(latlons, test_preds_np, y, ndvi)
             prefix = f"{self.name}_{ds.all_files[i].stem}"
             if pretrained_model is None:
                 filename = f"{prefix}_finetuning.nc"
@@ -450,7 +452,7 @@ class WorldCerealEval:
         self,
         pretrained_model,
         sklearn_model_modes: List[str],
-    ) -> Tuple[Dict, Optional[PrestoFineTuningModel]]:
+    ) -> Tuple[Dict, PrestoFineTuningModel]:
         for model_mode in sklearn_model_modes:
             assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
 

@@ -19,7 +19,7 @@ from presto.dataops import (
     DynamicWorld2020_2021,
 )
 from presto.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
-from presto.utils import config_dir, default_model_path, device
+from presto.utils import config_dir, data_dir, default_model_path, device
 
 
 class TestPresto(TestCase):
@@ -349,6 +349,25 @@ class TestPresto(TestCase):
                 encoder_input, dw_input, encoder_latlons
             )
         self.assertTrue(finetuning_encoder_output.equal(seq2seq_encoder_output))
+
+    def test_load_pretrained_works_for_finetuned_model(self):
+        path_to_finetuned_model = data_dir / "finetuned_model.pt"
+        model = Presto.load_pretrained().construct_finetuning_model(num_outputs=1)
+        model.load_state_dict(torch.load(path_to_finetuned_model, map_location=device))
+
+        model_2 = Presto.load_pretrained(path_to_finetuned_model, strict=False)
+
+        for name, param in model.encoder.named_parameters():
+            self.assertTrue(param.equal(model_2.encoder.state_dict()[name]))
+
+        batch_size = 3
+        with torch.no_grad():
+            encoder_input = torch.zeros((batch_size, NUM_TIMESTEPS, NUM_BANDS))
+            dw_input = torch.zeros((batch_size, NUM_TIMESTEPS)).long()
+            encoder_latlons = torch.rand((batch_size, 2))
+            model_output = model.encoder(encoder_input, dw_input, encoder_latlons)
+            model_2_output = model_2.encoder(encoder_input, dw_input, encoder_latlons)
+        self.assertTrue(model_output.equal(model_2_output))
 
 
 class TestPrestoEndToEnd(TestCase):
