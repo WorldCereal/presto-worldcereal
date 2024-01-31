@@ -333,25 +333,29 @@ model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
 full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
-if finetuned_model is not None:
-    model_path = model_logging_dir / Path("models")
-    model_path.mkdir(exist_ok=True, parents=True)
-    finetuned_model_path = model_path / "finetuned_model.pt"
-    torch.save(model.state_dict(), finetuned_model_path)
+
+model_path = model_logging_dir / Path("models")
+model_path.mkdir(exist_ok=True, parents=True)
+finetuned_model_path = model_path / "finetuned_model.pt"
+torch.save(finetuned_model.state_dict(), finetuned_model_path)
+
 # not saving plots to wandb
 plot_results(load_world_df(), results, model_logging_dir, show=True, to_wandb=False)
-all_spatial_preds = list(model_logging_dir.glob("*.nc"))
-for spatial_preds_path in all_spatial_preds:
-    preds = xr.load_dataset(spatial_preds_path)
-    output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
-    plot_spatial(preds, output_path, to_wandb=wandb_enabled)
 
 # missing data experiments
-missing_country = WorldCerealEval(
-    train_df, val_df, countries_to_remove=["Latvia"], spatial_inference_savedir=model_logging_dir
-)
-country_results, _ = missing_country.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(country_results, indent=2))
+country_results = []
+for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
+    eval_task = WorldCerealEval(
+        train_df,
+        val_df,
+        countries_to_remove=[country],
+        spatial_inference_savedir=model_logging_dir,
+    )
+    results, finetuned_model = eval_task.finetuning_results(model, sklearn_model_modes=model_modes)
+    logger.info(json.dumps(results, indent=2))
+    country_results.append(results)
+    finetuned_model_path = model_path / f"finetuned_{country}_removed_model.pt"
+    torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 missing_year = WorldCerealEval(
     train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
@@ -359,21 +363,17 @@ missing_year = WorldCerealEval(
 year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))
 
-both_missing = WorldCerealEval(
-    train_df,
-    val_df,
-    countries_to_remove=["Latvia"],
-    years_to_remove=[2021],
-    spatial_inference_savedir=model_logging_dir,
-)
-both_results, _ = both_missing.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(both_results, indent=2))
+all_spatial_preds = list(model_logging_dir.glob("*.nc"))
+for spatial_preds_path in all_spatial_preds:
+    preds = xr.load_dataset(spatial_preds_path)
+    output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
+    plot_spatial(preds, output_path, to_wandb=False)
 
 if wandb_enabled:
     wandb.log(results)
-    wandb.log(country_results)
+    for results in country_results:
+        wandb.log(results)
     wandb.log(year_results)
-    wandb.log(both_results)
 
 if wandb_enabled and run:
     run.finish()
