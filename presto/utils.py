@@ -163,12 +163,13 @@ def plot_results(
     epoch: Optional[int] = None,
     show: bool = False,
     to_wandb: bool = False,
+    prefix: str = "",
 ):
     def plot(title: str, plot_fn: Callable, figsize=(15, 5)) -> Path:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         plot_fn(ax=ax)
         if epoch is not None:
-            title += f" - epoch {epoch}"
+            title = f"{prefix}{title} - epoch {epoch}"
         plt.title(title)
         plt.tight_layout()
         path = output_dir / f"{title.replace(' ', '_')}.png"

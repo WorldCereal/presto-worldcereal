@@ -339,23 +339,40 @@ model_path.mkdir(exist_ok=True, parents=True)
 finetuned_model_path = model_path / "finetuned_model.pt"
 torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
+full_maize_eval = WorldCerealEval(
+    train_df, val_df, spatial_inference_savedir=model_logging_dir, predict_maize=True
+)
+maize_results, maize_finetuned_model = full_maize_eval.finetuning_results(
+    model, sklearn_model_modes=model_modes
+)
+logger.info(json.dumps(maize_results, indent=2))
+torch.save(maize_finetuned_model.state_dict(), model_path / "maize_finetuned_model.pt")
+
 # not saving plots to wandb
 plot_results(load_world_df(), results, model_logging_dir, show=True, to_wandb=False)
+plot_results(
+    load_world_df(), maize_results, model_logging_dir, show=True, to_wandb=False, prefix="maize_"
+)
 
 # missing data experiments
 country_results = []
 for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
-    eval_task = WorldCerealEval(
-        train_df,
-        val_df,
-        countries_to_remove=[country],
-        spatial_inference_savedir=model_logging_dir,
-    )
-    results, finetuned_model = eval_task.finetuning_results(model, sklearn_model_modes=model_modes)
-    logger.info(json.dumps(results, indent=2))
-    country_results.append(results)
-    finetuned_model_path = model_path / f"finetuned_{country}_removed_model.pt"
-    torch.save(finetuned_model.state_dict(), finetuned_model_path)
+    for predict_maize in [True, False]:
+        eval_task = WorldCerealEval(
+            train_df,
+            val_df,
+            countries_to_remove=[country],
+            spatial_inference_savedir=model_logging_dir,
+            predict_maize=predict_maize,
+        )
+        results, finetuned_model = eval_task.finetuning_results(
+            model, sklearn_model_modes=model_modes
+        )
+        logger.info(json.dumps(results, indent=2))
+        country_results.append(results)
+        prefix = "maize" if predict_maize else ""
+        finetuned_model_path = model_path / f"{prefix}_finetuned_{country}_removed_model.pt"
+        torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 missing_year = WorldCerealEval(
     train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
