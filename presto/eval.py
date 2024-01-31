@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from .dataset import (
-    NORMED_BANDS
+    NORMED_BANDS,
     WorldCerealInferenceDataset,
     WorldCerealLabelledDataset,
     WorldCerealLabelledMaizeDataset,
