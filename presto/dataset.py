@@ -175,8 +175,8 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 
 
 def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
-    noncrop_labels = [10, 11, 12, 13]
-    df = df.loc[~df.LANDCOVER_LABEL.isin(noncrop_labels)]
+    crop_labels = [10, 11, 12, 13]
+    df = df.loc[df.LANDCOVER_LABEL.isin(crop_labels)]
     return df
 
 
