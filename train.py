@@ -402,6 +402,7 @@ for spatial_preds_path in all_spatial_preds:
 
 if wandb_enabled:
     wandb.log(results)
+    wandb.log(maize_results)
     for results in country_results:
         wandb.log(results)
     wandb.log(year_results)
