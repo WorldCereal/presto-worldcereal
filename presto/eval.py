@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -22,7 +22,6 @@ from .dataset import (
     NORMED_BANDS,
     WorldCerealInferenceDataset,
     WorldCerealLabelledDataset,
-    WorldCerealLabelledMaizeDataset,
 )
 from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
 from .utils import DEFAULT_SEED, device
@@ -51,28 +50,32 @@ class WorldCerealEval:
         self,
         train_data: pd.DataFrame,
         val_data: pd.DataFrame,
-        predict_maize: bool = False,
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
+        target_function: Optional[Callable[[Dict], int]] = None,
+        filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+        name: Optional[str] = None,
     ):
         self.seed = seed
-        self.predict_maize = predict_maize
-        if predict_maize:
-            self.name = "WorldCerealMaize"
-            self.ds_class: Type[WorldCerealLabelledDataset] = WorldCerealLabelledMaizeDataset
-        else:
-            self.ds_class = WorldCerealLabelledDataset
+
+        if name is not None:
+            self.name = name
+        self.target_function = target_function
 
         # SAR cannot equal 0.0 since we take the log of it
         cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
         self.train_df = train_data[~(train_data.loc[:, cols] == 0.0).any(axis=1)]
+        if filter_function is not None:
+            self.train_df = filter_function(self.train_df)
 
         self.val_df = val_data.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
         self.val_df = self.val_df.set_index("sample_id")
+        if filter_function is not None:
+            self.val_df = filter_function(self.val_df)
         self.test_df = self.val_df
 
         self.spatial_inference_savedir = spatial_inference_savedir
@@ -229,7 +232,7 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Dict:
 
-        test_ds = self.ds_class(self.test_df)
+        test_ds = WorldCerealLabelledDataset(self.test_df, target_function=self.target_function)
         dl = DataLoader(
             test_ds,
             batch_size=8192,
@@ -332,15 +335,17 @@ class WorldCerealEval:
         parameters = param_groups_lrd(model)
         optimizer = AdamW(parameters, lr=hyperparams.lr)
 
-        train_ds = self.ds_class(
+        train_ds = WorldCerealLabelledDataset(
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
+            target_function=self.target_function,
         )
-        val_ds = self.ds_class(
+        val_ds = WorldCerealLabelledDataset(
             self.val_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
+            target_function=self.target_function,
         )
 
         pos = (train_ds.df.LANDCOVER_LABEL == 11).sum()
@@ -467,10 +472,11 @@ class WorldCerealEval:
 
         if len(sklearn_model_modes) > 0:
             dl = DataLoader(
-                self.ds_class(
+                WorldCerealLabelledDataset(
                     self.train_df,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
+                    target_function=self.target_function,
                 ),
                 batch_size=2048,
                 shuffle=False,

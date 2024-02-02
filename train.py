@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from presto.dataops import BANDS_GROUPS_IDX
 from presto.dataset import WorldCerealMaskedDataset as WorldCerealDataset
+from presto.dataset import filter_remove_noncrops, target_maize
 from presto.eval import WorldCerealEval
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
@@ -340,7 +341,12 @@ finetuned_model_path = model_path / "finetuned_model.pt"
 torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 full_maize_eval = WorldCerealEval(
-    train_df, val_df, spatial_inference_savedir=model_logging_dir, predict_maize=True
+    train_df,
+    val_df,
+    spatial_inference_savedir=model_logging_dir,
+    target_function=target_maize,
+    filter_function=filter_remove_noncrops,
+    name="WorldCerealMaize",
 )
 maize_results, maize_finetuned_model = full_maize_eval.finetuning_results(
     model, sklearn_model_modes=model_modes
@@ -358,13 +364,21 @@ plot_results(
 country_results = []
 for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
     for predict_maize in [True, False]:
-        eval_task = WorldCerealEval(
-            train_df,
-            val_df,
-            countries_to_remove=[country],
-            spatial_inference_savedir=model_logging_dir,
-            predict_maize=predict_maize,
-        )
+        kwargs = {
+            "train_data": train_df,
+            "val_data": val_df,
+            "countries_to_remove": [country],
+            "spatial_inference_savedir": model_logging_dir,
+        }
+        if predict_maize:
+            kwargs.update(
+                {
+                    "target_function": target_maize,
+                    "filter_function": filter_remove_noncrops,
+                    "name": "WorldCerealMaize",
+                }
+            )
+        eval_task = WorldCerealEval(**kwargs)
         results, finetuned_model = eval_task.finetuning_results(
             model, sklearn_model_modes=model_modes
         )

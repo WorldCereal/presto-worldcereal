@@ -7,8 +7,8 @@ from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
 from presto.dataset import (
     WorldCerealInferenceDataset,
     WorldCerealLabelledDataset,
-    WorldCerealLabelledMaizeDataset,
     WorldCerealMaskedDataset,
+    target_maize,
 )
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
@@ -115,7 +115,7 @@ class TestDataset(TestCase):
 
     def test_targets_correctly_calculated_maize(self):
         df = read_test_file()
-        ds = WorldCerealLabelledMaizeDataset(df)
+        ds = WorldCerealLabelledDataset(df, target_function=target_maize)
         num_positives = 0
         for i in range(len(ds)):
             batch = ds[i]
