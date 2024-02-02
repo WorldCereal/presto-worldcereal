@@ -360,6 +360,13 @@ plot_results(
     load_world_df(), maize_results, model_logging_dir, show=True, to_wandb=False, prefix="maize_"
 )
 
+# this is a bit hacky, but it lets us simulate crop/non-crop finetuning -> maize prediction head
+full_maize_eval.name = "WorldCerealCropFinetuningMaizeHead"
+crop_to_maize_results = full_maize_eval.finetuning_results_sklearn(
+    sklearn_model_modes=model_modes, finetuned_model=finetuned_model
+)
+logger.info(json.dumps(crop_to_maize_results, indent=2))
+
 # missing data experiments
 country_results = []
 for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
@@ -403,6 +410,7 @@ for spatial_preds_path in all_spatial_preds:
 if wandb_enabled:
     wandb.log(results)
     wandb.log(maize_results)
+    wandb.log(crop_to_maize_results)
     for results in country_results:
         wandb.log(results)
     wandb.log(year_results)

@@ -98,7 +98,7 @@ class WorldCerealEval:
     def finetune_sklearn_model(
         self,
         dl: DataLoader,
-        pretrained_model,
+        pretrained_model: PrestoFineTuningModel,
         models: List[str] = ["Regression", "Random Forest"],
     ) -> Union[Sequence[BaseEstimator], Dict]:
         for model_mode in models:
@@ -453,23 +453,10 @@ class WorldCerealEval:
         model.eval()
         return model
 
-    def finetuning_results(
-        self,
-        pretrained_model,
-        sklearn_model_modes: List[str],
-    ) -> Tuple[Dict, PrestoFineTuningModel]:
-        for model_mode in sklearn_model_modes:
-            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
-
+    def finetuning_results_sklearn(
+        self, sklearn_model_modes: List[str], finetuned_model: PrestoFineTuningModel
+    ) -> Dict:
         results_dict = {}
-        # we want to always finetune the model, since the sklearn models
-        # will use the finetuned model as a base. This better reflects
-        # the deployment scenario for WorldCereal
-        finetuned_model = self.finetune(pretrained_model)
-        results_dict.update(self.evaluate(finetuned_model, None))
-        if self.spatial_inference_savedir is not None:
-            self.spatial_inference(finetuned_model, None)
-
         if len(sklearn_model_modes) > 0:
             dl = DataLoader(
                 WorldCerealLabelledDataset(
@@ -492,4 +479,23 @@ class WorldCerealEval:
                 results_dict.update(self.evaluate(sklearn_model, finetuned_model))
                 if self.spatial_inference_savedir is not None:
                     self.spatial_inference(sklearn_model, finetuned_model)
+        return results_dict
+
+    def finetuning_results(
+        self,
+        pretrained_model,
+        sklearn_model_modes: List[str],
+    ) -> Tuple[Dict, PrestoFineTuningModel]:
+        for model_mode in sklearn_model_modes:
+            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
+
+        results_dict = {}
+        # we want to always finetune the model, since the sklearn models
+        # will use the finetuned model as a base. This better reflects
+        # the deployment scenario for WorldCereal
+        finetuned_model = self.finetune(pretrained_model)
+        results_dict.update(self.evaluate(finetuned_model, None))
+        if self.spatial_inference_savedir is not None:
+            self.spatial_inference(finetuned_model, None)
+        results_dict.update(self.finetuning_results_sklearn(sklearn_model_modes, finetuned_model))
         return results_dict, finetuned_model
