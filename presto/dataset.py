@@ -10,6 +10,7 @@ import rioxarray
 import xarray as xr
 from einops import rearrange, repeat
 from pyproj import Transformer
+from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
 
 from .dataops import (
@@ -209,6 +210,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         self.target_function = target_function if target_function is not None else self.target_crop
+        self._class_weights: Optional[np.ndarray] = None
         super().__init__(dataframe)
 
     def __getitem__(self, idx):
@@ -241,6 +243,17 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if joined.isna().any(axis=1).any():
             logger.warning("Some coordinates couldn't be matched to a country")
         return joined.to_crs("EPSG:4326")
+
+    @property
+    def class_weights(self) -> np.ndarray:
+        if self._class_weights is None:
+            ys = []
+            for _, row in self.df.iterrows():
+                ys.append(self.target_function(row.to_dict()))
+            self._class_weights = compute_class_weight(
+                class_weight="balanced", classes=np.unique(ys), y=ys
+            )
+        return self._class_weights
 
 
 class WorldCerealInferenceDataset(Dataset):

@@ -43,7 +43,7 @@ class Hyperparams:
 class WorldCerealEval:
     name = "WorldCerealCropland"
     threshold = 0.5
-    num_outputs = 1
+    num_outputs = 2  # two classes, [0, 1]
     regression = False
 
     def __init__(
@@ -130,15 +130,19 @@ class WorldCerealEval:
             targets = targets.ravel()
 
         fit_models = []
+        class_weights = cast(WorldCerealLabelledDataset, dl.dataset).class_weights
         model_dict = {
             "Regression": LogisticRegression(
-                class_weight="balanced", max_iter=1000, random_state=self.seed
+                class_weight={idx: weight for idx, weight in enumerate(class_weights)},
+                max_iter=1000,
+                random_state=self.seed,
             ),
             "Random Forest": RandomForestClassifier(
-                class_weight="balanced", random_state=self.seed
+                class_weight={idx: weight for idx, weight in enumerate(class_weights)},
+                random_state=self.seed,
             ),
             "CatBoostClassifier": CatBoostClassifier(
-                random_state=self.seed, auto_class_weights="Balanced"
+                random_state=self.seed, class_weights=class_weights
             ),
         }
         for model in tqdm(models, desc="Fitting sklearn models"):
@@ -167,7 +171,7 @@ class WorldCerealEval:
                     mask=variable_mask_f,
                     latlons=latlons_f,
                     month=month_f,
-                ).squeeze(dim=1)
+                )[:, 1]
                 preds = torch.sigmoid(preds).cpu().numpy()
             else:
                 cast(Presto, pretrained_model).eval()
@@ -348,9 +352,7 @@ class WorldCerealEval:
             target_function=self.target_function,
         )
 
-        pos = (train_ds.df.LANDCOVER_LABEL == 11).sum()
-        wts = 1 / torch.tensor([len(train_ds.df) - pos, pos])
-        loss_fn = nn.BCEWithLogitsLoss(pos_weight=(wts / wts[0])[1])
+        loss_fn = nn.CrossEntropyLoss(weight=torch.from_numpy(train_ds.class_weights))
 
         generator = torch.Generator()
         generator.manual_seed(self.seed)
@@ -399,8 +401,8 @@ class WorldCerealEval:
                     mask=variable_mask,
                     latlons=latlons,
                     month=month,
-                )
-                loss = loss_fn(preds.squeeze(-1), y.float())
+                ).softmax(dim=1)
+                loss = loss_fn(preds, y.float())
                 epoch_train_loss += loss.item()
                 loss.backward()
                 optimizer.step()
@@ -419,8 +421,8 @@ class WorldCerealEval:
                         mask=variable_mask,
                         latlons=latlons,
                         month=month,
-                    )
-                    all_preds.append(preds.squeeze(-1))
+                    ).softmax(dim=1)
+                    all_preds.append(preds)
                     all_y.append(y.float())
 
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
