@@ -171,8 +171,8 @@ class WorldCerealEval:
                     mask=variable_mask_f,
                     latlons=latlons_f,
                     month=month_f,
-                )[:, 1]
-                preds = torch.sigmoid(preds).cpu().numpy()
+                ).softmax(dim=1)[:, 1]
+                preds = preds.cpu().numpy()
             else:
                 cast(Presto, pretrained_model).eval()
                 encodings = (
