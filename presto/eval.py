@@ -43,7 +43,7 @@ class Hyperparams:
 class WorldCerealEval:
     name = "WorldCerealCropland"
     threshold = 0.5
-    num_outputs = 2  # two classes, [0, 1]
+    num_outputs = 1
     regression = False
 
     def __init__(
@@ -171,8 +171,8 @@ class WorldCerealEval:
                     mask=variable_mask_f,
                     latlons=latlons_f,
                     month=month_f,
-                ).softmax(dim=1)[:, 1]
-                preds = preds.cpu().numpy()
+                ).squeeze(dim=1)
+                preds = torch.sigmoid(preds).cpu().numpy()
             else:
                 cast(Presto, pretrained_model).eval()
                 encodings = (
@@ -352,9 +352,8 @@ class WorldCerealEval:
             target_function=self.target_function,
         )
 
-        loss_fn = nn.CrossEntropyLoss(
-            weight=torch.from_numpy(train_ds.class_weights).to(device).float()
-        )
+        weights = train_ds.class_weights
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=(weights / weights[0])[1])
 
         generator = torch.Generator()
         generator.manual_seed(self.seed)
@@ -403,8 +402,8 @@ class WorldCerealEval:
                     mask=variable_mask,
                     latlons=latlons,
                     month=month,
-                ).softmax(dim=1)
-                loss = loss_fn(preds, y.long())
+                )
+                loss = loss_fn(preds.squeeze(-1), y.float())
                 epoch_train_loss += loss.item()
                 loss.backward()
                 optimizer.step()
@@ -423,9 +422,9 @@ class WorldCerealEval:
                         mask=variable_mask,
                         latlons=latlons,
                         month=month,
-                    ).softmax(dim=1)
-                    all_preds.append(preds)
-                    all_y.append(y.long())
+                    )
+                    all_preds.append(preds.squeeze(-1))
+                    all_y.append(y.float())
 
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
             pbar.set_description(f"Train metric: {train_loss[-1]}, Val metric: {val_loss[-1]}")
