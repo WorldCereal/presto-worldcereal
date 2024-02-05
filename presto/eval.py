@@ -54,17 +54,28 @@ class WorldCerealEval:
         years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
+        target_function: Optional[Callable[[Dict], int]] = None,
+        filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+        name: Optional[str] = None,
     ):
         self.seed = seed
+
+        if name is not None:
+            self.name = name
+        self.target_function = target_function
 
         # SAR cannot equal 0.0 since we take the log of it
         cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
         self.train_df = train_data[~(train_data.loc[:, cols] == 0.0).any(axis=1)]
+        if filter_function is not None:
+            self.train_df = filter_function(self.train_df)
 
         self.val_df = val_data.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
         self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
         self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
         self.val_df = self.val_df.set_index("sample_id")
+        if filter_function is not None:
+            self.val_df = filter_function(self.val_df)
         self.test_df = self.val_df
 
         self.spatial_inference_savedir = spatial_inference_savedir
@@ -87,7 +98,7 @@ class WorldCerealEval:
     def finetune_sklearn_model(
         self,
         dl: DataLoader,
-        pretrained_model,
+        pretrained_model: PrestoFineTuningModel,
         models: List[str] = ["Regression", "Random Forest"],
     ) -> Union[Sequence[BaseEstimator], Dict]:
         for model_mode in models:
@@ -221,7 +232,7 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Dict:
 
-        test_ds = WorldCerealLabelledDataset(self.test_df)
+        test_ds = WorldCerealLabelledDataset(self.test_df, target_function=self.target_function)
         dl = DataLoader(
             test_ds,
             batch_size=8192,
@@ -328,11 +339,13 @@ class WorldCerealEval:
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
+            target_function=self.target_function,
         )
         val_ds = WorldCerealLabelledDataset(
             self.val_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
+            target_function=self.target_function,
         )
 
         pos = (train_ds.df.LANDCOVER_LABEL == 11).sum()
@@ -440,6 +453,34 @@ class WorldCerealEval:
         model.eval()
         return model
 
+    def finetuning_results_sklearn(
+        self, sklearn_model_modes: List[str], finetuned_model: PrestoFineTuningModel
+    ) -> Dict:
+        results_dict = {}
+        if len(sklearn_model_modes) > 0:
+            dl = DataLoader(
+                WorldCerealLabelledDataset(
+                    self.train_df,
+                    countries_to_remove=self.countries_to_remove,
+                    years_to_remove=self.years_to_remove,
+                    target_function=self.target_function,
+                ),
+                batch_size=2048,
+                shuffle=False,
+                num_workers=4,
+            )
+            sklearn_models = self.finetune_sklearn_model(
+                dl,
+                finetuned_model,
+                models=sklearn_model_modes,
+            )
+            for sklearn_model in sklearn_models:
+                logger.info(f"Evaluating {sklearn_model}...")
+                results_dict.update(self.evaluate(sklearn_model, finetuned_model))
+                if self.spatial_inference_savedir is not None:
+                    self.spatial_inference(sklearn_model, finetuned_model)
+        return results_dict
+
     def finetuning_results(
         self,
         pretrained_model,
@@ -456,26 +497,5 @@ class WorldCerealEval:
         results_dict.update(self.evaluate(finetuned_model, None))
         if self.spatial_inference_savedir is not None:
             self.spatial_inference(finetuned_model, None)
-
-        if len(sklearn_model_modes) > 0:
-            dl = DataLoader(
-                WorldCerealLabelledDataset(
-                    self.train_df,
-                    countries_to_remove=self.countries_to_remove,
-                    years_to_remove=self.years_to_remove,
-                ),
-                batch_size=2048,
-                shuffle=False,
-                num_workers=4,
-            )
-            sklearn_models = self.finetune_sklearn_model(
-                dl,
-                finetuned_model,
-                models=sklearn_model_modes,
-            )
-            for sklearn_model in sklearn_models:
-                logger.info(f"Evaluating {sklearn_model}...")
-                results_dict.update(self.evaluate(sklearn_model, finetuned_model))
-                if self.spatial_inference_savedir is not None:
-                    self.spatial_inference(sklearn_model, finetuned_model)
+        results_dict.update(self.finetuning_results_sklearn(sklearn_model_modes, finetuned_model))
         return results_dict, finetuned_model

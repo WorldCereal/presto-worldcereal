@@ -163,12 +163,13 @@ def plot_results(
     epoch: Optional[int] = None,
     show: bool = False,
     to_wandb: bool = False,
+    prefix: str = "",
 ):
     def plot(title: str, plot_fn: Callable, figsize=(15, 5)) -> Path:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         plot_fn(ax=ax)
         if epoch is not None:
-            title += f" - epoch {epoch}"
+            title = f"{prefix}{title} - epoch {epoch}"
         plt.title(title)
         plt.tight_layout()
         path = output_dir / f"{title.replace(' ', '_')}.png"
@@ -281,10 +282,10 @@ def plot_results(
 def plot_spatial(spatial_preds: xr.Dataset, output_path: Path, to_wandb: bool = False):
     plt.clf()
     _, axs = plt.subplots(ncols=4, figsize=(25, 4))
-    spatial_preds.ndvi.plot(ax=axs[0], vim=0, vmax=1)
-    spatial_preds.ground_truth.plot(ax=axs[1], vim=0, vmax=1)
-    spatial_preds.prediction_0.plot(ax=axs[2], vim=0, vmax=1)
-    (spatial_preds.prediction_0 > 0.5).plot(ax=axs[3], vim=0, vmax=1)
+    spatial_preds.ndvi.plot(ax=axs[0], vmin=0, vmax=1)
+    spatial_preds.ground_truth.plot(ax=axs[1], vmin=0, vmax=1)
+    spatial_preds.prediction_0.plot(ax=axs[2], vmin=0, vmax=1)
+    (spatial_preds.prediction_0 > 0.5).plot(ax=axs[3], vmin=0, vmax=1)
     plt.savefig(output_path, bbox_inches="tight")
     if to_wandb:
         import wandb

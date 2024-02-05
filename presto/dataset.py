@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, cast
+from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import geopandas as gpd
 import numpy as np
@@ -57,9 +57,14 @@ class WorldCerealBase(Dataset):
     def __len__(self):
         return self.df.shape[0]
 
+    @staticmethod
+    def target_crop(row_d: Dict) -> int:
+        # by default, we predict crop vs non crop
+        return row_d["LANDCOVER_LABEL"] == 11
+
     @classmethod
     def row_to_arrays(
-        cls, row: pd.Series
+        cls, row: pd.Series, target_function: Callable[[Dict], int]
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
@@ -96,7 +101,13 @@ class WorldCerealBase(Dataset):
             eo_data[:, BANDS.index(presto_val)] = values
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
-        return cls.check(eo_data), mask.astype(bool), latlon, month, row_d["LANDCOVER_LABEL"] == 11
+        return (
+            cls.check(eo_data),
+            mask.astype(bool),
+            latlon,
+            month,
+            target_function(row_d),
+        )
 
     def __getitem__(self, idx):
         raise NotImplementedError
@@ -140,7 +151,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row)
+        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop)
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
         )
@@ -163,6 +174,17 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         )
 
 
+def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
+    crop_labels = [10, 11, 12, 13]
+    df = df.loc[df.LANDCOVER_LABEL.isin(crop_labels)]
+    return df
+
+
+def target_maize(row_d) -> int:
+    # 1200 is maize
+    return row_d["CROPTYPE_LABEL"] == 1200
+
+
 class WorldCerealLabelledDataset(WorldCerealBase):
     # 0: no information, 10: could be both annual or perennial
     FILTER_LABELS = [0, 10]
@@ -172,6 +194,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         dataframe: pd.DataFrame,
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
+        target_function: Optional[Callable[[Dict], int]] = None,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -185,12 +208,13 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if years_to_remove is not None:
             dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
+        self.target_function = target_function if target_function is not None else self.target_crop
         super().__init__(dataframe)
 
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),

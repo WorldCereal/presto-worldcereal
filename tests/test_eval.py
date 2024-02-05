@@ -3,38 +3,20 @@ from pathlib import Path
 from unittest import TestCase
 
 import numpy as np
-import pandas as pd
 import rioxarray
 import xarray as xr
 
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
 from presto.utils import data_dir
+from tests.utils import read_test_file
 
 
 class TestEval(TestCase):
-    @staticmethod
-    def read_test_file() -> pd.DataFrame:
-        test_df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
-        # this is to align the parquet file with the new parquet files
-        # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
-        test_df.rename(
-            {"catboost_prediction": "worldcereal_prediction"},
-            axis=1,
-            inplace=True,
-        )
-        test_df["sample_id"] = np.arange(len(test_df))
-        test_df["year"] = 2021
-        labels = [99] * len(test_df)  # 99 = No cropland
-        labels[:10] = [11] * 10  # 11 = Annual cropland
-        test_df["LANDCOVER_LABEL"] = labels
-
-        return test_df
-
     def test_eval(self):
         model = Presto.load_pretrained()
 
-        test_data = self.read_test_file()
+        test_data = read_test_file()
         eval_task = WorldCerealEval(test_data, test_data)
 
         output, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
@@ -48,7 +30,7 @@ class TestEval(TestCase):
     ):
         model = Presto.load_pretrained()
 
-        test_data = self.read_test_file()
+        test_data = read_test_file()
         spatial_data_prefix = "belgium_good_2020-12-01_2021-11-30"
         spatial_data = rioxarray.open_rasterio(
             data_dir / f"inference_areas/{spatial_data_prefix}.nc", decode_times=False

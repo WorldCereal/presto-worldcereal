@@ -1,7 +1,6 @@
 from unittest import TestCase
 
 import numpy as np
-import pandas as pd
 import torch
 
 from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
@@ -9,10 +8,11 @@ from presto.dataset import (
     WorldCerealInferenceDataset,
     WorldCerealLabelledDataset,
     WorldCerealMaskedDataset,
+    target_maize,
 )
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
-from presto.utils import data_dir
+from tests.utils import NUM_CROP_POINTS, NUM_MAIZE_POINTS, read_test_file
 
 
 class TestDataset(TestCase):
@@ -24,10 +24,7 @@ class TestDataset(TestCase):
 
     def test_output(self):
         MISSING_DATA_ROW = 0
-        df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")
-        # this is to align the parquet file with the new parquet files
-        # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
-        df.rename({"catboost_prediction": "worldcereal_prediction"}, axis=1, inplace=True)
+        df = read_test_file()
 
         location_index = df.index.get_loc(MISSING_DATA_ROW)
         strategies = [
@@ -104,3 +101,25 @@ class TestDataset(TestCase):
 
         # check all the worldcereal labels are 0 or 1
         self.assertTrue(df_predictions["ground_truth"].isin([0, 1]).all())
+
+    def test_targets_correctly_calculated_crop_noncrop(self):
+        df = read_test_file()
+        ds = WorldCerealLabelledDataset(df)
+        num_positives = 0
+        for i in range(len(ds)):
+            batch = ds[i]
+            y = batch[1]
+            assert y in [0, 1]
+            num_positives += y == 1
+        self.assertTrue(num_positives == NUM_CROP_POINTS)
+
+    def test_targets_correctly_calculated_maize(self):
+        df = read_test_file()
+        ds = WorldCerealLabelledDataset(df, target_function=target_maize)
+        num_positives = 0
+        for i in range(len(ds)):
+            batch = ds[i]
+            y = batch[1]
+            assert y in [0, 1]
+            num_positives += y == 1
+        self.assertTrue(num_positives == NUM_MAIZE_POINTS)
