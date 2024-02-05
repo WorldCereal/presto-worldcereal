@@ -352,7 +352,7 @@ class WorldCerealEval:
             target_function=self.target_function,
         )
 
-        weights = train_ds.class_weights
+        weights = torch.from_numpy(train_ds.class_weights)
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=(weights / weights[0])[1])
 
         generator = torch.Generator()
