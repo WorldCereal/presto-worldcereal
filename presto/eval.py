@@ -352,7 +352,9 @@ class WorldCerealEval:
             target_function=self.target_function,
         )
 
-        loss_fn = nn.CrossEntropyLoss(weight=torch.from_numpy(train_ds.class_weights).float())
+        loss_fn = nn.CrossEntropyLoss(
+            weight=torch.from_numpy(train_ds.class_weights).to(device).float()
+        )
 
         generator = torch.Generator()
         generator.manual_seed(self.seed)
