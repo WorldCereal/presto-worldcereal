@@ -353,7 +353,10 @@ class WorldCerealEval:
         )
 
         weights = torch.from_numpy(train_ds.class_weights)
-        loss_fn = nn.BCEWithLogitsLoss(pos_weight=(weights / weights[0])[1])
+        # these clamps are arbitrary, but an excessively large / small weight
+        # seems undesirable.
+        pos_weight = torch.clamp((weights / weights[0])[1], min=0.5, max=2)
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
         generator = torch.Generator()
         generator.manual_seed(self.seed)
