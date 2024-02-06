@@ -196,6 +196,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         target_function: Optional[Callable[[Dict], int]] = None,
+        balance: bool = True,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -211,11 +212,32 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         self.target_function = target_function if target_function is not None else self.target_crop
         self._class_weights: Optional[np.ndarray] = None
+
         super().__init__(dataframe)
+        if balance:
+            neg_indices, pos_indices = [], []
+            for idx, row in self.df.iterrows():
+                target = self.target_function(row.to_dict())
+                if target == 0:
+                    neg_indices.append(idx)
+                else:
+                    pos_indices.append(idx)
+            if len(pos_indices) > len(neg_indices):
+                self.indices = pos_indices + (len(pos_indices) // len(neg_indices)) * neg_indices
+            elif len(neg_indices) > len(pos_indices):
+                self.indices = neg_indices + (len(neg_indices) // len(pos_indices)) * pos_indices
+            else:
+                self.indices = neg_indices + pos_indices
+        else:
+            self.indices = [i for i in range(len(self.df))]
+
+    def __len__(self):
+        return len(self.indices)
 
     def __getitem__(self, idx):
         # Get the sample
-        row = self.df.iloc[idx, :]
+        df_index = self.indices[idx]
+        row = self.df.iloc[df_index, :]
         eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
