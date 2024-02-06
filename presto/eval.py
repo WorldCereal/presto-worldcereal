@@ -344,7 +344,10 @@ class WorldCerealEval:
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
             target_function=self.target_function,
+            balance=True,
         )
+
+        # should the val set be balanced too?
         val_ds = WorldCerealLabelledDataset(
             self.val_df,
             countries_to_remove=self.countries_to_remove,

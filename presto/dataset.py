@@ -196,7 +196,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         target_function: Optional[Callable[[Dict], int]] = None,
-        balance: bool = True,
+        balance: bool = False,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -216,12 +216,12 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         super().__init__(dataframe)
         if balance:
             neg_indices, pos_indices = [], []
-            for idx, row in self.df.iterrows():
+            for loc_idx, (_, row) in enumerate(self.df.iterrows()):
                 target = self.target_function(row.to_dict())
                 if target == 0:
-                    neg_indices.append(idx)
+                    neg_indices.append(loc_idx)
                 else:
-                    pos_indices.append(idx)
+                    pos_indices.append(loc_idx)
             if len(pos_indices) > len(neg_indices):
                 self.indices = pos_indices + (len(pos_indices) // len(neg_indices)) * neg_indices
             elif len(neg_indices) > len(pos_indices):
