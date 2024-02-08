@@ -148,6 +148,9 @@ class WorldCerealEval:
                 class_weight=class_weight_dict,
                 random_state=self.seed,
             ),
+            # Parameters emulate
+            # https://github.com/WorldCereal/wc-classification/blob/
+            # 4a9a839507d9b4f63c378b3b1d164325cbe843d6/src/worldcereal/classification/models.py#L490
             "CatBoostClassifier": CatBoostClassifier(
                 iterations=8000,
                 depth=8,
