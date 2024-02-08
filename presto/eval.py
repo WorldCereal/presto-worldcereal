@@ -131,18 +131,19 @@ class WorldCerealEval:
 
         fit_models = []
         class_weights = cast(WorldCerealLabelledDataset, dl.dataset).class_weights
+        class_weight_dict = {idx: weight for idx, weight in enumerate(class_weights)}
         model_dict = {
             "Regression": LogisticRegression(
-                class_weight={idx: weight for idx, weight in enumerate(class_weights)},
+                class_weight=class_weight_dict,
                 max_iter=1000,
                 random_state=self.seed,
             ),
             "Random Forest": RandomForestClassifier(
-                class_weight={idx: weight for idx, weight in enumerate(class_weights)},
+                class_weight=class_weight_dict,
                 random_state=self.seed,
             ),
             "CatBoostClassifier": CatBoostClassifier(
-                random_state=self.seed, class_weights=class_weights
+                random_state=self.seed, class_weights=class_weight_dict
             ),
         }
         for model in tqdm(models, desc="Fitting sklearn models"):
