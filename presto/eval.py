@@ -159,7 +159,7 @@ class WorldCerealEval:
                 early_stopping_rounds=20,
                 l2_leaf_reg=3,
                 random_state=self.seed,
-                class_weights={"True": class_weight_dict[1], "False": class_weight_dict[0]},
+                class_weights=class_weight_dict,
             ),
         }
         for model in tqdm(models, desc="Fitting sklearn models"):

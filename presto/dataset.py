@@ -63,7 +63,7 @@ class WorldCerealBase(Dataset):
     @staticmethod
     def target_crop(row_d: Dict) -> int:
         # by default, we predict crop vs non crop
-        return row_d["LANDCOVER_LABEL"] == 11
+        return int(row_d["LANDCOVER_LABEL"] == 11)
 
     @classmethod
     def row_to_arrays(
@@ -185,7 +185,7 @@ def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
 
 def target_maize(row_d) -> int:
     # 1200 is maize
-    return row_d["CROPTYPE_LABEL"] == 1200
+    return int(row_d["CROPTYPE_LABEL"] == 1200)
 
 
 class WorldCerealLabelledDataset(WorldCerealBase):
