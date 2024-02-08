@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime
+from math import modf
 from pathlib import Path
+from random import sample
 from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import geopandas as gpd
@@ -230,6 +232,12 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 self.indices = neg_indices + pos_indices
         else:
             self.indices = [i for i in range(len(self.df))]
+
+    @staticmethod
+    def multiply_list_length_by_float(input_list: List, multiplier: float) -> List:
+        decimal_part, integer_part = modf(multiplier)
+        sublist = sample(input_list, k=int(len(input_list) * decimal_part))
+        return input_list * int(integer_part) + sublist
 
     def __len__(self):
         return len(self.indices)

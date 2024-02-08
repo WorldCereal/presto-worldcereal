@@ -143,7 +143,8 @@ class WorldCerealEval:
                 random_state=self.seed,
             ),
             "CatBoostClassifier": CatBoostClassifier(
-                random_state=self.seed, class_weights=class_weight_dict
+                random_state=self.seed,
+                class_weights={"True": class_weight_dict[1], "False": class_weight_dict[0]},
             ),
         }
         for model in tqdm(models, desc="Fitting sklearn models"):
