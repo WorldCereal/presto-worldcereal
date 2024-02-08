@@ -154,7 +154,6 @@ class WorldCerealEval:
             "CatBoostClassifier": CatBoostClassifier(
                 iterations=8000,
                 depth=8,
-                eval_metric="F1",
                 learning_rate=0.05,
                 early_stopping_rounds=20,
                 l2_leaf_reg=3,
