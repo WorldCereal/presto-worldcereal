@@ -143,6 +143,11 @@ class WorldCerealEval:
                 random_state=self.seed,
             ),
             "CatBoostClassifier": CatBoostClassifier(
+                iterations=500,
+                depth=8,
+                eval_metric="F1",
+                learning_rate=0.3,
+                l2_leaf_reg=100,
                 random_state=self.seed,
                 class_weights={"True": class_weight_dict[1], "False": class_weight_dict[0]},
             ),
