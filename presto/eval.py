@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 import numpy as np
 import pandas as pd
 import torch
-from catboost import CatBoostClassifier
+from catboost import CatBoostClassifier, Pool
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -98,6 +98,7 @@ class WorldCerealEval:
     def finetune_sklearn_model(
         self,
         dl: DataLoader,
+        val_dl: DataLoader,
         pretrained_model: PrestoFineTuningModel,
         models: List[str] = ["Regression", "Random Forest"],
     ) -> Union[Sequence[BaseEstimator], Dict]:
@@ -105,29 +106,34 @@ class WorldCerealEval:
             assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
         pretrained_model.eval()
 
-        encoding_list, target_list = [], []
-        for x, y, dw, latlons, month, variable_mask in dl:
-            x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                t.to(device) for t in (x, dw, latlons, month, variable_mask)
-            ]
-            target_list.append(y)
-            with torch.no_grad():
-                encodings = (
-                    pretrained_model.encoder(
-                        x_f,
-                        dynamic_world=dw_f.long(),
-                        mask=variable_mask_f,
-                        latlons=latlons_f,
-                        month=month_f,
+        def dataloader_to_encodings_and_targets(dl: DataLoader) -> Tuple[np.ndarray, np.ndarray]:
+            encoding_list, target_list = [], []
+            for x, y, dw, latlons, month, variable_mask in dl:
+                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+                ]
+                target_list.append(y)
+                with torch.no_grad():
+                    encodings = (
+                        pretrained_model.encoder(
+                            x_f,
+                            dynamic_world=dw_f.long(),
+                            mask=variable_mask_f,
+                            latlons=latlons_f,
+                            month=month_f,
+                        )
+                        .cpu()
+                        .numpy()
                     )
-                    .cpu()
-                    .numpy()
-                )
-                encoding_list.append(encodings)
-        encodings_np = np.concatenate(encoding_list)
-        targets = np.concatenate(target_list)
-        if len(targets.shape) == 2 and targets.shape[1] == 1:
-            targets = targets.ravel()
+                    encoding_list.append(encodings)
+            encodings_np = np.concatenate(encoding_list)
+            targets = np.concatenate(target_list)
+            if len(targets.shape) == 2 and targets.shape[1] == 1:
+                targets = targets.ravel()
+            return encodings_np, targets
+
+        train_encodings, train_targets = dataloader_to_encodings_and_targets(dl)
+        val_encodings, val_targets = dataloader_to_encodings_and_targets(val_dl)
 
         fit_models = []
         class_weights = cast(WorldCerealLabelledDataset, dl.dataset).class_weights
@@ -143,17 +149,25 @@ class WorldCerealEval:
                 random_state=self.seed,
             ),
             "CatBoostClassifier": CatBoostClassifier(
-                iterations=500,
+                iterations=8000,
                 depth=8,
                 eval_metric="F1",
-                learning_rate=0.3,
-                l2_leaf_reg=100,
+                learning_rate=0.05,
+                early_stopping_rounds=20,
+                l2_leaf_reg=3,
                 random_state=self.seed,
                 class_weights={"True": class_weight_dict[1], "False": class_weight_dict[0]},
             ),
         }
         for model in tqdm(models, desc="Fitting sklearn models"):
-            fit_models.append(clone(model_dict[model]).fit(encodings_np, targets))
+            if model == "CatBoostClassifier":
+                fit_models.append(
+                    clone(model_dict[model]).fit(
+                        train_encodings, train_targets, eval_set=Pool(val_encodings, val_targets)
+                    )
+                )
+            else:
+                fit_models.append(clone(model_dict[model]).fit(train_encodings, train_targets))
         return fit_models
 
     @staticmethod
@@ -481,8 +495,20 @@ class WorldCerealEval:
                 shuffle=False,
                 num_workers=4,
             )
+            val_dl = DataLoader(
+                WorldCerealLabelledDataset(
+                    self.val_df,
+                    countries_to_remove=self.countries_to_remove,
+                    years_to_remove=self.years_to_remove,
+                    target_function=self.target_function,
+                ),
+                batch_size=2048,
+                shuffle=False,
+                num_workers=4,
+            )
             sklearn_models = self.finetune_sklearn_model(
                 dl,
+                val_dl,
                 finetuned_model,
                 models=sklearn_model_modes,
             )
