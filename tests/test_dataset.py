@@ -123,3 +123,8 @@ class TestDataset(TestCase):
             assert y in [0, 1]
             num_positives += y == 1
         self.assertTrue(num_positives == NUM_MAIZE_POINTS)
+
+    def test_list_correctly_resized(self):
+        input_list = [1] * 10
+        output_list = WorldCerealLabelledDataset.multiply_list_length_by_float(input_list, 2.5)
+        self.assertEqual(len(output_list), 25)

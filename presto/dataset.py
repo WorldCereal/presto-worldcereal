@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime
+from math import modf
 from pathlib import Path
+from random import sample
 from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import geopandas as gpd
@@ -10,6 +12,7 @@ import rioxarray
 import xarray as xr
 from einops import rearrange, repeat
 from pyproj import Transformer
+from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
 
 from .dataops import (
@@ -60,7 +63,7 @@ class WorldCerealBase(Dataset):
     @staticmethod
     def target_crop(row_d: Dict) -> int:
         # by default, we predict crop vs non crop
-        return row_d["LANDCOVER_LABEL"] == 11
+        return int(row_d["LANDCOVER_LABEL"] == 11)
 
     @classmethod
     def row_to_arrays(
@@ -182,7 +185,7 @@ def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
 
 def target_maize(row_d) -> int:
     # 1200 is maize
-    return row_d["CROPTYPE_LABEL"] == 1200
+    return int(row_d["CROPTYPE_LABEL"] == 1200)
 
 
 class WorldCerealLabelledDataset(WorldCerealBase):
@@ -195,6 +198,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         target_function: Optional[Callable[[Dict], int]] = None,
+        balance: bool = False,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -209,11 +213,39 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         self.target_function = target_function if target_function is not None else self.target_crop
+        self._class_weights: Optional[np.ndarray] = None
+
         super().__init__(dataframe)
+        if balance:
+            neg_indices, pos_indices = [], []
+            for loc_idx, (_, row) in enumerate(self.df.iterrows()):
+                target = self.target_function(row.to_dict())
+                if target == 0:
+                    neg_indices.append(loc_idx)
+                else:
+                    pos_indices.append(loc_idx)
+            if len(pos_indices) > len(neg_indices):
+                self.indices = pos_indices + (len(pos_indices) // len(neg_indices)) * neg_indices
+            elif len(neg_indices) > len(pos_indices):
+                self.indices = neg_indices + (len(neg_indices) // len(pos_indices)) * pos_indices
+            else:
+                self.indices = neg_indices + pos_indices
+        else:
+            self.indices = [i for i in range(len(self.df))]
+
+    @staticmethod
+    def multiply_list_length_by_float(input_list: List, multiplier: float) -> List:
+        decimal_part, integer_part = modf(multiplier)
+        sublist = sample(input_list, k=int(len(input_list) * decimal_part))
+        return input_list * int(integer_part) + sublist
+
+    def __len__(self):
+        return len(self.indices)
 
     def __getitem__(self, idx):
         # Get the sample
-        row = self.df.iloc[idx, :]
+        df_index = self.indices[idx]
+        row = self.df.iloc[df_index, :]
         eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
@@ -241,6 +273,17 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if joined.isna().any(axis=1).any():
             logger.warning("Some coordinates couldn't be matched to a country")
         return joined.to_crs("EPSG:4326")
+
+    @property
+    def class_weights(self) -> np.ndarray:
+        if self._class_weights is None:
+            ys = []
+            for _, row in self.df.iterrows():
+                ys.append(self.target_function(row.to_dict()))
+            self._class_weights = compute_class_weight(
+                class_weight="balanced", classes=np.unique(ys), y=ys
+            )
+        return self._class_weights
 
 
 class WorldCerealInferenceDataset(Dataset):
