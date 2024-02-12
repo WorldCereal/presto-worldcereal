@@ -183,7 +183,7 @@ class WorldCerealFinetuning(WorldCerealEvalBase):
                     latlons=latlons,
                     month=month,
                 )
-                loss = loss_fn(preds, y.float())
+                loss = loss_fn(preds, y.long())
                 epoch_train_loss += loss.item()
                 loss.backward()
                 optimizer.step()
@@ -204,7 +204,7 @@ class WorldCerealFinetuning(WorldCerealEvalBase):
                         month=month,
                     )
                     all_preds.append(preds)
-                    all_y.append(y.float())
+                    all_y.append(y.long())
 
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
             pbar.set_description(f"Train metric: {train_loss[-1]}, Val metric: {val_loss[-1]}")
