@@ -358,6 +358,8 @@ plot_results(
 # missing data experiments
 country_results = []
 for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
+    finetuning_task = WorldCerealFinetuning(train_df, val_df, countries_to_remove=[country])
+    finetuned_model = finetuning_task.finetune(model)
     for predict_maize in [True, False]:
         kwargs = {
             "train_data": train_df,
@@ -374,20 +376,11 @@ for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
                 }
             )
         eval_task = WorldCerealEval(**kwargs)
-        results, finetuned_model = eval_task.finetuning_results(
-            model, sklearn_model_modes=model_modes
+        results = eval_task.finetuning_results_sklearn(
+            finetuned_model=finetuned_model, sklearn_model_modes=model_modes
         )
         logger.info(json.dumps(results, indent=2))
         country_results.append(results)
-        prefix = "maize" if predict_maize else ""
-        finetuned_model_path = model_path / f"{prefix}_finetuned_{country}_removed_model.pt"
-        torch.save(finetuned_model.state_dict(), finetuned_model_path)
-
-missing_year = WorldCerealEval(
-    train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
-)
-year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(year_results, indent=2))
 
 all_spatial_preds = list(model_logging_dir.glob("*.nc"))
 for spatial_preds_path in all_spatial_preds:
@@ -400,7 +393,6 @@ if wandb_enabled:
     wandb.log(maize_results)
     for results in country_results:
         wandb.log(results)
-    wandb.log(year_results)
 
 if wandb_enabled and run:
     run.finish()

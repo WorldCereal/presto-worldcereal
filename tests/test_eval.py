@@ -6,7 +6,7 @@ import numpy as np
 import rioxarray
 import xarray as xr
 
-from presto.eval import WorldCerealEval
+from presto.eval import WorldCerealEval, WorldCerealFinetuning
 from presto.presto import Presto
 from presto.utils import data_dir
 from tests.utils import read_test_file
@@ -18,12 +18,15 @@ class TestEval(TestCase):
 
         test_data = read_test_file()
         eval_task = WorldCerealEval(test_data, test_data)
-
-        output, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
-        # * 283 per model: WorldCereal CatBoost, Presto finetuned, Presto + CatBoost3
-        self.assertEqual(len(output), 282 * 3)
-        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
-        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
+        finetuning_task = WorldCerealFinetuning(test_data, test_data)
+        finetuning_model = finetuning_task.finetune(model)
+        results = eval_task.finetuning_results_sklearn(
+            finetuned_model=finetuning_model, sklearn_model_modes=["CatBoostClassifier"]
+        )
+        # * 283 per model: WorldCereal CatBoost, Presto + CatBoost3
+        self.assertEqual(len(results), 282 * 2)
+        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in results)
+        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in results)
 
     def test_spatial_inference(
         self,
@@ -40,7 +43,7 @@ class TestEval(TestCase):
             eval_task = WorldCerealEval(
                 test_data, test_data, spatial_inference_savedir=Path(tmpdirname)
             )
-            finetuned_model = eval_task._construct_finetuning_model(model)
+            finetuned_model = model.construct_finetuning_model(num_outputs=1)
             eval_task.spatial_inference(finetuned_model, None)
             output = xr.open_dataset(
                 Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning.nc"
