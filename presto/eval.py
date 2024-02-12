@@ -34,9 +34,9 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 
 @dataclass
 class Hyperparams:
-    lr: float = 2e-5
-    max_epochs: int = 20
-    batch_size: int = 64
+    lr: float = 3e-4
+    max_epochs: int = 100
+    batch_size: int = 128
     patience: int = 3
     num_workers: int = 4
 
