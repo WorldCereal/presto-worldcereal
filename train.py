@@ -16,7 +16,7 @@ from tqdm import tqdm
 from presto.dataops import BANDS_GROUPS_IDX
 from presto.dataset import WorldCerealMaskedDataset as WorldCerealDataset
 from presto.dataset import filter_remove_noncrops, target_maize
-from presto.eval import WorldCerealEval
+from presto.eval import WorldCerealEval, WorldCerealFinetuning
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
     LossWrapper,
@@ -152,10 +152,6 @@ val_dataloader = DataLoader(
     batch_size=batch_size,
     shuffle=False,
     num_workers=num_workers,
-)
-validation_task = WorldCerealEval(
-    train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
-    val_data=val_df.sample(1000, random_state=DEFAULT_SEED),
 )
 
 if val_per_n_steps == -1:
@@ -293,11 +289,6 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 }
                 tqdm_epoch.set_postfix(loss=val_eo_loss)
 
-                val_task_results, _ = validation_task.finetuning_results(
-                    model, sklearn_model_modes=["Random Forest"]
-                )
-                to_log.update(val_task_results)
-
                 if lowest_validation_loss is None or val_eo_loss < lowest_validation_loss:
                     lowest_validation_loss = val_eo_loss
                     best_val_epoch = epoch
@@ -330,15 +321,20 @@ else:
     logger.info("Running eval with randomly init weights")
 
 
-model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
-full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
-results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(results, indent=2))
-
+# full finetuning
+full_finetuning = WorldCerealFinetuning(train_df, val_df)
+finetuned_model = full_finetuning.finetune(model)
 model_path = model_logging_dir / Path("models")
 model_path.mkdir(exist_ok=True, parents=True)
 finetuned_model_path = model_path / "finetuned_model.pt"
 torch.save(finetuned_model.state_dict(), finetuned_model_path)
+
+model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
+full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
+results = full_eval.finetuning_results_sklearn(
+    sklearn_model_modes=model_modes, finetuned_model=finetuned_model
+)
+logger.info(json.dumps(results, indent=2))
 
 full_maize_eval = WorldCerealEval(
     train_df,
@@ -348,24 +344,16 @@ full_maize_eval = WorldCerealEval(
     filter_function=filter_remove_noncrops,
     name="WorldCerealMaize",
 )
-maize_results, maize_finetuned_model = full_maize_eval.finetuning_results(
-    model, sklearn_model_modes=model_modes
+maize_results = full_maize_eval.finetuning_results_sklearn(
+    sklearn_model_modes=model_modes, finetuned_model=finetuned_model
 )
 logger.info(json.dumps(maize_results, indent=2))
-torch.save(maize_finetuned_model.state_dict(), model_path / "maize_finetuned_model.pt")
 
 # not saving plots to wandb
 plot_results(load_world_df(), results, model_logging_dir, show=True, to_wandb=False)
 plot_results(
     load_world_df(), maize_results, model_logging_dir, show=True, to_wandb=False, prefix="maize_"
 )
-
-# this is a bit hacky, but it lets us simulate crop/non-crop finetuning -> maize prediction head
-full_maize_eval.name = "WorldCerealCropFinetuningMaizeHead"
-crop_to_maize_results = full_maize_eval.finetuning_results_sklearn(
-    sklearn_model_modes=model_modes, finetuned_model=finetuned_model
-)
-logger.info(json.dumps(crop_to_maize_results, indent=2))
 
 # missing data experiments
 country_results = []
@@ -410,7 +398,6 @@ for spatial_preds_path in all_spatial_preds:
 if wandb_enabled:
     wandb.log(results)
     wandb.log(maize_results)
-    wandb.log(crop_to_maize_results)
     for results in country_results:
         wandb.log(results)
     wandb.log(year_results)

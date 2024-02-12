@@ -188,6 +188,10 @@ def target_maize(row_d) -> int:
     return int(row_d["CROPTYPE_LABEL"] == 1200)
 
 
+def target_croptype(row_d) -> int:
+    return int(row_d["CROPTYPE_LABEL"])
+
+
 class WorldCerealLabelledDataset(WorldCerealBase):
     # 0: no information, 10: could be both annual or perennial
     FILTER_LABELS = [0, 10]
