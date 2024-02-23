@@ -704,6 +704,7 @@ class PrestoFineTuningModel(nn.Module):
         latlons: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         month: Union[torch.Tensor, int] = 0,
+        valid_month: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         return self.head(
             self.encoder(
@@ -712,6 +713,7 @@ class PrestoFineTuningModel(nn.Module):
                 latlons=latlons,
                 mask=mask,
                 month=month,
+                valid_month=valid_month,
                 eval_task=True,
             )
         )

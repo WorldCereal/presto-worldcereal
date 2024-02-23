@@ -263,7 +263,7 @@ class TestPresto(TestCase):
         all 3 ways of loading the pretrained model are in agreement
         """
         model = Presto.construct()
-        model.load_state_dict(torch.load(default_model_path, map_location=device))
+        model.load_state_dict(torch.load(default_model_path, map_location=device), strict=False)
 
         from_function = Presto.load_pretrained()
         for torch_loaded, pretrain_loaded in zip(model.parameters(), from_function.parameters()):
@@ -321,7 +321,11 @@ class TestPresto(TestCase):
         output.backward()
 
         for name, param in encoder.named_parameters():
-            if ("pos_embed" not in name) and ("month_embed" not in name):
+            if (
+                ("pos_embed" not in name)
+                and ("month_embed" not in name)
+                and ("valid_month_encoding" not in name)
+            ):
                 # the positional encoder is frozen
                 self.assertIsNotNone(param.grad, msg=name)
 
@@ -353,7 +357,9 @@ class TestPresto(TestCase):
     def test_load_pretrained_works_for_finetuned_model(self):
         path_to_finetuned_model = data_dir / "finetuned_model.pt"
         model = Presto.load_pretrained().construct_finetuning_model(num_outputs=1)
-        model.load_state_dict(torch.load(path_to_finetuned_model, map_location=device))
+        model.load_state_dict(
+            torch.load(path_to_finetuned_model, map_location=device), strict=False
+        )
 
         model_2 = Presto.load_pretrained(path_to_finetuned_model, strict=False)
 

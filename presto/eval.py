@@ -358,37 +358,40 @@ class WorldCerealEval(WorldCerealEvalBase):
 
         test_preds, targets = [], []
 
-        for x, y, dw, latlons, month, valid_month, variable_mask in dl:
+        for b in dl:
+            try:
+                x, y, dw, latlons, month, valid_month, variable_mask = b
+                x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
+                ]
+                input_d = {
+                    "x": x_f,
+                    "dynamic_world": dw_f.long(),
+                    "latlons": latlons_f,
+                    "mask": variable_mask_f,
+                    "month": month_f,
+                    "valid_month": valid_month_f,
+                }
+            except ValueError:
+                x, y, dw, latlons, month, variable_mask = b
+                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+                ]
+                input_d = {
+                    "x": x_f,
+                    "dynamic_world": dw_f.long(),
+                    "latlons": latlons_f,
+                    "mask": variable_mask_f,
+                    "month": month_f,
+                }
             targets.append(y)
-            x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
-                t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
-            ]
             if isinstance(finetuned_model, PrestoFineTuningModel):
                 finetuned_model.eval()
-                preds = finetuned_model(
-                    x_f,
-                    dynamic_world=dw_f.long(),
-                    mask=variable_mask_f,
-                    latlons=latlons_f,
-                    month=month_f,
-                    valid_month=valid_month_f,
-                ).squeeze(dim=1)
+                preds = finetuned_model(**input_d).squeeze(dim=1)
                 preds = torch.sigmoid(preds).cpu().numpy()
             else:
                 cast(Presto, pretrained_model).eval()
-                encodings = (
-                    cast(Presto, pretrained_model)
-                    .encoder(
-                        x_f,
-                        dynamic_world=dw_f.long(),
-                        mask=variable_mask_f,
-                        latlons=latlons_f,
-                        month=month_f,
-                        valid_month=valid_month_f,
-                    )
-                    .cpu()
-                    .numpy()
-                )
+                encodings = cast(Presto, pretrained_model).encoder(**input_d).cpu().numpy()
                 preds = finetuned_model.predict_proba(encodings)[:, 1]
             test_preds.append(preds)
 
