@@ -169,11 +169,11 @@ class WorldCerealFinetuning(WorldCerealEvalBase):
         for _ in (pbar := tqdm(range(hyperparams.max_epochs), desc="Finetuning")):
             model.train()
             epoch_train_loss = 0.0
-            for x, y, dw, latlons, month, variable_mask in tqdm(
+            for x, y, dw, latlons, month, valid_month, variable_mask in tqdm(
                 train_dl, desc="Training", leave=False
             ):
-                x, y, dw, latlons, month, variable_mask = [
-                    t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
+                x, y, dw, latlons, month, valid_month, variable_mask = [
+                    t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
                 optimizer.zero_grad()
                 preds = model(
@@ -182,6 +182,7 @@ class WorldCerealFinetuning(WorldCerealEvalBase):
                     mask=variable_mask,
                     latlons=latlons,
                     month=month,
+                    valid_month=valid_month,
                 )
                 loss = loss_fn(preds, y.long())
                 epoch_train_loss += loss.item()
@@ -191,9 +192,9 @@ class WorldCerealFinetuning(WorldCerealEvalBase):
 
             model.eval()
             all_preds, all_y = [], []
-            for x, y, dw, latlons, month, variable_mask in val_dl:
-                x, y, dw, latlons, month, variable_mask = [
-                    t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
+            for x, y, dw, latlons, month, valid_month, variable_mask in val_dl:
+                x, y, dw, latlons, month, valid_month, variable_mask = [
+                    t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
                 with torch.no_grad():
                     preds = model(
@@ -202,6 +203,7 @@ class WorldCerealFinetuning(WorldCerealEvalBase):
                         mask=variable_mask,
                         latlons=latlons,
                         month=month,
+                        valid_month=valid_month,
                     )
                     all_preds.append(preds)
                     all_y.append(y.long())
@@ -290,9 +292,9 @@ class WorldCerealEval(WorldCerealEvalBase):
 
         def dataloader_to_encodings_and_targets(dl: DataLoader) -> Tuple[np.ndarray, np.ndarray]:
             encoding_list, target_list = [], []
-            for x, y, dw, latlons, month, variable_mask in dl:
-                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            for x, y, dw, latlons, month, valid_month, variable_mask in dl:
+                x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
                 ]
                 target_list.append(y)
                 with torch.no_grad():
@@ -303,6 +305,7 @@ class WorldCerealEval(WorldCerealEvalBase):
                             mask=variable_mask_f,
                             latlons=latlons_f,
                             month=month_f,
+                            valid_month=valid_month_f,
                         )
                         .cpu()
                         .numpy()
@@ -355,10 +358,10 @@ class WorldCerealEval(WorldCerealEvalBase):
 
         test_preds, targets = [], []
 
-        for x, y, dw, latlons, month, variable_mask in dl:
+        for x, y, dw, latlons, month, valid_month, variable_mask in dl:
             targets.append(y)
-            x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+                t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
             ]
             if isinstance(finetuned_model, PrestoFineTuningModel):
                 finetuned_model.eval()
@@ -368,6 +371,7 @@ class WorldCerealEval(WorldCerealEvalBase):
                     mask=variable_mask_f,
                     latlons=latlons_f,
                     month=month_f,
+                    valid_month=valid_month_f,
                 ).squeeze(dim=1)
                 preds = torch.sigmoid(preds).cpu().numpy()
             else:
@@ -380,6 +384,7 @@ class WorldCerealEval(WorldCerealEvalBase):
                         mask=variable_mask_f,
                         latlons=latlons_f,
                         month=month_f,
+                        valid_month=valid_month_f,
                     )
                     .cpu()
                     .numpy()

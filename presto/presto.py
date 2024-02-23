@@ -333,6 +333,8 @@ class Encoder(nn.Module):
             num_embeddings=len(self.band_groups) + 1, embedding_dim=channel_embedding_size
         )
 
+        self.valid_month_encoding = nn.Embedding(num_embeddings=12, embedding_dim=embedding_size)
+
         self.initialize_weights()
 
     def initialize_weights(self):
@@ -382,6 +384,16 @@ class Encoder(nn.Module):
 
         return x, indices, updated_mask
 
+    @staticmethod
+    def add_token(token, token_list, mask, indices):
+        token_list = torch.cat((token, token_list), dim=1)
+        mask = torch.cat((torch.zeros(token_list.shape[0])[:, None].to(device), mask), dim=1)
+        indices = torch.cat(
+            (torch.zeros(token_list.shape[0])[:, None].to(device).int(), indices + 1),
+            dim=1,
+        )
+        return token_list, mask, indices
+
     def forward(
         self,
         x: torch.Tensor,
@@ -389,6 +401,7 @@ class Encoder(nn.Module):
         latlons: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         month: Union[torch.Tensor, int] = 0,
+        valid_month: Optional[torch.Tensor] = None,
         eval_task: bool = True,
     ):
         device = x.device
@@ -458,12 +471,11 @@ class Encoder(nn.Module):
 
         # append latlon tokens
         latlon_tokens = self.latlon_embed(self.cartesian(latlons)).unsqueeze(1)
-        x = torch.cat((latlon_tokens, x), dim=1)
-        upd_mask = torch.cat((torch.zeros(x.shape[0])[:, None].to(device), upd_mask), dim=1)
-        orig_indices = torch.cat(
-            (torch.zeros(x.shape[0])[:, None].to(device).int(), orig_indices + 1),
-            dim=1,
-        )
+        x, upd_mask, orig_indices = self.add_token(latlon_tokens, x, upd_mask, orig_indices)
+
+        if valid_month is not None:
+            val_month_token = self.valid_month_encoding(valid_month)
+            x, upd_mask, orig_indices = self.add_token(val_month_token, x, upd_mask, orig_indices)
 
         # apply Transformer blocks
         for blk in self.blocks:
