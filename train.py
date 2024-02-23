@@ -315,8 +315,8 @@ logger.info(f"Trained for {num_epochs} epochs, best model at {best_model_path}")
 
 if best_model_path is not None:
     logger.info("Loading best model: %s" % best_model_path)
-    best_model = torch.load(best_model_path, map_location=device, strict=False)
-    model.load_state_dict(best_model)
+    best_model = torch.load(best_model_path, map_location=device)
+    model.load_state_dict(best_model, strict=False)
 else:
     logger.info("Running eval with randomly init weights")
 
