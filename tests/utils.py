@@ -17,6 +17,7 @@ def read_test_file() -> pd.DataFrame:
         axis=1,
         inplace=True,
     )
+    test_df["valid_date"] = test_df["start_date"]
     test_df["sample_id"] = np.arange(len(test_df))
     test_df["year"] = 2021
     labels = [99] * len(test_df)  # 99 = No cropland
