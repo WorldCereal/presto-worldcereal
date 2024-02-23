@@ -474,7 +474,7 @@ class Encoder(nn.Module):
         x, upd_mask, orig_indices = self.add_token(latlon_tokens, x, upd_mask, orig_indices)
 
         if valid_month is not None:
-            val_month_token = self.valid_month_encoding(valid_month)
+            val_month_token = self.valid_month_encoding(valid_month).unsqueeze(1)
             x, upd_mask, orig_indices = self.add_token(val_month_token, x, upd_mask, orig_indices)
 
         # apply Transformer blocks

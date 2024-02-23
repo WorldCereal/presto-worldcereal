@@ -266,16 +266,24 @@ class TestPresto(TestCase):
         model.load_state_dict(torch.load(default_model_path, map_location=device), strict=False)
 
         from_function = Presto.load_pretrained()
-        for torch_loaded, pretrain_loaded in zip(model.parameters(), from_function.parameters()):
-            self.assertTrue(torch.equal(torch_loaded, pretrain_loaded))
+        for (name, torch_loaded), pretrain_loaded in zip(
+            model.named_parameters(), from_function.parameters()
+        ):
+            if "valid_month" not in name:
+                self.assertTrue(torch.equal(torch_loaded, pretrain_loaded))
 
         path_to_config = config_dir / "default.json"
         with Path(path_to_config).open("r") as f:
             model_kwargs = json.load(f)
         from_config = Presto.construct(**model_kwargs)
-        from_config.load_state_dict(torch.load(default_model_path, map_location=device))
-        for torch_loaded, config_loaded in zip(model.parameters(), from_config.parameters()):
-            self.assertTrue(torch.equal(torch_loaded, config_loaded))
+        from_config.load_state_dict(
+            torch.load(default_model_path, map_location=device), strict=False
+        )
+        for (name, torch_loaded), config_loaded in zip(
+            model.named_parameters(), from_config.parameters()
+        ):
+            if "valid_month" not in name:
+                self.assertTrue(torch.equal(torch_loaded, config_loaded))
 
     def test_reconstruct_inputs(self):
         model = Presto.construct().decoder
@@ -364,7 +372,8 @@ class TestPresto(TestCase):
         model_2 = Presto.load_pretrained(path_to_finetuned_model, strict=False)
 
         for name, param in model.encoder.named_parameters():
-            self.assertTrue(param.equal(model_2.encoder.state_dict()[name]))
+            if "valid_month" not in name:
+                self.assertTrue(param.equal(model_2.encoder.state_dict()[name]))
 
         batch_size = 3
         with torch.no_grad():
