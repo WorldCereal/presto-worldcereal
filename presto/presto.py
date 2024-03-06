@@ -481,9 +481,11 @@ class Encoder(nn.Module):
         x, upd_mask, orig_indices = self.add_token(latlon_tokens, x, upd_mask, orig_indices)
 
         if valid_month is not None:
-            val_month_token = self.valid_month_encoding(valid_month).unsqueeze(1)
+            val_month_token = self.valid_month_encoding(valid_month)
         if self.valid_month_as_token:
-            x, upd_mask, orig_indices = self.add_token(val_month_token, x, upd_mask, orig_indices)
+            x, upd_mask, orig_indices = self.add_token(
+                val_month_token.unsqueeze(1), x, upd_mask, orig_indices
+            )
 
         # apply Transformer blocks
         for blk in self.blocks:
@@ -494,7 +496,7 @@ class Encoder(nn.Module):
             # set masked tokens to 0
             x_for_mean = x * (1 - upd_mask.unsqueeze(-1))
             x_mean = x_for_mean.sum(dim=1) / torch.sum(1 - upd_mask, -1, keepdim=True)
-            return torch.cat([self.norm(x_mean), val_month_token], axis=-1)
+            return torch.cat([self.norm(x_mean), val_month_token], dim=-1)
         return self.norm(x), orig_indices, upd_mask
 
 
