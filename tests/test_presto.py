@@ -364,7 +364,9 @@ class TestPresto(TestCase):
 
     def test_load_pretrained_works_for_finetuned_model(self):
         path_to_finetuned_model = data_dir / "finetuned_model.pt"
-        model = Presto.load_pretrained().construct_finetuning_model(num_outputs=1)
+        model = Presto.load_pretrained(valid_month_as_token=True).construct_finetuning_model(
+            num_outputs=1
+        )
         model.load_state_dict(
             torch.load(path_to_finetuned_model, map_location=device), strict=False
         )
