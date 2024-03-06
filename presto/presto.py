@@ -333,7 +333,9 @@ class Encoder(nn.Module):
             num_embeddings=len(self.band_groups) + 1, embedding_dim=channel_embedding_size
         )
 
-        self.valid_month_encoding = nn.Embedding(num_embeddings=12, embedding_dim=embedding_size)
+        self.valid_month_encoding = nn.Embedding.from_pretrained(
+            get_month_encoding_table(embedding_size)
+        )
 
         self.initialize_weights()
 
