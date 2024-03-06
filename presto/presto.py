@@ -282,11 +282,16 @@ class Encoder(nn.Module):
         mlp_ratio=2,
         num_heads=8,
         max_sequence_length=24,
+        valid_month_as_token: bool = False,
+        valid_month_size: int = 128,
     ):
         super().__init__()
 
         self.band_groups = BANDS_GROUPS_IDX
         self.embedding_size = embedding_size
+        self.valid_month_as_token = valid_month_as_token
+        if valid_month_as_token:
+            assert valid_month_size == embedding_size
 
         # this is used for the channel embedding
         self.band_group_to_idx = {
@@ -334,7 +339,7 @@ class Encoder(nn.Module):
         )
 
         self.valid_month_encoding = nn.Embedding.from_pretrained(
-            get_month_encoding_table(embedding_size)
+            get_month_encoding_table(valid_month_size)
         )
 
         self.initialize_weights()
@@ -477,6 +482,7 @@ class Encoder(nn.Module):
 
         if valid_month is not None:
             val_month_token = self.valid_month_encoding(valid_month).unsqueeze(1)
+        if self.valid_month_as_token:
             x, upd_mask, orig_indices = self.add_token(val_month_token, x, upd_mask, orig_indices)
 
         # apply Transformer blocks
@@ -488,7 +494,7 @@ class Encoder(nn.Module):
             # set masked tokens to 0
             x_for_mean = x * (1 - upd_mask.unsqueeze(-1))
             x_mean = x_for_mean.sum(dim=1) / torch.sum(1 - upd_mask, -1, keepdim=True)
-            return self.norm(x_mean)
+            return torch.cat([self.norm(x_mean), val_month_token], axis=-1)
         return self.norm(x), orig_indices, upd_mask
 
 
@@ -772,6 +778,8 @@ class Presto(nn.Module):
         decoder_depth=2,
         decoder_num_heads=8,
         max_sequence_length=24,
+        valid_month_as_token: bool = False,
+        valid_month_size: int = 128,
     ):
         encoder = Encoder(
             embedding_size=encoder_embedding_size,
@@ -781,6 +789,8 @@ class Presto(nn.Module):
             mlp_ratio=mlp_ratio,
             num_heads=encoder_num_heads,
             max_sequence_length=max_sequence_length,
+            valid_month_as_token=valid_month_as_token,
+            valid_month_size=valid_month_size,
         )
         decoder = Decoder(
             channel_embeddings=encoder.channel_embed,
@@ -807,9 +817,15 @@ class Presto(nn.Module):
 
     @classmethod
     def load_pretrained(
-        cls, model_path: Union[str, Path] = default_model_path, strict: bool = False
+        cls,
+        model_path: Union[str, Path] = default_model_path,
+        strict: bool = False,
+        valid_month_as_token: bool = False,
+        valid_month_size: int = 128,
     ):
-        model = cls.construct()
+        model = cls.construct(
+            valid_month_as_token=valid_month_as_token, valid_month_size=valid_month_size
+        )
         model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
         return model
 
