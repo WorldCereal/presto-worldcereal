@@ -292,6 +292,7 @@ class Encoder(nn.Module):
         self.valid_month_as_token = valid_month_as_token
         if valid_month_as_token:
             assert valid_month_size == embedding_size
+        self.valid_month_size = valid_month_size
 
         # this is used for the channel embedding
         self.band_group_to_idx = {
@@ -482,10 +483,15 @@ class Encoder(nn.Module):
 
         if valid_month is not None:
             val_month_token = self.valid_month_encoding(valid_month)
-        if self.valid_month_as_token:
-            x, upd_mask, orig_indices = self.add_token(
-                val_month_token.unsqueeze(1), x, upd_mask, orig_indices
-            )
+            if self.valid_month_as_token:
+                x, upd_mask, orig_indices = self.add_token(
+                    val_month_token.unsqueeze(1), x, upd_mask, orig_indices
+                )
+        else:
+            # if it is None, we ignore it as a token but do add it to
+            # the output embedding
+            valid_month = torch.ones((x.shape[0],), device=x.device).long()
+            val_month_token = self.valid_month_encoding(valid_month)
 
         # apply Transformer blocks
         for blk in self.blocks:
@@ -809,9 +815,13 @@ class Presto(nn.Module):
         self,
         num_outputs: int,
     ) -> PrestoFineTuningModel:
+        if not self.encoder.valid_month_as_token:
+            hidden_size = self.encoder.embedding_size + self.encoder.valid_month_size
+        else:
+            hidden_size = self.encoder.embedding_size
         head = FinetuningHead(
             num_outputs=num_outputs,
-            hidden_size=self.encoder.embedding_size,
+            hidden_size=hidden_size,
         )
         model = PrestoFineTuningModel(self.encoder, head).to(self.encoder.pos_embed.device)
         model.train()
