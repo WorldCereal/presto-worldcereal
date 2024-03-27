@@ -139,7 +139,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 
 class WorldCerealLabelledDataset(WorldCerealBase):
     # 0: no information, 10: could be both annual or perennial
-    FILTER_LABELS = [0, 10]
+    FILTER_LABELS = [0, 10] 
 
     def __init__(
         self,

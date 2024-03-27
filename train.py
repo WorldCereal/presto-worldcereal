@@ -99,6 +99,7 @@ wandb_org: str = args["wandb_org"]
 
 seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
+output_parent_dir.mkdir(parents=True, exist_ok=True)
 if args["data_dir"]:
     data_dir = Path(args["data_dir"])
 else:
@@ -351,11 +352,12 @@ full_eval = WorldCerealEval(
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
 
-if finetuned_model is not None:
-    model_path = model_logging_dir / Path("models")
-    model_path.mkdir(exist_ok=True, parents=True)
-    finetuned_model_path = model_path / "finetuned_model.pt"
-    torch.save(model.state_dict(), finetuned_model_path)
+#if finetuned_model is not None:
+model_path = model_logging_dir / Path("models")
+model_path.mkdir(exist_ok=True, parents=True)
+finetuned_model_path = model_path / "finetuned_model.pt"
+torch.save(finetuned_model.state_dict(), finetuned_model_path)
+
 # not saving plots to wandb
 plot_results(full_eval.world_df, results, model_logging_dir, show=True, to_wandb=False)
 all_spatial_preds = list(model_logging_dir.glob("*.nc"))
@@ -372,7 +374,7 @@ missing_aez = WorldCerealEval(
     spatial_inference_savedir=model_logging_dir,
     dekadal=dekadal,
 )
-aez_results, _ = missing_aez.finetuning_results(model, sklearn_model_modes=model_modes)
+aez_results, _ = missing_aez.finetuning_results(finetuned_model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(aez_results, indent=2))
 
 missing_year = WorldCerealEval(
@@ -382,7 +384,7 @@ missing_year = WorldCerealEval(
     spatial_inference_savedir=model_logging_dir,
     dekadal=dekadal,
 )
-year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
+year_results, _ = missing_year.finetuning_results(finetuned_model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))
 
 both_missing = WorldCerealEval(
@@ -393,7 +395,7 @@ both_missing = WorldCerealEval(
     spatial_inference_savedir=model_logging_dir,
     dekadal=dekadal,
 )
-both_results, _ = both_missing.finetuning_results(model, sklearn_model_modes=model_modes)
+both_results, _ = both_missing.finetuning_results(finetuned_model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(both_results, indent=2))
 
 if wandb_enabled:
