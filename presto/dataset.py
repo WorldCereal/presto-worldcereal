@@ -161,7 +161,7 @@ class WorldCerealBase(Dataset):
             assert (val_sample_ids is None) and (val_years is None)
             df = cls.join_with_world_df(df)
             for country in val_countries_iso3:
-                assert df.name.str.contains(
+                assert df.iso3.str.contains(
                     country
                 ).any(), f"Tried removing {country} but it is not in the dataframe"
             is_val = df.iso3.isin(val_countries_iso3)
