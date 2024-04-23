@@ -166,8 +166,8 @@ class WorldCerealBase(Dataset):
                 ).any(), f"Tried removing {country} but it is not in the dataframe"
             is_val = df.iso3.isin(val_countries_iso3)
         elif val_years is not None:
-            df["end_date"] = pd.to_datetime(df.end_date)
-            is_val = ~df.end_date.dt.year.isin(val_years)
+            df["end_date_ts"] = pd.to_datetime(df.end_date)
+            is_val = ~df.end_date_ts.dt.year.isin(val_years)
 
         logger.info(f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples")
         train = df[~is_val]
