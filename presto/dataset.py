@@ -23,7 +23,7 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import data_dir, load_world_df
+from .utils import DEFAULT_SEED, data_dir, load_world_df
 
 logger = logging.getLogger("__main__")
 
@@ -153,7 +153,17 @@ class WorldCerealBase(Dataset):
         val_sample_ids: Optional[List[str]] = None,
         val_countries_iso3: Optional[List[str]] = None,
         val_years: Optional[List[int]] = None,
+        val_size: Optional[float] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        if val_size is not None:
+            assert (
+                (val_countries_iso3 is None) and (val_years is None) and (val_sample_ids is None)
+            )
+            val, train = np.split(
+                df.sample(frac=1, random_state=DEFAULT_SEED), [int(val_size * len(df))]
+            )
+            logger.info(f"Using {len(train)} train and {len(val)} val samples")
+            return train, val
         if val_sample_ids is not None:
             assert (val_countries_iso3 is None) and (val_years is None)
             is_val = df.sample_id.isin(val_sample_ids)

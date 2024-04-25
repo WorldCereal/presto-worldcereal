@@ -155,7 +155,7 @@ val_dataloader = DataLoader(
 )
 validation_task = WorldCerealEval(
     train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
-    val_data=val_df.sample(1000, random_state=DEFAULT_SEED),
+    test_data=val_df.sample(1000, random_state=DEFAULT_SEED),
 )
 
 if val_per_n_steps == -1:
@@ -373,7 +373,7 @@ for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
     for predict_maize in [True, False]:
         kwargs = {
             "train_data": train_df,
-            "val_data": val_df,
+            "test_data": val_df,
             "countries_to_remove": [country],
             "spatial_inference_savedir": model_logging_dir,
         }

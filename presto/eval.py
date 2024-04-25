@@ -49,7 +49,7 @@ class WorldCerealEval:
     def __init__(
         self,
         train_data: pd.DataFrame,
-        val_data: pd.DataFrame,
+        test_data: pd.DataFrame,
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
@@ -57,6 +57,7 @@ class WorldCerealEval:
         target_function: Optional[Callable[[Dict], int]] = None,
         filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
         name: Optional[str] = None,
+        val_size: float = 0.2,
     ):
         self.seed = seed
 
@@ -64,19 +65,10 @@ class WorldCerealEval:
             self.name = name
         self.target_function = target_function
 
-        # SAR cannot equal 0.0 since we take the log of it
-        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
-        self.train_df = train_data[~(train_data.loc[:, cols] == 0.0).any(axis=1)]
-        if filter_function is not None:
-            self.train_df = filter_function(self.train_df)
-
-        self.val_df = val_data.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
-        self.val_df = self.val_df[~pd.isna(self.val_df).any(axis=1)]
-        self.val_df = self.val_df[~(self.val_df.loc[:, cols] == 0.0).any(axis=1)]
-        self.val_df = self.val_df.set_index("sample_id")
-        if filter_function is not None:
-            self.val_df = filter_function(self.val_df)
-        self.test_df = self.val_df
+        train_data, val_data = WorldCerealLabelledDataset.split_df(train_data, val_size=val_size)
+        self.train_df = self.prep_dataframe(train_data, filter_function)
+        self.val_df = self.prep_dataframe(val_data, filter_function)
+        self.test_df = self.prep_dataframe(test_data, filter_function)
 
         self.spatial_inference_savedir = spatial_inference_savedir
 
@@ -87,6 +79,21 @@ class WorldCerealEval:
             self.name = f"{self.name}_removed_countries_{countries_to_remove}"
         if self.years_to_remove is not None:
             self.name = f"{self.name}_removed_years_{years_to_remove}"
+
+    @staticmethod
+    def prep_dataframe(
+        df: pd.DataFrame, filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None
+    ):
+        # SAR cannot equal 0.0 since we take the log of it
+        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
+
+        df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
+        df = df[~pd.isna(df).any(axis=1)]
+        df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
+        df = df.set_index("sample_id")
+        if filter_function is not None:
+            df = filter_function(df)
+        return df
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model = cast(Callable, pretrained_model.construct_finetuning_model)(

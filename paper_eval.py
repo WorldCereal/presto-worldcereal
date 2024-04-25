@@ -42,7 +42,7 @@ argparser.add_argument("--num_workers", type=int, default=4)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
-argparser.add_argument("--val_samples_file", type=str, default="VAL_samples.csv")
+argparser.add_argument("--val_samples_file", type=str, default="cropland_test_split_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
@@ -102,8 +102,8 @@ model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
 
 # 1. Using the provided split
 val_samples_df = pd.read_csv(data_dir / val_samples_file)
-train_df, val_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
-full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
+train_df, test_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
+full_eval = WorldCerealEval(train_df, test_df, spatial_inference_savedir=model_logging_dir)
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
 
