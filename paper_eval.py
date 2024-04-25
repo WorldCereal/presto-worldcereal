@@ -43,6 +43,7 @@ argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
 argparser.add_argument("--val_samples_file", type=str, default="cropland_test_split_samples.csv")
+argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
@@ -77,6 +78,7 @@ logger.info("Using output dir: %s" % model_logging_dir)
 
 parquet_file: str = args["parquet_file"]
 val_samples_file: str = args["val_samples_file"]
+train_only_samples_file: str = args["train_only_samples_file"]
 
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
@@ -112,9 +114,14 @@ model_path.mkdir(exist_ok=True, parents=True)
 finetuned_model_path = model_path / "finetuned_model_stratified.pt"
 torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
+train_only_samples = pd.read_csv(data_dir / train_only_samples_file).sample_id.tolist()
 # 2. Split according to the countries
 country_eval = WorldCerealEval(
-    *WorldCerealBase.split_df(df, val_countries_iso3=["ESP", "NGA", "LVA", "TZA", "ETH", "ARG"])
+    *WorldCerealBase.split_df(
+        df,
+        val_countries_iso3=["ESP", "NGA", "LVA", "TZA", "ETH", "ARG"],
+        train_only_samples=train_only_samples,
+    )
 )
 country_results, country_finetuned_model = country_eval.finetuning_results(
     model, sklearn_model_modes=model_modes
@@ -125,7 +132,9 @@ finetuned_model_path_countries = model_path / "finetuned_model_countries.pt"
 torch.save(country_finetuned_model.state_dict(), finetuned_model_path_countries)
 
 # 3. Split by year
-year_eval = WorldCerealEval(*WorldCerealBase.split_df(df, val_years=[2021]))
+year_eval = WorldCerealEval(
+    *WorldCerealBase.split_df(df, val_years=[2021], train_only_samples=train_only_samples)
+)
 year_results, year_finetuned_model = year_eval.finetuning_results(
     model, sklearn_model_modes=model_modes
 )

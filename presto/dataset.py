@@ -154,6 +154,7 @@ class WorldCerealBase(Dataset):
         val_countries_iso3: Optional[List[str]] = None,
         val_years: Optional[List[int]] = None,
         val_size: Optional[float] = None,
+        train_only_samples: Optional[List[str]] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         if val_size is not None:
             assert (
@@ -167,6 +168,7 @@ class WorldCerealBase(Dataset):
         if val_sample_ids is not None:
             assert (val_countries_iso3 is None) and (val_years is None)
             is_val = df.sample_id.isin(val_sample_ids)
+            is_train = ~df.sample_id.isin(val_sample_ids)
         elif val_countries_iso3 is not None:
             assert (val_sample_ids is None) and (val_years is None)
             df = cls.join_with_world_df(df)
@@ -174,13 +176,23 @@ class WorldCerealBase(Dataset):
                 assert df.iso3.str.contains(
                     country
                 ).any(), f"Tried removing {country} but it is not in the dataframe"
-            is_val = df.iso3.isin(val_countries_iso3)
+            if train_only_samples is not None:
+                is_val = df.iso3.isin(val_countries_iso3) & ~df.sample_id.isin(train_only_samples)
+            else:
+                is_val = df.iso3.isin(val_countries_iso3)
+            is_train = ~df.iso3.isin(val_countries_iso3)
         elif val_years is not None:
             df["end_date_ts"] = pd.to_datetime(df.end_date)
-            is_val = ~df.end_date_ts.dt.year.isin(val_years)
+            if train_only_samples is not None:
+                is_val = df.end_date_ts.dt.year.isin(val_years) & ~df.sample_id.isin(
+                    train_only_samples
+                )
+            else:
+                is_val = df.end_date_ts.dt.year.isin(val_years)
+            is_train = ~df.end_date_ts.dt.year.isin(val_years)
 
         logger.info(f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples")
-        train = df[~is_val]
+        train = df[is_train]
         val = df[is_val]
         return train, val
 
