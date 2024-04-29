@@ -116,9 +116,13 @@ class WorldCerealEval:
             max_sequence_length = 72  # can this be 36?
             old_pos_embed_device = model.encoder.pos_embed.device
             model.encoder.pos_embed = nn.Parameter(
-                torch.zeros(1, max_sequence_length, model.encoder.pos_embed.shape[-1]),
+                torch.zeros(
+                    1,
+                    max_sequence_length,
+                    model.encoder.pos_embed.shape[-1],
+                    device=old_pos_embed_device,
+                ),
                 requires_grad=False,
-                device=old_pos_embed_device,
             )
             pos_embed = get_sinusoid_encoding_table(
                 model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
