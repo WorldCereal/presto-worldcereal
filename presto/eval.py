@@ -21,9 +21,15 @@ from tqdm import tqdm
 from .dataset import (
     NORMED_BANDS,
     WorldCerealInferenceDataset,
+    WorldCerealLabelled10DDataset,
     WorldCerealLabelledDataset,
 )
-from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
+from .presto import (
+    Presto,
+    PrestoFineTuningModel,
+    get_sinusoid_encoding_table,
+    param_groups_lrd,
+)
 from .utils import DEFAULT_SEED, device
 
 logger = logging.getLogger("__main__")
@@ -58,6 +64,7 @@ class WorldCerealEval:
         filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
         name: Optional[str] = None,
         val_size: float = 0.2,
+        dekadal: bool = False,
     ):
         self.seed = seed
 
@@ -66,9 +73,9 @@ class WorldCerealEval:
         self.target_function = target_function
 
         train_data, val_data = WorldCerealLabelledDataset.split_df(train_data, val_size=val_size)
-        self.train_df = self.prep_dataframe(train_data, filter_function)
-        self.val_df = self.prep_dataframe(val_data, filter_function)
-        self.test_df = self.prep_dataframe(test_data, filter_function)
+        self.train_df = self.prep_dataframe(train_data, filter_function, dekadal=dekadal)
+        self.val_df = self.prep_dataframe(val_data, filter_function, dekadal=dekadal)
+        self.test_df = self.prep_dataframe(test_data, filter_function, dekadal=dekadal)
 
         self.spatial_inference_savedir = spatial_inference_savedir
 
@@ -80,12 +87,17 @@ class WorldCerealEval:
         if self.years_to_remove is not None:
             self.name = f"{self.name}_removed_years_{years_to_remove}"
 
+        self.dekadal = dekadal
+        self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
+
     @staticmethod
     def prep_dataframe(
-        df: pd.DataFrame, filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None
+        df: pd.DataFrame,
+        filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+        dekadal: bool = False,
     ):
         # SAR cannot equal 0.0 since we take the log of it
-        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
+        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
 
         df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
         df = df[~pd.isna(df).any(axis=1)]
@@ -96,9 +108,20 @@ class WorldCerealEval:
         return df
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
-        model = cast(Callable, pretrained_model.construct_finetuning_model)(
+        model: PrestoFineTuningModel = cast(Callable, pretrained_model.construct_finetuning_model)(
             num_outputs=self.num_outputs
         )
+
+        if self.dekadal:
+            max_sequence_length = 72  # can this be 36?
+            model.encoder.pos_embed = nn.Parameter(
+                torch.zeros(1, max_sequence_length, model.encoder.pos_embed.shape[-1]),
+                requires_grad=False,
+            )
+            pos_embed = get_sinusoid_encoding_table(
+                model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
+            )
+            model.encoder.pos_embed.data.copy_(pos_embed)
         return model
 
     @torch.no_grad()
@@ -266,7 +289,7 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Dict:
 
-        test_ds = WorldCerealLabelledDataset(self.test_df, target_function=self.target_function)
+        test_ds = self.ds_class(self.test_df, target_function=self.target_function)
         dl = DataLoader(
             test_ds,
             batch_size=8192,
@@ -369,7 +392,7 @@ class WorldCerealEval:
         parameters = param_groups_lrd(model)
         optimizer = AdamW(parameters, lr=hyperparams.lr)
 
-        train_ds = WorldCerealLabelledDataset(
+        train_ds = self.ds_class(
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
@@ -378,7 +401,7 @@ class WorldCerealEval:
         )
 
         # should the val set be balanced too?
-        val_ds = WorldCerealLabelledDataset(
+        val_ds = self.ds_class(
             self.val_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
@@ -494,7 +517,7 @@ class WorldCerealEval:
         results_dict = {}
         if len(sklearn_model_modes) > 0:
             dl = DataLoader(
-                WorldCerealLabelledDataset(
+                self.ds_class(
                     self.train_df,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
@@ -505,7 +528,7 @@ class WorldCerealEval:
                 num_workers=4,
             )
             val_dl = DataLoader(
-                WorldCerealLabelledDataset(
+                self.ds_class(
                     self.val_df,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,

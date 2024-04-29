@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import modf
 from pathlib import Path
 from random import sample
@@ -318,6 +318,42 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 class_weight="balanced", classes=np.unique(ys), y=ys
             )
         return self._class_weights
+
+
+class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
+
+    NUM_TIMESTEPS = 36
+
+    @classmethod
+    def get_month_array(cls, row: pd.Series) -> np.ndarray:
+        start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
+            row.end_date, "%Y-%m-%d"
+        )
+
+        # Calculate the step size for 10-day intervals and create a list of dates
+        step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))
+        date_vector = [start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)]
+
+        # Ensure last date is not beyond the end date
+        if date_vector[-1] > end_date:
+            date_vector[-1] = end_date
+
+        return np.array([d.month - 1 for d in date_vector])
+
+    def __getitem__(self, idx):
+        # Get the sample
+        df_index = self.indices[idx]
+        row = self.df.iloc[df_index, :]
+        eo, mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_function)
+        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+        return (
+            self.normalize_and_mask(eo),
+            target,
+            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            latlon,
+            self.get_month_array(row),
+            mask_per_variable,
+        )
 
 
 class WorldCerealInferenceDataset(Dataset):
