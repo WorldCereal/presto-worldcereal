@@ -114,14 +114,16 @@ class WorldCerealEval:
 
         if self.dekadal:
             max_sequence_length = 72  # can this be 36?
+            old_pos_embed_device = model.encoder.pos_embed.device
             model.encoder.pos_embed = nn.Parameter(
                 torch.zeros(1, max_sequence_length, model.encoder.pos_embed.shape[-1]),
                 requires_grad=False,
+                device=old_pos_embed_device,
             )
             pos_embed = get_sinusoid_encoding_table(
                 model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
             )
-            model.encoder.pos_embed.data.copy_(pos_embed)
+            model.encoder.pos_embed.data.copy_(pos_embed.to(device=old_pos_embed_device))
         return model
 
     @torch.no_grad()
