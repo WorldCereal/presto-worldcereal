@@ -298,7 +298,7 @@ class WorldCerealEval:
         test_ds = self.ds_class(self.test_df, target_function=self.target_function)
         dl = DataLoader(
             test_ds,
-            batch_size=8192,
+            batch_size=512,
             shuffle=False,  # keep as False!
             num_workers=Hyperparams.num_workers,
         )
