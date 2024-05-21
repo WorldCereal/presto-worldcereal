@@ -351,7 +351,7 @@ class WorldCerealInferenceDataset(Dataset):
         months = np.ones((num_instances)) * start_month
 
         transformer = Transformer.from_crs(f"EPSG:{epsg_coords}", "EPSG:4326", always_xy=True)
-        lon, lat = transformer.transform(np.meshgrid(ds.x, ds.y))
+        lon, lat = transformer.transform(*np.meshgrid(ds.x, ds.y))
         latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
 
         return eo_data, np.repeat(mask, BAND_EXPANSION, axis=-1), latlons, months, y
