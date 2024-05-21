@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import rioxarray
 import xarray as xr
-from einops import rearrange, repeat
+from einops import rearrange
 from pyproj import Transformer
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
