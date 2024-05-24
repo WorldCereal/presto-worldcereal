@@ -80,6 +80,10 @@ parquet_file: str = args["parquet_file"]
 val_samples_file: str = args["val_samples_file"]
 train_only_samples_file: str = args["train_only_samples_file"]
 
+dekadal = False
+if "10d" in parquet_file:
+    dekadal = True
+
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
 
@@ -105,7 +109,9 @@ model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
 # 1. Using the provided split
 val_samples_df = pd.read_csv(data_dir / val_samples_file)
 train_df, test_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
-full_eval = WorldCerealEval(train_df, test_df, spatial_inference_savedir=model_logging_dir)
+full_eval = WorldCerealEval(
+    train_df, test_df, spatial_inference_savedir=model_logging_dir, dekadal=dekadal
+)
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
 
@@ -121,7 +127,8 @@ country_eval = WorldCerealEval(
         df,
         val_countries_iso3=["ESP", "NGA", "LVA", "TZA", "ETH", "ARG"],
         train_only_samples=train_only_samples,
-    )
+    ),
+    dekadal=dekadal,
 )
 country_results, country_finetuned_model = country_eval.finetuning_results(
     model, sklearn_model_modes=model_modes
@@ -133,7 +140,8 @@ torch.save(country_finetuned_model.state_dict(), finetuned_model_path_countries)
 
 # 3. Split by year
 year_eval = WorldCerealEval(
-    *WorldCerealBase.split_df(df, val_years=[2021], train_only_samples=train_only_samples)
+    *WorldCerealBase.split_df(df, val_years=[2021], train_only_samples=train_only_samples),
+    dekadal=dekadal,
 )
 year_results, year_finetuned_model = year_eval.finetuning_results(
     model, sklearn_model_modes=model_modes
