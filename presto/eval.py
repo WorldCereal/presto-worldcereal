@@ -272,7 +272,7 @@ class WorldCerealEval:
                     torch.from_numpy(months).long(),
                     torch.from_numpy(mask).float(),
                 ),
-                batch_size=8192,
+                batch_size=512,
                 shuffle=False,
             )
             test_preds_np, _ = self._inference_for_dl(dl, finetuned_model, pretrained_model)
