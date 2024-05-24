@@ -130,19 +130,70 @@ class WorldCerealBase(Dataset):
         return array
 
     @staticmethod
+    def join_with_world_df(dataframe: pd.DataFrame) -> pd.DataFrame:
+        world_df = load_world_df()
+        dataframe = gpd.GeoDataFrame(
+            data=dataframe,
+            geometry=gpd.GeoSeries.from_xy(x=dataframe.lon, y=dataframe.lat),
+            crs="EPSG:4326",
+        )
+        # project to non geographic CRS, otherwise geopandas gives a warning
+        joined = gpd.sjoin_nearest(
+            dataframe.to_crs("EPSG:3857"), world_df.to_crs("EPSG:3857"), how="left"
+        )
+        joined = joined[~joined.index.duplicated(keep="first")]
+        if joined.isna().any(axis=1).any():
+            logger.warning("Some coordinates couldn't be matched to a country")
+        return joined.to_crs("EPSG:4326")
+
+    @classmethod
     def split_df(
-        df: pd.DataFrame, val_sample_ids: Optional[List[str]] = None, val_size: float = 0.2
+        cls,
+        df: pd.DataFrame,
+        val_sample_ids: Optional[List[str]] = None,
+        val_countries_iso3: Optional[List[str]] = None,
+        val_years: Optional[List[int]] = None,
+        val_size: Optional[float] = None,
+        train_only_samples: Optional[List[str]] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        if val_sample_ids is None:
-            logger.warning(f"No val_ids; randomly splitting {val_size} to the val set instead")
+        if val_size is not None:
+            assert (
+                (val_countries_iso3 is None) and (val_years is None) and (val_sample_ids is None)
+            )
             val, train = np.split(
                 df.sample(frac=1, random_state=DEFAULT_SEED), [int(val_size * len(df))]
             )
-        else:
+            logger.info(f"Using {len(train)} train and {len(val)} val samples")
+            return train, val
+        if val_sample_ids is not None:
+            assert (val_countries_iso3 is None) and (val_years is None)
             is_val = df.sample_id.isin(val_sample_ids)
-            logger.info(f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples")
-            train = df[~is_val]
-            val = df[is_val]
+            is_train = ~df.sample_id.isin(val_sample_ids)
+        elif val_countries_iso3 is not None:
+            assert (val_sample_ids is None) and (val_years is None)
+            df = cls.join_with_world_df(df)
+            for country in val_countries_iso3:
+                assert df.iso3.str.contains(
+                    country
+                ).any(), f"Tried removing {country} but it is not in the dataframe"
+            if train_only_samples is not None:
+                is_val = df.iso3.isin(val_countries_iso3) & ~df.sample_id.isin(train_only_samples)
+            else:
+                is_val = df.iso3.isin(val_countries_iso3)
+            is_train = ~df.iso3.isin(val_countries_iso3)
+        elif val_years is not None:
+            df["end_date_ts"] = pd.to_datetime(df.end_date)
+            if train_only_samples is not None:
+                is_val = df.end_date_ts.dt.year.isin(val_years) & ~df.sample_id.isin(
+                    train_only_samples
+                )
+            else:
+                is_val = df.end_date_ts.dt.year.isin(val_years)
+            is_train = ~df.end_date_ts.dt.year.isin(val_years)
+
+        logger.info(f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples")
+        train = df[is_train]
+        val = df[is_val]
         return train, val
 
 
@@ -256,23 +307,6 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             month,
             mask_per_variable,
         )
-
-    @staticmethod
-    def join_with_world_df(dataframe: pd.DataFrame) -> pd.DataFrame:
-        world_df = load_world_df()
-        dataframe = gpd.GeoDataFrame(
-            data=dataframe,
-            geometry=gpd.GeoSeries.from_xy(x=dataframe.lon, y=dataframe.lat),
-            crs="EPSG:4326",
-        )
-        # project to non geographic CRS, otherwise geopandas gives a warning
-        joined = gpd.sjoin_nearest(
-            dataframe.to_crs("EPSG:3857"), world_df.to_crs("EPSG:3857"), how="left"
-        )
-        joined = joined[~joined.index.duplicated(keep="first")]
-        if joined.isna().any(axis=1).any():
-            logger.warning("Some coordinates couldn't be matched to a country")
-        return joined.to_crs("EPSG:4326")
 
     @property
     def class_weights(self) -> np.ndarray:
