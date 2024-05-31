@@ -34,7 +34,7 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
-    max_epochs: int = 5
+    max_epochs: int = 100
     batch_size: int = 2048
     patience: int = 3
     num_workers: int = 8
@@ -222,9 +222,11 @@ class WorldCerealEval:
             "CatBoostClassifier": CatBoostClassifier(
                 iterations=8000,
                 depth=8,
-                learning_rate=0.05,
-                early_stopping_rounds=10,
-                l2_leaf_reg=3,
+                learning_rate=0.2,
+                # learning_rate=0.05,
+                early_stopping_rounds=50,
+                l2_leaf_reg=30,
+                # l2_leaf_reg=3,
                 eval_metric=eval_metric,
                 random_state=self.seed,
                 class_weights=class_weight_dict,
@@ -357,6 +359,7 @@ class WorldCerealEval:
         test_preds_np, target_np = self._inference_for_dl(dl, finetuned_model, pretrained_model, task_type=self.task_type)
         if self.task_type=="cropland":
             test_preds_np = test_preds_np >= self.threshold
+            _croptype_list = ["not_crop", "crop"]
         if self.task_type == "croptype":
             if len(croptype_list)>0:
                 test_preds_np = np.argmax(test_preds_np, axis=-1)
@@ -365,6 +368,8 @@ class WorldCerealEval:
                 target_np = np.argmax(target_np, axis=-1)
                 target_np = np.array([self.croptype_list[xx] for xx in target_np])
 
+            _croptype_list = list(np.unique(target_np))
+
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
         if self.task_type=="cropland":
@@ -372,13 +377,13 @@ class WorldCerealEval:
         if self.task_type=="croptype":
             metrics_agg = "macro"
         
-        _results = classification_report(target_np, test_preds_np, labels=self.croptype_list, output_dict=True, zero_division=0)
+        _results = classification_report(target_np, test_preds_np, labels=_croptype_list, output_dict=True, zero_division=0)
         _results_df = pd.DataFrame(_results).transpose().reset_index()
         _results_df.columns = ["class","precision","recall","f1-score","support"]
         _results_df["year"] = "all"
         _results_df["country"] = "all"
 
-        _partitioned_results = self.partitioned_metrics(target_np, test_preds_np, test_ds.df, metrics_agg)
+        _partitioned_results = self.partitioned_metrics(target_np, test_preds_np, test_ds.df, metrics_agg, _croptype_list)
 
         _results_df = pd.concat((_results_df, _partitioned_results), axis=0)
         _results_df["downstream_model_type"] = type(finetuned_model).__name__
@@ -391,7 +396,8 @@ class WorldCerealEval:
         target: np.ndarray,
         preds: np.ndarray,
         test_df: pd.DataFrame,
-        metrics_agg: str
+        metrics_agg: str,
+        croptype_list: List = []
     ) -> pd.DataFrame:
         partitioned_result_df = pd.DataFrame()
         years = test_df.end_date.apply(lambda date: date[:4])
@@ -400,7 +406,7 @@ class WorldCerealEval:
             prop_series = test_df[prop_name]
             for prop in prop_series.dropna().unique():
                 f: pd.Series = cast(pd.Series, prop_series == prop)
-                _report = classification_report(target[f], preds[f], labels=self.croptype_list, output_dict=True, zero_division=0)
+                _report = classification_report(target[f], preds[f], labels=croptype_list, output_dict=True, zero_division=0)
                 _report_df = pd.DataFrame(_report).transpose().reset_index()
                 _report_df.columns = ["class","precision","recall","f1-score","support"]
                 if prop_name=="year":
@@ -588,7 +594,7 @@ class WorldCerealEval:
                 models=sklearn_model_modes,
             )
             for sklearn_model in sklearn_models:
-                logger.info(f"Evaluating {sklearn_model}...")
+                logger.info(f"Evaluating {type(sklearn_model).__name__}...")
                 _results_df = self.evaluate(sklearn_model, finetuned_model, croptype_list=[])
                 results_df = pd.concat([results_df, _results_df], axis=0)
                 if self.spatial_inference_savedir is not None:

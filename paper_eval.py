@@ -195,10 +195,10 @@ for spatial_preds_path in all_spatial_preds:
     output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
     plot_spatial(preds, output_path, to_wandb=False)
 
-if wandb_enabled:
-    wandb.log(results)
-    wandb.log(country_results)
-    wandb.log(year_results)
+# if wandb_enabled:
+#     wandb.log(results)
+#     wandb.log(country_results)
+#     wandb.log(year_results)
 
 if wandb_enabled and run:
     run.finish()
