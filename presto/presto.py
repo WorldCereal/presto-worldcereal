@@ -1,7 +1,7 @@
 import math
 from copy import deepcopy
 from pathlib import Path
-from typing import Optional, Sized, Tuple, Union, cast
+from typing import Callable, Optional, Sized, Tuple, Union, cast
 
 import numpy as np
 import torch
@@ -791,10 +791,23 @@ class Presto(nn.Module):
 
     @classmethod
     def load_pretrained(
-        cls, model_path: Union[str, Path] = default_model_path, strict: bool = True
+        cls, 
+        model_path: Union[str, Path] = default_model_path, 
+        strict: bool = True,
+        is_finetuned: bool = False,
+        num_outputs: int = 1,
     ):
-        model = cls.construct()
+        if is_finetuned:
+            pretrained_model = cls.construct()
+            model = cast(Callable, pretrained_model.construct_finetuning_model)(
+                    num_outputs=num_outputs
+                )
+            # model = cls.construct_finetuning_model()
+        else:
+            model = cls.construct()
+        
         model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
+
         return model
 
 

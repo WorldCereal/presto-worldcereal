@@ -1,9 +1,10 @@
 import logging
+import json
 from datetime import datetime
 from math import modf
 from pathlib import Path
 from random import sample
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Callable, Dict, List, Optional, Tuple, cast, Union
 
 import geopandas as gpd
 import numpy as np
@@ -31,6 +32,9 @@ IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
     for idx in val:
         IDX_TO_BAND_GROUPS[NORMED_BANDS[idx]] = band_group_idx
+
+with open(data_dir / "croptype_mappings" / "croptype_classes.json") as f:
+    CLASS_MAPPINGS = json.load(f)
 
 
 class WorldCerealBase(Dataset):
@@ -61,14 +65,29 @@ class WorldCerealBase(Dataset):
         return self.df.shape[0]
 
     @staticmethod
-    def target_crop(row_d: Dict) -> int:
+    def target_crop(
+        # row_d: Dict,
+        row_d: pd.Series,  
+        task_type: str = "cropland",
+        croptype_list: List = []
+        ):
         # by default, we predict crop vs non crop
-        return int(row_d["LANDCOVER_LABEL"] == 11)
+        if task_type=="cropland":
+            return int(row_d["LANDCOVER_LABEL"] == 11)
+        if task_type=="croptype":
+            if len(croptype_list)==0:
+                return row_d["downstream_class"]
+            else:
+                return row_d[croptype_list].astype(int).values
 
     @classmethod
     def row_to_arrays(
-        cls, row: pd.Series, target_function: Callable[[Dict], int]
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
+        cls, 
+        row: pd.Series, 
+        target_function: Callable[[Dict], int], 
+        task_type: str = "cropland",
+        croptype_list: List = []
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, Union[int, str, np.ndarray]]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
@@ -109,7 +128,7 @@ class WorldCerealBase(Dataset):
             mask.astype(bool),
             latlon,
             month,
-            target_function(row_d),
+            target_function(row, task_type, croptype_list),
         )
 
     def __getitem__(self, idx):
@@ -123,6 +142,33 @@ class WorldCerealBase(Dataset):
         # TODO: fix this. For now, we replicate the previous behaviour
         normed_eo = np.where(eo[:, keep_indices] != cls._NODATAVALUE, normed_eo, 0)
         return normed_eo
+
+    @staticmethod
+    def map_croptypes(
+        df: pd.DataFrame,
+        finetune_classes="CROPTYPE_ALL",
+        downstream_classes="CROPTYPE19",
+        ) -> pd.DataFrame:
+
+        wc2ewoc_map = pd.read_csv(data_dir / "croptype_mappings" / "wc2eurocrops_map.csv")
+        wc2ewoc_map['ewoc_code'] = wc2ewoc_map['ewoc_code'].str.replace('-','').astype(int)
+
+        ewoc_map = pd.read_csv(data_dir / "croptype_mappings" / "eurocrops_map_wcr_edition.csv")
+        ewoc_map = ewoc_map[ewoc_map['ewoc_code'].notna()]
+        ewoc_map['ewoc_code'] = ewoc_map['ewoc_code'].str.replace('-','').astype(int)
+        ewoc_map = ewoc_map.apply(lambda x: x[:x.last_valid_index()].ffill(), axis=1)
+        ewoc_map.set_index('ewoc_code', inplace=True)
+
+        df['CROPTYPE_LABEL'].replace(0, np.nan, inplace=True)
+        df['CROPTYPE_LABEL'].fillna(df['LANDCOVER_LABEL'], inplace=True)
+
+        df['ewoc_code'] = df['CROPTYPE_LABEL'].map(wc2ewoc_map.set_index('croptype')['ewoc_code'])
+
+        df['downstream_class'] = df['ewoc_code'].map({int(k):v for k,v in CLASS_MAPPINGS[downstream_classes].items()})
+        df['finetune_class'] = df['ewoc_code'].map({int(k):v for k,v in CLASS_MAPPINGS[finetune_classes].items()})
+        
+        return df
+
 
     @staticmethod
     def check(array: np.ndarray) -> np.ndarray:
@@ -156,6 +202,7 @@ class WorldCerealBase(Dataset):
         val_size: Optional[float] = None,
         train_only_samples: Optional[List[str]] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
         if val_size is not None:
             assert (
                 (val_countries_iso3 is None) and (val_years is None) and (val_sample_ids is None)
@@ -205,7 +252,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop)
+        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list)
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
         )
@@ -229,8 +276,18 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 
 
 def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
-    crop_labels = [10, 11, 12, 13]
-    df = df.loc[df.LANDCOVER_LABEL.isin(crop_labels)]
+    labels_to_exclude = [
+        0, 991, 7900, 9900, 9998, # unspecified cropland 
+        1910, 1900, 1920, 1000, # cereals, too generic
+        11, 9910, 6212,  # temporary crops, too generic
+        7920, 9520, 3400, 3900, # generic and other classes
+        4390, 4000, 4300, # generic and other classes
+    ]
+    df = df[
+    (df["LANDCOVER_LABEL"] == 11) & 
+    (~df['CROPTYPE_LABEL'].isin(labels_to_exclude))
+    ]
+    df.reset_index(inplace=True)
     return df
 
 
@@ -250,6 +307,8 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         years_to_remove: Optional[List[int]] = None,
         target_function: Optional[Callable[[Dict], int]] = None,
         balance: bool = False,
+        task_type: str = "cropland",
+        croptype_list: List = []
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -265,6 +324,8 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         self.target_function = target_function if target_function is not None else self.target_crop
         self._class_weights: Optional[np.ndarray] = None
+        self.task_type = task_type
+        self.croptype_list = croptype_list
 
         super().__init__(dataframe)
         if balance:
@@ -297,7 +358,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function)
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function, self.task_type, self.croptype_list)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -313,7 +374,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if self._class_weights is None:
             ys = []
             for _, row in self.df.iterrows():
-                ys.append(self.target_function(row.to_dict()))
+                ys.append(self.target_function(row, self.task_type, self.croptype_list))
             self._class_weights = compute_class_weight(
                 class_weight="balanced", classes=np.unique(ys), y=ys
             )
