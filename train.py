@@ -76,6 +76,7 @@ argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
 argparser.add_argument("--num_workers", type=int, default=4)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
+argparser.add_argument("--wandb_exp_name", type=str, default="presto_experiment")
 argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
 argparser.add_argument("--val_samples_file", type=str, default="cropland_test_split_samples.csv")
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
@@ -91,6 +92,7 @@ path_to_config = args["path_to_config"]
 warm_start = args["warm_start"]
 wandb_enabled: bool = args["wandb"]
 wandb_org: str = args["wandb_org"]
+wandb_exp_name: str = args["wandb_exp_name"]
 
 seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
@@ -103,7 +105,7 @@ if wandb_enabled:
         entity=wandb_org,
         project="presto-worldcereal",
         dir=output_parent_dir,
-        name="prestoSS_10d_worldcereal"
+        name=wandb_exp_name,
     )
     run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
@@ -383,8 +385,8 @@ year_results, year_finetuned_model = year_eval.finetuning_results(
 )
 logger.info(json.dumps(year_results, indent=2))
 
-finetuned_model_path_countries = model_path / "finetuned_model_year.pt"
-torch.save(country_finetuned_model.state_dict(), year_finetuned_model)
+finetuned_model_path_year = model_path / "finetuned_model_year.pt"
+torch.save(year_finetuned_model.state_dict(), finetuned_model_path_year)
 
 all_spatial_preds = list(model_logging_dir.glob("*.nc"))
 for spatial_preds_path in all_spatial_preds:
