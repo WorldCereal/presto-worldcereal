@@ -14,7 +14,11 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from presto.dataops import BANDS_GROUPS_IDX
-from presto.dataset import WorldCerealMasked10DDataset, WorldCerealMaskedDataset
+from presto.dataset import (
+    WorldCerealBase, 
+    WorldCerealMasked10DDataset,
+    WorldCerealMaskedDataset, 
+)
 from presto.dataset import filter_remove_noncrops, target_maize
 from presto.eval import WorldCerealEval
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
@@ -57,7 +61,7 @@ argparser.add_argument("--max_learning_rate", type=float, default=0.0001)
 argparser.add_argument("--min_learning_rate", type=float, default=0.0)
 argparser.add_argument("--warmup_epochs", type=int, default=2)
 argparser.add_argument("--weight_decay", type=float, default=0.05)
-argparser.add_argument("--batch_size", type=int, default=4096)
+argparser.add_argument("--batch_size", type=int, default=2048)
 argparser.add_argument("--val_per_n_steps", type=int, default=-1, help="If -1, val every epoch")
 argparser.add_argument(
     "--mask_strategies",
@@ -335,6 +339,8 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 model.train()
 
 logger.info(f"Trained for {num_epochs} epochs, best model at {best_model_path}")
+
+logger.info("Starting Evaluation tasks")
 
 if best_model_path is not None:
     logger.info("Loading best model: %s" % best_model_path)
