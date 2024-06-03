@@ -32,6 +32,8 @@ setup(
         "cropharvest==0.6.0",
         "google-cloud-storage==2.2.1",
         "earthengine-api==0.1.334",
+        "requests==2.32.2",
+        "types-requests==2.32.0",
         "hurry.filesize==0.9",
         "openmapflow[data]==0.2.2",
         "rioxarray==0.13.1",

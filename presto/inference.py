@@ -303,32 +303,34 @@ class PrestoFeatureExtractor:
 
         return np.concatenate(all_encodings, axis=0)
 
-    def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> np.ndarray:
+    def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
         eo, dynamic_world, months, latlons, mask = self._create_presto_input(inarr, epsg)
         dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask)
 
         features = self._get_encodings(dl)
         features = rearrange(features, "(x y) c -> x y c", x=len(inarr.x), y=len(inarr.y))
         ft_names = [f"presto_ft_{i}" for i in range(128)]
-        features = xr.DataArray(features, coords={"x": inarr.x, "y": inarr.y, "bands": ft_names})
+        features_da = xr.DataArray(
+            features, coords={"x": inarr.x, "y": inarr.y, "bands": ft_names}
+        )
 
-        return features
+        return features_da
 
 
-def get_presto_features(inarr: xr.DataArray, presto_path: str) -> np.ndarray:
+def get_presto_features(inarr: xr.DataArray, presto_url: str) -> xr.DataArray:
     """
     Extracts features from input data using Presto.
 
     Args:
         inarr (xr.DataArray): Input data as xarray DataArray.
-        presto_path (str): Path to the pretrained Presto model.
+        presto_url (str): URL to the pretrained Presto model.
 
     Returns:
         xr.DataArray: Extracted features as xarray DataArray.
     """
     # Load the model
 
-    presto_model = Presto.load_pretrained_artifactory(presto_url=presto_path, strict=False)
+    presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
     presto_extractor = PrestoFeatureExtractor(presto_model)
     features = presto_extractor.extract_presto_features(inarr, epsg=32631)
     return features
