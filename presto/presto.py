@@ -1,9 +1,11 @@
+import io
 import math
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Sized, Tuple, Union, cast
 
 import numpy as np
+import requests
 import torch
 from einops import repeat
 from torch import nn
@@ -301,7 +303,8 @@ class Encoder(nn.Module):
             }
         )
         self.dw_embed = nn.Embedding(
-            num_embeddings=DynamicWorld2020_2021.class_amount + 1, embedding_dim=embedding_size
+            num_embeddings=DynamicWorld2020_2021.class_amount + 1,
+            embedding_dim=embedding_size,
         )
         self.latlon_embed = nn.Linear(3, embedding_size)
 
@@ -330,7 +333,8 @@ class Encoder(nn.Module):
         month_tab = get_month_encoding_table(month_embedding_size)
         self.month_embed = nn.Embedding.from_pretrained(month_tab, freeze=True)
         self.channel_embed = nn.Embedding(
-            num_embeddings=len(self.band_groups) + 1, embedding_dim=channel_embedding_size
+            num_embeddings=len(self.band_groups) + 1,
+            embedding_dim=channel_embedding_size,
         )
 
         self.initialize_weights()
@@ -399,7 +403,9 @@ class Encoder(nn.Module):
         months = month_to_tensor(month, x.shape[0], x.shape[1], device)
         month_embedding = self.month_embed(months)
         positional_embedding = repeat(
-            self.pos_embed[:, : x.shape[1], :], "b t d -> (repeat b) t d", repeat=x.shape[0]
+            self.pos_embed[:, : x.shape[1], :],
+            "b t d -> (repeat b) t d",
+            repeat=x.shape[0],
         )
 
         # we assume the number of masked patches is the same
@@ -589,7 +595,9 @@ class Decoder(nn.Module):
         remove_mask[torch.arange(num_timesteps - 1) + srtm_index] = True
 
         month_embedding = repeat(
-            self.month_embed(months), "b t d -> b (repeat t) d", repeat=num_channel_groups
+            self.month_embed(months),
+            "b t d -> b (repeat t) d",
+            repeat=num_channel_groups,
         )
         month_embedding = month_embedding[:, ~remove_mask]
         month_embedding[:, srtm_index] = 0
@@ -615,7 +623,8 @@ class Decoder(nn.Module):
 
         # add the zero embedding for the latlon token
         positional_embedding = torch.cat(
-            [torch.zeros_like(positional_embedding[:, 0:1, :]), positional_embedding], dim=1
+            [torch.zeros_like(positional_embedding[:, 0:1, :]), positional_embedding],
+            dim=1,
         )
 
         x += positional_embedding
@@ -797,9 +806,20 @@ class Presto(nn.Module):
         model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
         return model
 
+    @classmethod
+    def load_pretrained_url(cls, presto_url: str, strict: bool = True):
+        response = requests.get(presto_url)
+        presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
+        model = cls.construct()
+        model.load_state_dict(presto_model_layers, strict=strict)
+        return model
+
 
 def param_groups_lrd(
-    model: PrestoFineTuningModel, weight_decay=0.05, no_weight_decay_list=[], layer_decay=0.75
+    model: PrestoFineTuningModel,
+    weight_decay=0.05,
+    no_weight_decay_list=[],
+    layer_decay=0.75,
 ):
     """
     Parameter groups for layer-wise lr decay
@@ -857,4 +877,5 @@ def get_layer_id_for_rest_finetuning(name, num_layers):
     elif name.startswith("encoder.blocks"):
         return int(name.split(".")[2]) + 1
     else:
+        return num_layers
         return num_layers
