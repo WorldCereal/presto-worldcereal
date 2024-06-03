@@ -12,7 +12,7 @@ flake8==5.0.4
 isort==5.10.1
 mypy==1.1.1
 requests==2.32.2
-types-requests==2.32.0
+types-requests~=2.32.0
 geopandas==0.14.1
 rtree==1.1.0
 matplotlib==3.8.2
