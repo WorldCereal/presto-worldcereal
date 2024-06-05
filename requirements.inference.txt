@@ -1,7 +1,6 @@
 einops==0.6.0
 h5py==3.6.0
 numpy==1.23.5
-torch[cpu]==2.0
 tqdm==4.64.1
 pandas>=2.0.0
 requests==2.32.2
