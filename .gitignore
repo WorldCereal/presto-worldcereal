@@ -1,7 +1,10 @@
 __pycache__
 # data needs to be explicitly added
 data/*
+dist/*
 .ipynb_checkpoints
+.mypy
+*.egg-info
 models
 slurm
 sb.sh
