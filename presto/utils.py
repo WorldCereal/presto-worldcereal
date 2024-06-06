@@ -184,10 +184,10 @@ def plot_results(
         plt.close()
         return path
 
-    def plot_map(scores: gpd.GeoDataFrame, ax: plt.Axes, vmin=0, vmax=1, cmap="coolwarm"):
+    def plot_map(scores: gpd.GeoDataFrame, ax, vmin=0, vmax=1, cmap="coolwarm"):
         scores.plot(column="value", legend=True, ax=ax, vmin=vmin, vmax=vmax, cmap=cmap)
 
-    def plot_year(scores: pd.DataFrame, ax: plt.Axes, ymin=0, ymax=1, ylabel=""):
+    def plot_year(scores: pd.DataFrame, ax, ymin=0, ymax=1, ylabel=""):
         scores.loc[:, ["year", "value"]].plot(kind="bar", legend=False, ax=ax)
         plt.xticks(ticks=range(len(scores.index)), labels=scores.year)
         plt.ylim(ymin, ymax)
@@ -288,18 +288,18 @@ def plot_spatial(spatial_preds: xr.Dataset, output_path: Path, to_wandb: bool = 
     global plt
     if plt is None:
         from matplotlib import pyplot as plt
-    plt.clf()
-    _, axs = plt.subplots(ncols=4, figsize=(25, 4))
+    plt.clf()  # type: ignore
+    _, axs = plt.subplots(ncols=4, figsize=(25, 4))  # type: ignore
     spatial_preds.ndvi.plot(ax=axs[0], vmin=0, vmax=1)
     spatial_preds.ground_truth.plot(ax=axs[1], vmin=0, vmax=1)
     spatial_preds.prediction_0.plot(ax=axs[2], vmin=0, vmax=1)
     (spatial_preds.prediction_0 > 0.5).plot(ax=axs[3], vmin=0, vmax=1)
-    plt.savefig(output_path, bbox_inches="tight")
+    plt.savefig(output_path, bbox_inches="tight")  # type: ignore
     if to_wandb:
         import wandb
 
         wandb.log({str(output_path): wandb.Image(str(output_path))})
-    plt.close()
+    plt.close()  # type: ignore
 
 
 def load_world_df() -> pd.DataFrame:
