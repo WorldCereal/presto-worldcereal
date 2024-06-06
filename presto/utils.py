@@ -10,7 +10,6 @@ import geopandas as gpd
 import pandas as pd
 import torch
 import xarray as xr
-from matplotlib import pyplot as plt
 
 from .dataops import (
     BANDS,
@@ -23,6 +22,8 @@ from .dataops import (
     SRTM_BANDS,
     DynamicWorld2020_2021,
 )
+
+plt = None
 
 logger = logging.getLogger("__main__")
 
@@ -165,6 +166,10 @@ def plot_results(
     to_wandb: bool = False,
     prefix: str = "",
 ):
+    global plt
+    if plt is None:
+        from matplotlib import pyplot as plt
+
     def plot(title: str, plot_fn: Callable, figsize=(15, 5)) -> Path:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         plot_fn(ax=ax)
@@ -280,6 +285,9 @@ def plot_results(
 
 
 def plot_spatial(spatial_preds: xr.Dataset, output_path: Path, to_wandb: bool = False):
+    global plt
+    if plt is None:
+        from matplotlib import pyplot as plt
     plt.clf()
     _, axs = plt.subplots(ncols=4, figsize=(25, 4))
     spatial_preds.ndvi.plot(ax=axs[0], vmin=0, vmax=1)
