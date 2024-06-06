@@ -19,24 +19,6 @@ from .masking import BAND_EXPANSION
 from .presto import Presto
 from .utils import device
 
-# Mapping from original band names to Presto names
-BAND_MAPPING = {
-    "B02": "B2",
-    "B03": "B3",
-    "B04": "B4",
-    "B05": "B5",
-    "B06": "B6",
-    "B07": "B7",
-    "B08": "B8",
-    "B8A": "B8A",
-    "B11": "B11",
-    "B12": "B12",
-    "VH": "VH",
-    "VV": "VV",
-    "precipitation-flux": "total_precipitation",
-    "temperature-mean": "temperature_2m",
-}
-
 # Index to band groups mapping
 IDX_TO_BAND_GROUPS = {
     NORMED_BANDS[idx]: band_group_idx
