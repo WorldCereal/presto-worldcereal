@@ -1,7 +1,6 @@
 from typing import Tuple
 
 import numpy as np
-import requests
 import torch
 import xarray as xr
 from einops import rearrange
@@ -25,52 +24,6 @@ IDX_TO_BAND_GROUPS = {
     for band_group_idx, (_, val) in enumerate(BANDS_GROUPS_IDX.items())
     for idx in val
 }
-
-
-class WorldCerealPredictor:
-    def __init__(self):
-        """
-        Initialize an empty WorldCerealPredictor.
-        """
-        self.onnx_session = None
-
-    def load_model(self, model):
-        """
-        Load an ONNX model from the specified path.
-
-        Args:
-            model_path (str): The path to the ONNX model file.
-        """
-        # Load the dependency into an InferenceSession
-        import onnxruntime
-
-        self.onnx_session = onnxruntime.InferenceSession(model)
-
-    def predict(self, features: np.ndarray) -> np.ndarray:
-        """
-        Predicts labels using the provided features DataFrame.
-
-        Args:
-            features (pd.DataFrame): DataFrame containing the features for prediction.
-
-        Returns:
-            pd.DataFrame: DataFrame containing the predicted labels.
-        """
-        if self.onnx_session is None:
-            raise ValueError("Model has not been loaded. Please load a model first.")
-
-        # Prepare input data for ONNX model
-        outputs = self.onnx_session.run(None, {"features": features})
-
-        # Threshold for binary conversion
-        threshold = 0.5
-
-        # Extract all prediction values and convert them to binary labels
-        prediction_values = [sublist["True"] for sublist in outputs[1]]
-        binary_labels = np.array(prediction_values) >= threshold
-        binary_labels = binary_labels.astype(int)
-
-        return binary_labels
 
 
 class PrestoFeatureExtractor:
@@ -103,7 +56,9 @@ class PrestoFeatureExtractor:
     }
 
     @classmethod
-    def _preprocess_band_values(cls, values: np.ndarray, presto_band: str) -> np.ndarray:
+    def _preprocess_band_values(
+        cls, values: np.ndarray, presto_band: str
+    ) -> np.ndarray:
         """
         Preprocesses the band values based on the given presto_val.
 
@@ -191,7 +146,9 @@ class PrestoFeatureExtractor:
         """
         num_instances = len(inarr.x) * len(inarr.y)
 
-        start_month = (inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
+        start_month = (
+            inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1
+        ) - 1
 
         months = np.ones((num_instances)) * start_month
         return months
@@ -285,12 +242,18 @@ class PrestoFeatureExtractor:
 
         return np.concatenate(all_encodings, axis=0)
 
-    def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
-        eo, dynamic_world, months, latlons, mask = self._create_presto_input(inarr, epsg)
+    def extract_presto_features(
+        self, inarr: xr.DataArray, epsg: int = 4326
+    ) -> xr.DataArray:
+        eo, dynamic_world, months, latlons, mask = self._create_presto_input(
+            inarr, epsg
+        )
         dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask)
 
         features = self._get_encodings(dl)
-        features = rearrange(features, "(x y) c -> x y c", x=len(inarr.x), y=len(inarr.y))
+        features = rearrange(
+            features, "(x y) c -> x y c", x=len(inarr.x), y=len(inarr.y)
+        )
         ft_names = [f"presto_ft_{i}" for i in range(128)]
         features_da = xr.DataArray(
             features, coords={"x": inarr.x, "y": inarr.y, "bands": ft_names}
@@ -316,26 +279,3 @@ def get_presto_features(inarr: xr.DataArray, presto_url: str) -> xr.DataArray:
     presto_extractor = PrestoFeatureExtractor(presto_model)
     features = presto_extractor.extract_presto_features(inarr, epsg=32631)
     return features
-
-
-def classify_with_catboost(features: np.ndarray, catboost_path: str) -> np.ndarray:
-    """
-    Classifies features using the WorldCereal CatBoost model.
-
-    Args:
-        features (np.ndarray): Features to be classified.
-        map_dims (tuple): Original x, y dimensions of the input data.
-        model_path (str): Path to the trained CatBoost model.
-
-    Returns:
-        xr.DataArray: Classified data as xarray DataArray.
-    """
-
-    predictor = WorldCerealPredictor()
-    response = requests.get(catboost_path)
-    catboost_model = response.content
-
-    predictor.load_model(catboost_model)
-    predictions = predictor.predict(features)
-
-    return predictions
