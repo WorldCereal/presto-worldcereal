@@ -252,7 +252,7 @@ class PrestoFeatureExtractor:
         return features_da
 
 
-def get_presto_features(inarr: xr.DataArray, presto_url: str) -> xr.DataArray:
+def get_presto_features(inarr: xr.DataArray, presto_url: str, epsg: int = 32631) -> xr.DataArray:
     """
     Extracts features from input data using Presto.
 
@@ -267,5 +267,5 @@ def get_presto_features(inarr: xr.DataArray, presto_url: str) -> xr.DataArray:
 
     presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
     presto_extractor = PrestoFeatureExtractor(presto_model)
-    features = presto_extractor.extract_presto_features(inarr, epsg=32631)
+    features = presto_extractor.extract_presto_features(inarr, epsg=epsg)
     return features
