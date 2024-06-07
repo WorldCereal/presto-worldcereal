@@ -1,7 +1,6 @@
 from typing import Tuple
 
 import numpy as np
-import requests
 import torch
 import xarray as xr
 from einops import rearrange
@@ -25,52 +24,6 @@ IDX_TO_BAND_GROUPS = {
     for band_group_idx, (_, val) in enumerate(BANDS_GROUPS_IDX.items())
     for idx in val
 }
-
-
-class WorldCerealPredictor:
-    def __init__(self):
-        """
-        Initialize an empty WorldCerealPredictor.
-        """
-        self.onnx_session = None
-
-    def load_model(self, model):
-        """
-        Load an ONNX model from the specified path.
-
-        Args:
-            model_path (str): The path to the ONNX model file.
-        """
-        # Load the dependency into an InferenceSession
-        import onnxruntime
-
-        self.onnx_session = onnxruntime.InferenceSession(model)
-
-    def predict(self, features: np.ndarray) -> np.ndarray:
-        """
-        Predicts labels using the provided features DataFrame.
-
-        Args:
-            features (pd.DataFrame): DataFrame containing the features for prediction.
-
-        Returns:
-            pd.DataFrame: DataFrame containing the predicted labels.
-        """
-        if self.onnx_session is None:
-            raise ValueError("Model has not been loaded. Please load a model first.")
-
-        # Prepare input data for ONNX model
-        outputs = self.onnx_session.run(None, {"features": features})
-
-        # Threshold for binary conversion
-        threshold = 0.5
-
-        # Extract all prediction values and convert them to binary labels
-        prediction_values = [sublist["True"] for sublist in outputs[1]]
-        binary_labels = np.array(prediction_values) >= threshold
-        binary_labels = binary_labels.astype(int)
-
-        return binary_labels
 
 
 class PrestoFeatureExtractor:
@@ -299,7 +252,7 @@ class PrestoFeatureExtractor:
         return features_da
 
 
-def get_presto_features(inarr: xr.DataArray, presto_url: str) -> xr.DataArray:
+def get_presto_features(inarr: xr.DataArray, presto_url: str, epsg: int = 4326) -> xr.DataArray:
     """
     Extracts features from input data using Presto.
 
@@ -314,28 +267,5 @@ def get_presto_features(inarr: xr.DataArray, presto_url: str) -> xr.DataArray:
 
     presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
     presto_extractor = PrestoFeatureExtractor(presto_model)
-    features = presto_extractor.extract_presto_features(inarr, epsg=32631)
+    features = presto_extractor.extract_presto_features(inarr, epsg=epsg)
     return features
-
-
-def classify_with_catboost(features: np.ndarray, catboost_path: str) -> np.ndarray:
-    """
-    Classifies features using the WorldCereal CatBoost model.
-
-    Args:
-        features (np.ndarray): Features to be classified.
-        map_dims (tuple): Original x, y dimensions of the input data.
-        model_path (str): Path to the trained CatBoost model.
-
-    Returns:
-        xr.DataArray: Classified data as xarray DataArray.
-    """
-
-    predictor = WorldCerealPredictor()
-    response = requests.get(catboost_path)
-    catboost_model = response.content
-
-    predictor.load_model(catboost_model)
-    predictions = predictor.predict(features)
-
-    return predictions
