@@ -27,14 +27,16 @@ IDX_TO_BAND_GROUPS = {
 
 
 class PrestoFeatureExtractor:
-    def __init__(self, model: Presto):
+    def __init__(self, model: Presto, batch_size: int = 8192):
         """
         Initialize the PrestoFeatureExtractor with a Presto model.
 
         Args:
             model (Presto): The Presto model used for feature extraction.
+            batch_size (int): Batch size for dataloader.
         """
         self.model = model
+        self.batch_size = batch_size
 
     _NODATAVALUE = 65535
 
@@ -179,7 +181,7 @@ class PrestoFeatureExtractor:
                 torch.from_numpy(months).long(),
                 torch.from_numpy(mask).float(),
             ),
-            batch_size=8192,
+            batch_size=self.batch_size,
             shuffle=False,
         )
 
@@ -252,13 +254,17 @@ class PrestoFeatureExtractor:
         return features_da
 
 
-def get_presto_features(inarr: xr.DataArray, presto_url: str, epsg: int = 4326) -> xr.DataArray:
+def get_presto_features(
+    inarr: xr.DataArray, presto_url: str, epsg: int = 4326, batch_size: int = 8192
+) -> xr.DataArray:
     """
     Extracts features from input data using Presto.
 
     Args:
         inarr (xr.DataArray): Input data as xarray DataArray.
         presto_url (str): URL to the pretrained Presto model.
+        epsg (int) : EPSG code describing the coordinates.
+        batch_size (int): Batch size to be used for Presto inference.
 
     Returns:
         xr.DataArray: Extracted features as xarray DataArray.
@@ -266,6 +272,6 @@ def get_presto_features(inarr: xr.DataArray, presto_url: str, epsg: int = 4326) 
     # Load the model
 
     presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
-    presto_extractor = PrestoFeatureExtractor(presto_model)
+    presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
     features = presto_extractor.extract_presto_features(inarr, epsg=epsg)
     return features
