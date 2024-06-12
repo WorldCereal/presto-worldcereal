@@ -248,7 +248,9 @@ class PrestoFeatureExtractor:
         features = rearrange(features, "(x y) c -> x y c", x=len(inarr.x), y=len(inarr.y))
         ft_names = [f"presto_ft_{i}" for i in range(128)]
         features_da = xr.DataArray(
-            features, coords={"x": inarr.x, "y": inarr.y, "bands": ft_names}
+            features,
+            dims=["x", "y", "bands"],
+            coords={"x": inarr.x, "y": inarr.y, "bands": ft_names},
         )
 
         return features_da
