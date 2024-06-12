@@ -32,7 +32,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Gabriel Tseng",
     author_email="gabrieltseng95@gmail.com",
-    version="0.1.0",
+    version="0.1.1",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: Other/Proprietary License",
