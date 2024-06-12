@@ -1,6 +1,6 @@
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import modf
 from pathlib import Path
 from random import sample
@@ -69,13 +69,16 @@ class WorldCerealBase(Dataset):
         # row_d: Dict,
         row_d: pd.Series,  
         task_type: str = "cropland",
-        croptype_list: List = []
+        croptype_list: List = [],
+        model_mode: str = "",
         ):
         # by default, we predict crop vs non crop
         if task_type=="cropland":
             return int(row_d["LANDCOVER_LABEL"] == 11)
         if task_type=="croptype":
-            if len(croptype_list)==0:
+            if model_mode=="Hierarchical CatBoostClassifier":
+                return [row_d["landcover_name"], row_d["downstream_class"]]
+            elif len(croptype_list)==0:
                 return row_d["downstream_class"]
             else:
                 return row_d[croptype_list].astype(int).values
@@ -86,13 +89,16 @@ class WorldCerealBase(Dataset):
         row: pd.Series, 
         target_function: Callable[[Dict], int], 
         task_type: str = "cropland",
-        croptype_list: List = []
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, Union[int, str, np.ndarray]]:
+        croptype_list: List = [],
+        model_mode: str = ""
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, Union[int, str, np.ndarray, list]]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
+        latlon = np.zeros_like(latlon)
+
         month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
@@ -128,7 +134,7 @@ class WorldCerealBase(Dataset):
             mask.astype(bool),
             latlon,
             month,
-            target_function(row, task_type, croptype_list),
+            target_function(row, task_type, croptype_list, model_mode)
         )
 
     def __getitem__(self, idx):
@@ -146,7 +152,7 @@ class WorldCerealBase(Dataset):
     @staticmethod
     def map_croptypes(
         df: pd.DataFrame,
-        finetune_classes="CROPTYPE_ALL",
+        finetune_classes="CROPTYPE0",
         downstream_classes="CROPTYPE19",
         ) -> pd.DataFrame:
 
@@ -163,6 +169,9 @@ class WorldCerealBase(Dataset):
         df['CROPTYPE_LABEL'].fillna(df['LANDCOVER_LABEL'], inplace=True)
 
         df['ewoc_code'] = df['CROPTYPE_LABEL'].map(wc2ewoc_map.set_index('croptype')['ewoc_code'])
+        df['landcover_name'] = df['ewoc_code'].map(ewoc_map['landcover_name'])
+        df['cropgroup_name'] = df['ewoc_code'].map(ewoc_map['cropgroup_name'])
+        df['croptype_name'] = df['ewoc_code'].map(ewoc_map['croptype_name'])
 
         df['downstream_class'] = df['ewoc_code'].map({int(k):v for k,v in CLASS_MAPPINGS[downstream_classes].items()})
         df['finetune_class'] = df['ewoc_code'].map({int(k):v for k,v in CLASS_MAPPINGS[finetune_classes].items()})
@@ -252,7 +261,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list)
+        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list, self.model_mode)
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
         )
@@ -308,7 +317,8 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         target_function: Optional[Callable[[Dict], int]] = None,
         balance: bool = False,
         task_type: str = "cropland",
-        croptype_list: List = []
+        croptype_list: List = [],
+        model_mode: str = ""
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -326,6 +336,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         self._class_weights: Optional[np.ndarray] = None
         self.task_type = task_type
         self.croptype_list = croptype_list
+        self.model_mode = model_mode
 
         super().__init__(dataframe)
         if balance:
@@ -358,7 +369,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function, self.task_type, self.croptype_list)
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function, self.task_type, self.croptype_list, self.model_mode)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -374,11 +385,47 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if self._class_weights is None:
             ys = []
             for _, row in self.df.iterrows():
-                ys.append(self.target_function(row, self.task_type, self.croptype_list))
+                ys.append(self.target_function(row, self.task_type, self.croptype_list, self.model_mode))
             self._class_weights = compute_class_weight(
                 class_weight="balanced", classes=np.unique(ys), y=ys
             )
         return self._class_weights
+
+
+class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
+
+    NUM_TIMESTEPS = 36
+
+    @classmethod
+    def get_month_array(cls, row: pd.Series) -> np.ndarray:
+        start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
+            row.end_date, "%Y-%m-%d"
+        )
+
+        # Calculate the step size for 10-day intervals and create a list of dates
+        step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))
+        date_vector = [start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)]
+
+        # Ensure last date is not beyond the end date
+        if date_vector[-1] > end_date:
+            date_vector[-1] = end_date
+
+        return np.array([d.month - 1 for d in date_vector])
+
+    def __getitem__(self, idx):
+        # Get the sample
+        df_index = self.indices[idx]
+        row = self.df.iloc[df_index, :]
+        eo, mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list, self.model_mode)
+        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+        return (
+            self.normalize_and_mask(eo),
+            target,
+            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            latlon,
+            self.get_month_array(row),
+            mask_per_variable,
+        )
 
 
 class WorldCerealInferenceDataset(Dataset):

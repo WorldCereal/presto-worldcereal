@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Optional, cast
 
+import pickle
 import pandas as pd
 import torch
 import xarray as xr
@@ -49,14 +50,15 @@ argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval
 
 # argparser.add_argument("--val_samples_file", type=str, default="cropland_spatial_generalization_test_split_samples.csv")
 
-argparser.add_argument("--presto_model_type", type=str, default="presto-ft-ct")
+# argparser.add_argument("--presto_model_name", type=str, default="presto-ft-ct")
+argparser.add_argument("--presto_model_type", type=str, default="presto-ss-wc-ft-ct")
 argparser.add_argument("--task_type", type=str, default="croptype")
-argparser.add_argument("--test_type", type=str, default="random")
+argparser.add_argument("--test_type", type=str, default="spatial")
 argparser.add_argument("--compositing_window", type=str, default="30D")
 argparser.add_argument("--time_token", type=str, default="none")
 
-argparser.add_argument("--finetune_classes", type=str, default="CROPTYPE_ALL")
-argparser.add_argument("--downstream_classes", type=str, default="CROPTYPE19")
+argparser.add_argument("--finetune_classes", type=str, default="CROPTYPE0")
+argparser.add_argument("--downstream_classes", type=str, default="CROPTYPE9")
 
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
@@ -69,7 +71,8 @@ seed: int = args["seed"]
 num_workers: int = args["num_workers"]
 path_to_config = args["path_to_config"]
 warm_start = args["warm_start"]
-wandb_enabled: bool = args["wandb"]
+# wandb_enabled: bool = args["wandb"]
+wandb_enabled = False
 wandb_org: str = args["wandb_org"]
 
 presto_model_type: str = args["presto_model_type"]
@@ -106,10 +109,14 @@ parquet_file: str = args["parquet_file"]
 # val_samples_file: str = args["val_samples_file"]
 train_only_samples_file: str = args["train_only_samples_file"]
 
+dekadal = False
+if "10d" in parquet_file:
+    dekadal = True
+
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
 
-model_modes = ["CatBoostClassifier"]
+model_modes = ["CatBoostClassifier", "Hierarchical CatBoostClassifier"]
 # model_modes = ["Random Forest", "Regression", "CatBoostClassifier"] 
 
 logger.info("Loading data")
@@ -133,15 +140,16 @@ train_df, test_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.s
 full_eval = WorldCerealEval(
     train_df, test_df, 
     task_type=task_type,
-    finetune_classes=finetune_classes
+    finetune_classes=finetune_classes,
+    dekadal=dekadal
     )
 
 model_path = output_parent_dir / "data" 
 model_path.mkdir(exist_ok=True, parents=True)
-experiment_prefix = f"{presto_model_type}_{compositing_window}_{task_type}_{test_type}_{time_token}"
+experiment_prefix = f"{presto_model_type}-{finetune_classes}_{compositing_window}_{test_type}_latlon-zeros"
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"
 results_path = model_logging_dir / f"{experiment_prefix}.csv"
-catboost_model_path = model_logging_dir / f"{experiment_prefix}.cbm"
+downstream_model_path = model_logging_dir / f"{experiment_prefix}_{downstream_classes}"
 
 # check if finetuned model already exists
 logger.info("Checking if the finetuned model exists")
@@ -158,7 +166,8 @@ if os.path.isfile(finetuned_model_path):
     finetuned_model.to(device)
     pretrained_model.to(device)
 
-    results_df_ft = full_eval.evaluate(finetuned_model=finetuned_model, pretrained_model=pretrained_model, croptype_list=full_eval.croptype_list)
+    # results_df_ft = full_eval.evaluate(finetuned_model=finetuned_model, pretrained_model=pretrained_model, croptype_list=full_eval.croptype_list)
+    results_df_ft = pd.DataFrame()
     if full_eval.spatial_inference_savedir is not None:
         full_eval.spatial_inference(finetuned_model, None)
     results_df_sklearn, sklearn_models_trained = full_eval.finetuning_results_sklearn(model_modes, finetuned_model)
@@ -167,7 +176,9 @@ else:
     logger.info("Setting up model")
     if warm_start:
         model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
-        model = Presto.load_pretrained()
+        # model = Presto.load_pretrained()
+        ss_model_path = model_path / "presto-ss-wc_30D.pt"
+        model = Presto.load_pretrained(model_path=ss_model_path)
         best_model_path: Optional[Path] = default_model_path
     else:
         if path_to_config == "":
@@ -187,7 +198,10 @@ results_df_combined["time_token"] = time_token
 results_df_combined.to_csv(results_path, index=False)
 
 for model in sklearn_models_trained:
-    model.save_model(catboost_model_path)
+    if type(model).__name__ == "CatBoostClassifier":
+        model.save_model(f"{downstream_model_path}.cbm")
+    else:
+        pickle.dump(model, open(f"{downstream_model_path}.sav", 'wb'))
 
 all_spatial_preds = list(model_logging_dir.glob("*.nc"))
 for spatial_preds_path in all_spatial_preds:
@@ -200,6 +214,6 @@ for spatial_preds_path in all_spatial_preds:
 #     wandb.log(country_results)
 #     wandb.log(year_results)
 
-if wandb_enabled and run:
-    run.finish()
-    logger.info(f"Wandb url: {run.url}")
+# if wandb_enabled and run:
+#     run.finish()
+#     logger.info(f"Wandb url: {run.url}")

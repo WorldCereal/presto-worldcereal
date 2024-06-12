@@ -9,21 +9,31 @@ import numpy as np
 import pandas as pd
 import torch
 from catboost import CatBoostClassifier, Pool
+
+from .hierarchical_classification import CatBoostClassifierWrapper, LocalClassifierPerNodeWrapper, LocalClassifierPerParentNodeWrapper
+from hiclass import LocalClassifierPerParentNode, LocalClassifierPerNode
+
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, precision_score, recall_score, classification_report
 from torch import nn
-from torch.optim import AdamW
+from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from .dataset import (
     NORMED_BANDS,
     WorldCerealInferenceDataset,
+    WorldCerealLabelled10DDataset,
     WorldCerealLabelledDataset,
 )
-from .presto import Presto, PrestoFineTuningModel, param_groups_lrd
+from .presto import (
+    Presto,
+    PrestoFineTuningModel,
+    get_sinusoid_encoding_table,
+    param_groups_lrd,
+)
 from .utils import DEFAULT_SEED, device
 
 logger = logging.getLogger("__main__")
@@ -33,10 +43,12 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 
 @dataclass
 class Hyperparams:
-    lr: float = 2e-5
-    max_epochs: int = 100
-    batch_size: int = 2048
-    patience: int = 3
+    # lr: float = 2e-5
+    lr: float = 0.03
+    max_epochs: int = 1000
+    batch_size: int = 256
+    # batch_size: int = 2048
+    patience: int = 20
     num_workers: int = 8
 
 
@@ -57,6 +69,7 @@ class WorldCerealEval:
         filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
         name: Optional[str] = None,
         val_size: float = 0.2,
+        dekadal: bool = False,
         task_type: str = "cropland",
         num_outputs: int = 1,
         croptype_list: List = [],
@@ -70,16 +83,16 @@ class WorldCerealEval:
         self.task_type = task_type
 
         train_data, val_data = WorldCerealLabelledDataset.split_df(train_data, val_size=val_size)
-        self.train_df = self.prep_dataframe(train_data, filter_function)
-        self.val_df = self.prep_dataframe(val_data, filter_function)
-        self.test_df = self.prep_dataframe(test_data, filter_function)
+        self.train_df = self.prep_dataframe(train_data, filter_function, dekadal=dekadal)
+        self.val_df = self.prep_dataframe(val_data, filter_function, dekadal=dekadal)
+        self.test_df = self.prep_dataframe(test_data, filter_function, dekadal=dekadal)
 
         if task_type=="cropland":
             self.num_outputs = 1
             self.croptype_list = []
         if task_type=="croptype":
             # compress all classes in train that contain less than threshold samples into "other"
-            classes_threshold = 5
+            classes_threshold = 1
             for class_column in ["finetune_class","downstream_class"]:
                 class_counts = self.train_df[class_column].value_counts()
                 small_classes = class_counts[class_counts<classes_threshold].index
@@ -89,15 +102,15 @@ class WorldCerealEval:
                 if len(small_classes)==0:
                     small_classes = [class_counts.index[-1]]
                 
-                self.train_df.loc[self.train_df[class_column].isin(small_classes),class_column] = "other"
+                self.train_df.loc[self.train_df[class_column].isin(small_classes),class_column] = "other_crop"
                 train_classes = list(self.train_df[class_column].unique())
                 if class_column=="finetune_class":
                     self.croptype_list = train_classes
                     self.num_outputs = len(train_classes)
 
                 # use classes obtained from train to trim val and test classes
-                self.val_df.loc[~self.val_df[class_column].isin(train_classes),class_column] = "other"
-                self.test_df.loc[~self.test_df[class_column].isin(train_classes),class_column] = "other"
+                self.val_df.loc[~self.val_df[class_column].isin(train_classes),class_column] = "other_crop"
+                self.test_df.loc[~self.test_df[class_column].isin(train_classes),class_column] = "other_crop"
 
             # create one-hot representation from obtained labels
             # one-hot is needed for finetuning, while downstream CatBoost can work with categorical labels
@@ -116,14 +129,18 @@ class WorldCerealEval:
             self.name = f"{self.name}_removed_countries_{countries_to_remove}"
         if self.years_to_remove is not None:
             self.name = f"{self.name}_removed_years_{years_to_remove}"
+
+        self.dekadal = dekadal
+        self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
     
     @staticmethod
     def prep_dataframe(
-        df: pd.DataFrame, 
+        df: pd.DataFrame,
         filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+        dekadal: bool = False,
     ):
         # SAR cannot equal 0.0 since we take the log of it
-        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(12)]
+        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
 
         df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
         df = df[~pd.isna(df).any(axis=1)]
@@ -149,32 +166,44 @@ class WorldCerealEval:
         return df
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
-        model = cast(Callable, pretrained_model.construct_finetuning_model)(
+        model: PrestoFineTuningModel = cast(Callable, pretrained_model.construct_finetuning_model)(
             num_outputs=self.num_outputs
         )
+
+        if self.dekadal:
+            max_sequence_length = 72  # can this be 36?
+            model.encoder.pos_embed = nn.Parameter(
+                torch.zeros(1, max_sequence_length, model.encoder.pos_embed.shape[-1]),
+                requires_grad=False,
+            )
+            pos_embed = get_sinusoid_encoding_table(
+                model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
+            )
+            model.encoder.pos_embed.data.copy_(pos_embed)
         return model
 
     @torch.no_grad()
     def finetune_sklearn_model(
         self,
-        dl: DataLoader,
-        val_dl: DataLoader,
+        # dl: DataLoader,
+        # val_dl: DataLoader,
         pretrained_model: PrestoFineTuningModel,
         models: List[str] = ["Regression", "Random Forest"],
     ) -> Union[Sequence[BaseEstimator], Dict]:
         for model_mode in models:
-            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
+            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier", "Hierarchical CatBoostClassifier"]
         pretrained_model.eval()
 
         def dataloader_to_encodings_and_targets(
             dl: DataLoader,
-            # task_type: str = "cropland",
             ) -> Tuple[np.ndarray, np.ndarray]:
             encoding_list, target_list = [], []
             for x, y, dw, latlons, month, variable_mask in dl:
                 x_f, dw_f, latlons_f, month_f, variable_mask_f = [
                     t.to(device) for t in (x, dw, latlons, month, variable_mask)
                 ]
+                if type(y)==list and len(y)==2:
+                    y = np.moveaxis(np.array(y), -1, 0)
                 target_list.append(y)
                 with torch.no_grad():
                     encodings = (
@@ -195,56 +224,106 @@ class WorldCerealEval:
                 targets = targets.ravel()
             return encodings_np, targets
 
-        train_encodings, train_targets = dataloader_to_encodings_and_targets(dl)
-        val_encodings, val_targets = dataloader_to_encodings_and_targets(val_dl)
-
-        fit_models = []
-        class_weights = cast(WorldCerealLabelledDataset, dl.dataset).class_weights
-        class_weight_dict = dict(zip(np.unique(train_targets), class_weights))
         if self.task_type=="cropland":
             eval_metric = "F1"
         if self.task_type=="croptype":
             eval_metric = "TotalF1"
 
-        model_dict = {
-            "Regression": LogisticRegression(
-                class_weight=class_weight_dict,
-                max_iter=1000,
-                random_state=self.seed,
-            ),
-            "Random Forest": RandomForestClassifier(
-                class_weight=class_weight_dict,
-                random_state=self.seed,
-            ),
-            # Parameters emulate
-            # https://github.com/WorldCereal/wc-classification/blob/
-            # 4a9a839507d9b4f63c378b3b1d164325cbe843d6/src/worldcereal/classification/models.py#L490    
-            "CatBoostClassifier": CatBoostClassifier(
-                iterations=8000,
-                depth=8,
-                learning_rate=0.2,
-                # learning_rate=0.05,
-                early_stopping_rounds=50,
-                l2_leaf_reg=30,
-                # l2_leaf_reg=3,
-                eval_metric=eval_metric,
-                random_state=self.seed,
-                class_weights=class_weight_dict,
-                verbose=25,
-                class_names=np.unique(train_targets),
-            ),
-        }
+        fit_models = []
         for model in tqdm(models, desc="Fitting sklearn models"):
+            dl = DataLoader(
+                self.ds_class(
+                    self.train_df,
+                    countries_to_remove=self.countries_to_remove,
+                    years_to_remove=self.years_to_remove,
+                    target_function=self.target_function,
+                    task_type=self.task_type,
+                    croptype_list=[],
+                    model_mode=model,
+                ),
+                batch_size=2048,
+                shuffle=False,
+                num_workers=8,
+                )
+            val_dl = DataLoader(
+                self.ds_class(
+                    self.val_df,
+                    countries_to_remove=self.countries_to_remove,
+                    years_to_remove=self.years_to_remove,
+                    target_function=self.target_function,
+                    task_type=self.task_type,
+                    croptype_list=[],
+                    model_mode=model,
+                ),
+                batch_size=2048,
+                shuffle=False,
+                num_workers=8,
+            )
+
+            train_encodings, train_targets = dataloader_to_encodings_and_targets(dl)
+            val_encodings, val_targets = dataloader_to_encodings_and_targets(val_dl)
+
+            if model != "Hierarchical CatBoostClassifier":
+                class_weights = cast(WorldCerealLabelledDataset, dl.dataset).class_weights
+                class_weight_dict = dict(zip(np.unique(train_targets), class_weights))
+
             if model == "CatBoostClassifier":
+                 # Parameters emulate
+                 # # https://github.com/WorldCereal/wc-classification/blob/
+                 # # 4a9a839507d9b4f63c378b3b1d164325cbe843d6/src/worldcereal/classification/models.py#L490
+                downstream_model = CatBoostClassifier(
+                    iterations=8000,
+                    depth=8, 
+                    learning_rate=0.3,
+                    # learning_rate=0.05,
+                    early_stopping_rounds=50,
+                    l2_leaf_reg=30,
+                    # l2_leaf_reg=3,
+                    eval_metric=eval_metric,
+                    random_state=self.seed,
+                    class_weights=class_weight_dict,
+                    verbose=25,
+                    class_names=np.unique(train_targets),
+                    )
                 fit_models.append(
-                    clone(model_dict[model]).fit(
+                    clone(downstream_model).fit(
                         train_encodings, 
                         train_targets, 
                         eval_set=Pool(val_encodings, val_targets),
                     )
                 )
-            else:
-                fit_models.append(clone(model_dict[model]).fit(train_encodings, train_targets))
+            elif model == "Hierarchical CatBoostClassifier":
+                downstream_model = CatBoostClassifierWrapper(
+                    iterations=8000,
+                    depth=8,
+                    eval_metric='F1',
+                    learning_rate=0.2,
+                    l2_leaf_reg=100,
+                    verbose=100,
+                    random_seed=self.seed,
+                    )
+                fit_models.append(
+                    LocalClassifierPerNode(
+                        local_classifier=downstream_model,
+                        n_jobs=-1,
+                        binary_policy='exclusive_siblings').fit(
+                            np.concatenate((train_encodings, val_encodings), axis=0),
+                            np.concatenate((train_targets, val_targets), axis=0)
+                            )
+                )
+            elif model == "Regression":
+                downstream_model = LogisticRegression(
+                    class_weight=class_weight_dict,
+                    max_iter=1000,
+                    random_state=self.seed,
+                    )
+                fit_models.append(clone(downstream_model).fit(train_encodings, train_targets))
+            elif model == "Random Forest":
+                downstream_model = RandomForestClassifier(
+                    class_weight=class_weight_dict,
+                    random_state=self.seed,
+                    )
+                fit_models.append(clone(downstream_model).fit(train_encodings, train_targets))
         return fit_models
 
     @staticmethod
@@ -258,6 +337,8 @@ class WorldCerealEval:
         test_preds, targets = [], []
 
         for x, y, dw, latlons, month, variable_mask in dl:
+            if type(y)==list and len(y)==2:
+                y = np.moveaxis(np.array(y), -1, 0)
             targets.append(y)
             x_f, dw_f, latlons_f, month_f, variable_mask_f = [
                 t.to(device) for t in (x, dw, latlons, month, variable_mask)
@@ -293,6 +374,9 @@ class WorldCerealEval:
                     preds = finetuned_model.predict_proba(encodings)[:, 1]
                 if task_type=="croptype":
                     preds = finetuned_model.predict(encodings)
+                    # for hierarchical classification, get predictions on the most granular level
+                    if preds.ndim > 1:
+                        preds = preds[:,-1]
             test_preds.append(preds)
 
         test_preds_np = np.concatenate(test_preds)
@@ -341,11 +425,18 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
         croptype_list: List = []
     ) -> pd.DataFrame:
-        test_ds = WorldCerealLabelledDataset(
+
+        if type(finetuned_model).__name__ in (["LocalClassifierPerParentNode","LocalClassifierPerNode"]):
+            model_mode = "Hierarchical CatBoostClassifier"
+        else:
+            model_mode = ""
+
+        test_ds = self.ds_class(
             self.test_df, 
             target_function=self.target_function, 
             task_type=self.task_type, 
             croptype_list=croptype_list,
+            model_mode=model_mode,
             )
 
         dl = DataLoader(
@@ -367,6 +458,9 @@ class WorldCerealEval:
 
                 target_np = np.argmax(target_np, axis=-1)
                 target_np = np.array([self.croptype_list[xx] for xx in target_np])
+            elif target_np.ndim>1:
+                # for hierarchical classification, get predictions on the most granular level
+                target_np = np.array(target_np)[:,-1]
 
             _croptype_list = list(np.unique(target_np))
 
@@ -428,8 +522,9 @@ class WorldCerealEval:
 
         parameters = param_groups_lrd(model)
         optimizer = AdamW(parameters, lr=hyperparams.lr)
+        scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
 
-        train_ds = WorldCerealLabelledDataset(
+        train_ds = self.ds_class(
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
@@ -440,7 +535,7 @@ class WorldCerealEval:
         )
 
         # should the val set be balanced too?
-        val_ds = WorldCerealLabelledDataset(
+        val_ds = self.ds_class(
             self.val_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
@@ -506,6 +601,7 @@ class WorldCerealEval:
                 epoch_train_loss += loss.item()
                 loss.backward()
                 optimizer.step()
+            scheduler.step()
             train_loss.append(epoch_train_loss / len(train_dl))
 
             model.eval()
@@ -525,7 +621,7 @@ class WorldCerealEval:
                     all_preds.append(preds.squeeze(-1))
                     all_y.append(y.float())
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
-            pbar.set_description(f"Train metric: {train_loss[-1]}, Val metric: {val_loss[-1]}")
+            pbar.set_description(f"Train metric: {train_loss[-1]}, Val metric: {val_loss[-1]}, Best Val Loss: {best_loss} (no improvement for {epochs_since_improvement} epochs)")
 
             if run is not None:
                 wandb.log(
@@ -561,35 +657,35 @@ class WorldCerealEval:
     ):
         results_df = pd.DataFrame()
         if len(sklearn_model_modes) > 0:
-            dl = DataLoader(
-                WorldCerealLabelledDataset(
-                    self.train_df,
-                    countries_to_remove=self.countries_to_remove,
-                    years_to_remove=self.years_to_remove,
-                    target_function=self.target_function,
-                    task_type=self.task_type,
-                    croptype_list=[],
-                ),
-                batch_size=2048,
-                shuffle=False,
-                num_workers=8,
-            )
-            val_dl = DataLoader(
-                WorldCerealLabelledDataset(
-                    self.val_df,
-                    countries_to_remove=self.countries_to_remove,
-                    years_to_remove=self.years_to_remove,
-                    target_function=self.target_function,
-                    task_type=self.task_type,
-                    croptype_list=[],
-                ),
-                batch_size=2048,
-                shuffle=False,
-                num_workers=8,
-            )
+            # dl = DataLoader(
+            #     WorldCerealLabelledDataset(
+            #         self.train_df,
+            #         countries_to_remove=self.countries_to_remove,
+            #         years_to_remove=self.years_to_remove,
+            #         target_function=self.target_function,
+            #         task_type=self.task_type,
+            #         croptype_list=[],
+            #     ),
+            #     batch_size=2048,
+            #     shuffle=False,
+            #     num_workers=8,
+            # )
+            # val_dl = DataLoader(
+            #     WorldCerealLabelledDataset(
+            #         self.val_df,
+            #         countries_to_remove=self.countries_to_remove,
+            #         years_to_remove=self.years_to_remove,
+            #         target_function=self.target_function,
+            #         task_type=self.task_type,
+            #         croptype_list=[],
+            #     ),
+            #     batch_size=2048,
+            #     shuffle=False,
+            #     num_workers=8,
+            # )
             sklearn_models = self.finetune_sklearn_model(
-                dl,
-                val_dl,
+                # dl,
+                # val_dl,
                 finetuned_model,
                 models=sklearn_model_modes,
             )
@@ -607,7 +703,7 @@ class WorldCerealEval:
         sklearn_model_modes: List[str],
     ) -> Tuple[Dict, PrestoFineTuningModel]:
         for model_mode in sklearn_model_modes:
-            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
+            assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier", "Hierarchical CatBoostClassifier"]
 
         finetuned_model = self.finetune(pretrained_model)
         print("Finetuning done")
