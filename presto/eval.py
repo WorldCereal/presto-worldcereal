@@ -44,7 +44,7 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 @dataclass
 class Hyperparams:
     # lr: float = 2e-5
-    lr: float = 0.03
+    lr: float = 0.01
     max_epochs: int = 1000
     batch_size: int = 256
     # batch_size: int = 2048
@@ -92,7 +92,7 @@ class WorldCerealEval:
             self.croptype_list = []
         if task_type=="croptype":
             # compress all classes in train that contain less than threshold samples into "other"
-            classes_threshold = 1
+            classes_threshold = 3
             for class_column in ["finetune_class","downstream_class"]:
                 class_counts = self.train_df[class_column].value_counts()
                 small_classes = class_counts[class_counts<classes_threshold].index
@@ -169,7 +169,6 @@ class WorldCerealEval:
         model: PrestoFineTuningModel = cast(Callable, pretrained_model.construct_finetuning_model)(
             num_outputs=self.num_outputs
         )
-
         if self.dekadal:
             max_sequence_length = 72  # can this be 36?
             model.encoder.pos_embed = nn.Parameter(
@@ -180,6 +179,7 @@ class WorldCerealEval:
                 model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
             )
             model.encoder.pos_embed.data.copy_(pos_embed)
+            model.to(device)
         return model
 
     @torch.no_grad()
@@ -198,9 +198,9 @@ class WorldCerealEval:
             dl: DataLoader,
             ) -> Tuple[np.ndarray, np.ndarray]:
             encoding_list, target_list = [], []
-            for x, y, dw, latlons, month, variable_mask in dl:
-                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            for x, y, dw, latlons, month, valid_month, variable_mask in dl:
+                x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
                 ]
                 if type(y)==list and len(y)==2:
                     y = np.moveaxis(np.array(y), -1, 0)
@@ -213,6 +213,7 @@ class WorldCerealEval:
                             mask=variable_mask_f,
                             latlons=latlons_f,
                             month=month_f,
+                            valid_month=valid_month_f
                         )
                         .cpu()
                         .numpy()
@@ -336,22 +337,38 @@ class WorldCerealEval:
 
         test_preds, targets = [], []
 
-        for x, y, dw, latlons, month, variable_mask in dl:
+        for b in dl:
+            try:
+                x, y, dw, latlons, month, valid_month, variable_mask = b
+                x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
+                ]
+                input_d = {
+                    "x": x_f,
+                    "dynamic_world": dw_f.long(),
+                    "latlons": latlons_f,
+                    "mask": variable_mask_f,
+                    "month": month_f,
+                    "valid_month": valid_month_f,
+                }
+            except ValueError:
+                x, y, dw, latlons, month, variable_mask = b
+                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+                ]
+                input_d = {
+                    "x": x_f,
+                    "dynamic_world": dw_f.long(),
+                    "latlons": latlons_f,
+                    "mask": variable_mask_f,
+                    "month": month_f,
+                }
             if type(y)==list and len(y)==2:
                 y = np.moveaxis(np.array(y), -1, 0)
             targets.append(y)
-            x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                t.to(device) for t in (x, dw, latlons, month, variable_mask)
-            ]
             if isinstance(finetuned_model, PrestoFineTuningModel) or isinstance(finetuned_model, Presto):
                 finetuned_model.eval()
-                preds = finetuned_model(
-                    x_f,
-                    dynamic_world=dw_f.long(),
-                    mask=variable_mask_f,
-                    latlons=latlons_f,
-                    month=month_f,
-                ).squeeze(dim=1)
+                preds = finetuned_model(**input_d).squeeze(dim=1)
                 if task_type=="cropland":
                     preds = torch.sigmoid(preds).cpu().numpy()
                 if task_type=="croptype":
@@ -360,15 +377,7 @@ class WorldCerealEval:
                 cast(Presto, pretrained_model).eval()
                 encodings = (
                     cast(Presto, pretrained_model)
-                    .encoder(
-                        x_f,
-                        dynamic_world=dw_f.long(),
-                        mask=variable_mask_f,
-                        latlons=latlons_f,
-                        month=month_f,
-                    )
-                    .cpu()
-                    .numpy()
+                    .encoder(**input_d).cpu().numpy()
                 )
                 if task_type=="cropland":
                     preds = finetuned_model.predict_proba(encodings)[:, 1]
@@ -575,7 +584,6 @@ class WorldCerealEval:
         run = None
         try:
             import wandb
-
             run = wandb.run
         except ImportError:
             pass
@@ -583,20 +591,33 @@ class WorldCerealEval:
         for _ in (pbar := tqdm(range(hyperparams.max_epochs), desc="Finetuning")):
             model.train()
             epoch_train_loss = 0.0
-            for x, y, dw, latlons, month, variable_mask in tqdm(
+            for x, y, dw, latlons, month, valid_month, variable_mask in tqdm(
                 train_dl, desc="Training", leave=False
             ):
-                x, y, dw, latlons, month, variable_mask = [
-                    t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
+                x, y, dw, latlons, month, valid_month, variable_mask = [
+                    t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
+
+                if model.encoder.valid_month_as_token:
+                    input_d = {
+                        "x": x,
+                        "dynamic_world": dw.long(),
+                        "latlons": latlons,
+                        "mask": variable_mask,
+                        "month": month,
+                        "valid_month": valid_month,
+                    }
+                else:
+                    input_d = {
+                        "x": x,
+                        "dynamic_world": dw.long(),
+                        "latlons": latlons,
+                        "mask": variable_mask,
+                        "month": month,
+                    }
+
                 optimizer.zero_grad()
-                preds = model(
-                    x,
-                    dynamic_world=dw.long(),
-                    mask=variable_mask,
-                    latlons=latlons,
-                    month=month,
-                )
+                preds = model(**input_d)
                 loss = loss_fn(preds.squeeze(-1), y.float())
                 epoch_train_loss += loss.item()
                 loss.backward()
@@ -606,31 +627,36 @@ class WorldCerealEval:
 
             model.eval()
             all_preds, all_y = [], []
-            for x, y, dw, latlons, month, variable_mask in val_dl:
-                x, y, dw, latlons, month, variable_mask = [
-                    t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
+            for x, y, dw, latlons, month, valid_month, variable_mask in val_dl:
+                x, y, dw, latlons, month, valid_month, variable_mask = [
+                    t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
+
+                if model.encoder.valid_month_as_token:
+                    input_d = {
+                        "x": x,
+                        "dynamic_world": dw.long(),
+                        "latlons": latlons,
+                        "mask": variable_mask,
+                        "month": month,
+                        "valid_month": valid_month,
+                    }
+                else:
+                    input_d = {
+                        "x": x,
+                        "dynamic_world": dw.long(),
+                        "latlons": latlons,
+                        "mask": variable_mask,
+                        "month": month,
+                    }
+
                 with torch.no_grad():
-                    preds = model(
-                        x,
-                        dynamic_world=dw.long(),
-                        mask=variable_mask,
-                        latlons=latlons,
-                        month=month,
-                    )
+                    preds = model(**input_d)
                     all_preds.append(preds.squeeze(-1))
                     all_y.append(y.float())
+
             val_loss.append(loss_fn(torch.cat(all_preds), torch.cat(all_y)))
-            pbar.set_description(f"Train metric: {train_loss[-1]}, Val metric: {val_loss[-1]}, Best Val Loss: {best_loss} (no improvement for {epochs_since_improvement} epochs)")
-
-            if run is not None:
-                wandb.log(
-                    {
-                        f"{self.name}_finetuning_val_loss": val_loss[-1],
-                        f"{self.name}_finetuning_train_loss": train_loss[-1],
-                    }
-                )
-
+            
             if best_loss is None:
                 best_loss = val_loss[-1]
                 best_model_dict = deepcopy(model.state_dict())
@@ -644,6 +670,16 @@ class WorldCerealEval:
                     if epochs_since_improvement >= hyperparams.patience:
                         logger.info("Early stopping!")
                         break
+
+            pbar.set_description(f"Train metric: {train_loss[-1]:.3f}, Val metric: {val_loss[-1]:.3f}, Best Val Loss: {best_loss:.3f} (no improvement for {epochs_since_improvement} epochs)")
+            if run is not None:
+                wandb.log(
+                    {
+                        f"{self.name}_finetuning_val_loss": val_loss[-1],
+                        f"{self.name}_finetuning_train_loss": train_loss[-1],
+                    }
+                )
+
         assert best_model_dict is not None
         model.load_state_dict(best_model_dict)
 

@@ -91,15 +91,16 @@ class WorldCerealBase(Dataset):
         task_type: str = "cropland",
         croptype_list: List = [],
         model_mode: str = ""
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, Union[int, str, np.ndarray, list]]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int, Union[int, str, np.ndarray, list]]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
-        latlon = np.zeros_like(latlon)
+        # latlon = np.zeros_like(latlon)
 
         month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
+        valid_month = datetime.strptime(row_d["valid_date"], "%Y-%m-%d").month - 1
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
         # an assumption we make here is that all timesteps for a token
@@ -134,6 +135,7 @@ class WorldCerealBase(Dataset):
             mask.astype(bool),
             latlon,
             month,
+            valid_month,
             target_function(row, task_type, croptype_list, model_mode)
         )
 
@@ -261,7 +263,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list, self.model_mode)
+        eo, real_mask_per_token, latlon, month, _, _ = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list, self.model_mode)
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
         )
@@ -369,7 +371,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function, self.task_type, self.croptype_list, self.model_mode)
+        eo, mask_per_token, latlon, month, valid_month, target = self.row_to_arrays(row, self.target_function, self.task_type, self.croptype_list, self.model_mode)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -377,6 +379,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
             latlon,
             month,
+            valid_month,
             mask_per_variable,
         )
 
@@ -416,7 +419,7 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list, self.model_mode)
+        eo, mask_per_token, latlon, _, valid_month, target = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list, self.model_mode)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -424,6 +427,7 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
             np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
             latlon,
             self.get_month_array(row),
+            valid_month,
             mask_per_variable,
         )
 

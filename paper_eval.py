@@ -9,6 +9,7 @@ from typing import Optional, cast
 import pickle
 import pandas as pd
 import torch
+import torch.utils.model_zoo
 import xarray as xr
 
 from presto.dataset import (
@@ -47,15 +48,15 @@ argparser.add_argument("--num_workers", type=int, default=64)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
+# argparser.add_argument("--parquet_file", type=str, default="rawts-10d_calval.parquet")
 
-# argparser.add_argument("--val_samples_file", type=str, default="cropland_spatial_generalization_test_split_samples.csv")
+# argparser.add_argument("--val_samples_file", type=str, def ault="cropland_spatial_generalization_test_split_samples.csv")
 
-# argparser.add_argument("--presto_model_name", type=str, default="presto-ft-ct")
+# argparser.add_argument("--presto_model_type", type=str, default="presto-ft-ct")
 argparser.add_argument("--presto_model_type", type=str, default="presto-ss-wc-ft-ct")
 argparser.add_argument("--task_type", type=str, default="croptype")
-argparser.add_argument("--test_type", type=str, default="spatial")
-argparser.add_argument("--compositing_window", type=str, default="30D")
-argparser.add_argument("--time_token", type=str, default="none")
+argparser.add_argument("--test_type", type=str, default="random")
+argparser.add_argument("--time_token", type=str, default="month")
 
 argparser.add_argument("--finetune_classes", type=str, default="CROPTYPE0")
 argparser.add_argument("--downstream_classes", type=str, default="CROPTYPE9")
@@ -83,9 +84,6 @@ test_type: str = args["test_type"]
 time_token: str = args["time_token"]
 assert test_type in ["random", "spatial", "temporal", "seasonal"]
 
-# !!! this can (and should) somehow be inferred from data
-compositing_window: str = args["compositing_window"]
-
 seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
 run_id = None
@@ -110,13 +108,20 @@ parquet_file: str = args["parquet_file"]
 train_only_samples_file: str = args["train_only_samples_file"]
 
 dekadal = False
+compositing_window = "30D"
 if "10d" in parquet_file:
     dekadal = True
+    compositing_window = "10D"
+
+valid_month_as_token = False
+if time_token != "none":
+    valid_month_as_token = True
 
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
 
-model_modes = ["CatBoostClassifier", "Hierarchical CatBoostClassifier"]
+model_modes = ["CatBoostClassifier"]
+# model_modes = ["CatBoostClassifier", "Hierarchical CatBoostClassifier"]
 # model_modes = ["Random Forest", "Regression", "CatBoostClassifier"] 
 
 logger.info("Loading data")
@@ -146,7 +151,7 @@ full_eval = WorldCerealEval(
 
 model_path = output_parent_dir / "data" 
 model_path.mkdir(exist_ok=True, parents=True)
-experiment_prefix = f"{presto_model_type}-{finetune_classes}_{compositing_window}_{test_type}_latlon-zeros"
+experiment_prefix = f"{presto_model_type}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_lr=0.03_schedule=True_batch=256_latlon=asis"
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"
 results_path = model_logging_dir / f"{experiment_prefix}.csv"
 downstream_model_path = model_logging_dir / f"{experiment_prefix}_{downstream_classes}"
@@ -159,6 +164,8 @@ if os.path.isfile(finetuned_model_path):
         model_path=finetuned_model_path,
         strict=False,
         is_finetuned=True,
+        dekadal=dekadal,
+        valid_month_as_token=valid_month_as_token,
         num_outputs=full_eval.num_outputs,
         )
     pretrained_model = Presto.load_pretrained()
@@ -175,10 +182,26 @@ if os.path.isfile(finetuned_model_path):
 else:
     logger.info("Setting up model")
     if warm_start:
-        model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
-        # model = Presto.load_pretrained()
-        ss_model_path = model_path / "presto-ss-wc_30D.pt"
-        model = Presto.load_pretrained(model_path=ss_model_path)
+        # model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
+        
+        if presto_model_type=='presto-ft-ct':
+            if dekadal:
+                model_path = "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ft-cl_10D_cropland_random.pt"
+            else:
+                model_path = "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ft-cl_30D_cropland_random.pt"
+        else:
+            if dekadal:
+                model_path = "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ss-wc_10D.pt"
+            else:
+                model_path = "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ss-wc_30D.pt"
+        
+        model = Presto.load_pretrained(
+            model_path=model_path, 
+            from_url=True,
+            dekadal=dekadal,
+            valid_month_as_token=valid_month_as_token, 
+            strict=False)
+
         best_model_path: Optional[Path] = default_model_path
     else:
         if path_to_config == "":
@@ -186,6 +209,7 @@ else:
         model_kwargs = json.load(Path(path_to_config).open("r"))
         model = Presto.construct(**model_kwargs)
         best_model_path = None
+    
     model.to(device)
     results_df_combined, finetuned_model, sklearn_models_trained = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
     torch.save(finetuned_model.state_dict(), finetuned_model_path)
