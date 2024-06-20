@@ -2,6 +2,7 @@ from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd
+import validators
 import torch
 import xarray as xr
 from einops import rearrange
@@ -15,11 +16,11 @@ from .dataops import (
     S1_S2_ERA5_SRTM,
     DynamicWorld2020_2021,
 )
+from .dataset import WorldCerealLabelledDataset
+from .eval import WorldCerealEval
 from .masking import BAND_EXPANSION
 from .presto import Presto
 from .utils import device
-from .dataset import WorldCerealLabelledDataset
-from .eval import WorldCerealEval
 
 # Index to band groups mapping
 IDX_TO_BAND_GROUPS = {
@@ -225,7 +226,7 @@ class PrestoFeatureExtractor:
             
             try:
                 x, dw, latlons, month, variable_mask = b
-            except:
+            except ValueError:
                 x, _, dw, latlons, month, variable_mask = b
 
             x_f, dw_f, latlons_f, month_f, variable_mask_f = [
@@ -275,19 +276,19 @@ def get_presto_features(
     Extracts features from input data using Presto.
 
     Args:
-        inarr (xr.DataArray): Input data as xarray DataArray.
+        inarr (xr.DataArray or pd.DataFrame): Input data as xarray DataArray or pandas DataFrame.
         presto_url (str): URL to the pretrained Presto model.
         epsg (int) : EPSG code describing the coordinates.
         batch_size (int): Batch size to be used for Presto inference.
 
     Returns:
-        xr.DataArray: Extracted features as xarray DataArray.
+        xr.DataArray or np.ndarray: Extracted features as xarray DataArray or numpy ndarray.
     """
 
     # Load the model
-    try:
+    if validators.url(presto_url):
         presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
-    except:
+    else:
         presto_model = Presto.load_pretrained(model_path=presto_url, strict=False)
 
     presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
@@ -347,6 +348,7 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
 
     df['valid_date_ind'] = ((df['timestamp'] - df['start_date']).dt.days / 30).round().astype(int)
 
+    # once the start date is settled, we take 12 months from that as input to Presto
     df_pivot = df[
         (df['valid_date_ind']>=0) &
         (df['valid_date_ind']<12)
