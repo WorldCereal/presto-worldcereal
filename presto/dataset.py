@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import rioxarray
 import xarray as xr
-from einops import rearrange, repeat
+from einops import rearrange
 from pyproj import Transformer
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
@@ -421,12 +421,9 @@ class WorldCerealInferenceDataset(Dataset):
         months = np.ones((num_instances)) * start_month
 
         transformer = Transformer.from_crs(f"EPSG:{epsg_coords}", "EPSG:4326", always_xy=True)
-        lon, lat = transformer.transform(ds.x, ds.y)
-
-        latlons = np.stack(
-            [np.repeat(lat, repeats=len(lon)), repeat(lon, "c -> (h c)", h=len(lat))],
-            axis=-1,
-        )
+        lon, lat = np.meshgrid(ds.x, ds.y)
+        lon, lat = transformer.transform(lon, lat)
+        latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
 
         return eo_data, np.repeat(mask, BAND_EXPANSION, axis=-1), latlons, months, y
 
