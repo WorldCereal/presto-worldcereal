@@ -3,7 +3,6 @@ from typing import Tuple, Union
 import numpy as np
 import pandas as pd
 import torch
-import validators
 import xarray as xr
 from einops import rearrange
 from pyproj import Transformer
@@ -62,7 +61,9 @@ class PrestoFeatureExtractor:
     }
 
     @classmethod
-    def _preprocess_band_values(cls, values: np.ndarray, presto_band: str) -> np.ndarray:
+    def _preprocess_band_values(
+        cls, values: np.ndarray, presto_band: str
+    ) -> np.ndarray:
         """
         Preprocesses the band values based on the given presto_val.
 
@@ -150,7 +151,9 @@ class PrestoFeatureExtractor:
         """
         num_instances = len(inarr.x) * len(inarr.y)
 
-        start_month = (inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
+        start_month = (
+            inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1
+        ) - 1
 
         months = np.ones((num_instances)) * start_month
         return months
@@ -249,12 +252,18 @@ class PrestoFeatureExtractor:
 
         return np.concatenate(all_encodings, axis=0)
 
-    def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
-        eo, dynamic_world, months, latlons, mask = self._create_presto_input(inarr, epsg)
+    def extract_presto_features(
+        self, inarr: xr.DataArray, epsg: int = 4326
+    ) -> xr.DataArray:
+        eo, dynamic_world, months, latlons, mask = self._create_presto_input(
+            inarr, epsg
+        )
         dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask)
 
         features = self._get_encodings(dl)
-        features = rearrange(features, "(x y) c -> x y c", x=len(inarr.x), y=len(inarr.y))
+        features = rearrange(
+            features, "(x y) c -> x y c", x=len(inarr.x), y=len(inarr.y)
+        )
         ft_names = [f"presto_ft_{i}" for i in range(128)]
         features_da = xr.DataArray(
             features,
@@ -285,7 +294,7 @@ def get_presto_features(
     """
 
     # Load the model
-    if validators.url(presto_url):
+    if presto_url.startswith("http"):
         presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
     else:
         presto_model = Presto.load_pretrained(model_path=presto_url, strict=False)
@@ -374,7 +383,9 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     # PLACEHOLDER for substituting start_date with one derived from crop calendars
     # df['start_date'] = seasons.get_season_start(df[['lat','lon']])
 
-    df["valid_date_ind"] = ((df["timestamp"] - df["start_date"]).dt.days / 30).round().astype(int)
+    df["valid_date_ind"] = (
+        ((df["timestamp"] - df["start_date"]).dt.days / 30).round().astype(int)
+    )
 
     # once the start date is settled, we take 12 months from that as input to Presto
     df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
@@ -387,13 +398,16 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         for xx in df_pivot.columns.to_flat_index()
     ]
     df_pivot.columns = [
-        f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns
+        f"{xx}-10m" if any(band in xx for band in bands10m) else xx
+        for xx in df_pivot.columns
     ]
     df_pivot.columns = [
-        f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns
+        f"{xx}-20m" if any(band in xx for band in bands20m) else xx
+        for xx in df_pivot.columns
     ]
     df_pivot.columns = [
-        f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
+        f"{xx}-100m" if any(band in xx for band in bands100m) else xx
+        for xx in df_pivot.columns
     ]
 
     df_pivot["start_date"] = df_pivot["start_date"].dt.date.astype(str)
