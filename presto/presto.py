@@ -397,7 +397,7 @@ class Encoder(nn.Module):
             mask = torch.zeros_like(x, device=x.device)
 
         months = month_to_tensor(month, x.shape[0], x.shape[1], device)
-        month_embedding = self.month_embed(months)            
+        month_embedding = self.month_embed(months)
         positional_embedding = repeat(
             self.pos_embed[:, : x.shape[1], :], "b t d -> (repeat b) t d", repeat=x.shape[0]
         )
@@ -574,32 +574,32 @@ class Decoder(nn.Module):
         out = out.scatter(1, orig_indices[:, :, None].expand_as(out), out)
         return out
 
-    def add_embeddings(self, x, month: Union[torch.Tensor, int]):        
+    def add_embeddings(self, x, month: Union[torch.Tensor, int]):
         num_channel_groups = len(self.band_group_to_idx)
         # -2 since we remove srtm and latlon, and -1 since the srtm
         # channel group doesn't have timesteps
         num_timesteps = int((x.shape[1] - 2) / (num_channel_groups - 1))
         srtm_index = self.band_group_to_idx["SRTM"] * num_timesteps
         months = month_to_tensor(month, x.shape[0], num_timesteps, x.device)
-        
+
         # when we expand the encodings, each channel_group gets num_timesteps
         # encodings. However, there is only one SRTM token so we remove the
         # excess SRTM encodings
         remove_mask = torch.full(size=(num_timesteps * num_channel_groups,), fill_value=False)
         remove_mask[torch.arange(num_timesteps - 1) + srtm_index] = True
-        
+
         month_embedding = repeat(
             self.month_embed(months), "b t d -> b (repeat t) d", repeat=num_channel_groups
         )
         month_embedding = month_embedding[:, ~remove_mask]
         month_embedding[:, srtm_index] = 0
-        
+
         positional_embedding = repeat(
             self.pos_embed[:, :num_timesteps, :],
             "b t d -> (b2 b) (t2 t) d",
             b2=x.shape[0],
             t2=num_channel_groups,
-        )        
+        )
         positional_embedding = positional_embedding[:, ~remove_mask]
         positional_embedding[:, srtm_index] = 0
 
@@ -859,7 +859,7 @@ def get_layer_id_for_rest_finetuning(name, num_layers):
     else:
         return num_layers
 
-    
+
 def extend_to_dekadal(model):
     # reinitialize positional embeddings for encoder to deal with decadal data
     max_sequence_length = 72  # can this be 36?
@@ -877,7 +877,7 @@ def extend_to_dekadal(model):
         model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
     )
     model.encoder.pos_embed.data.copy_(pos_embed.to(device=old_pos_embed_device))
-    
+
     # reinitialize positional embeddings for decoder to deal with decadal data
     old_pos_embed_device = model.decoder.pos_embed.device
     model.decoder.pos_embed = nn.Parameter(

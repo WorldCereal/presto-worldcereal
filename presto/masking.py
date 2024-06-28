@@ -10,7 +10,6 @@ from .dataops import (
     BANDS_GROUPS_IDX,
     NUM_TIMESTEPS,
     SRTM_INDEX,
-    TIMESTEPS_IDX,
 )
 
 MASK_STRATEGIES = (
@@ -37,7 +36,9 @@ MaskedExample = namedtuple(
 )
 
 
-def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray, num_timesteps: int=NUM_TIMESTEPS) -> np.ndarray:
+def make_mask_no_dw(
+    strategy: str, mask_ratio: float, existing_mask: np.ndarray, num_timesteps: int = NUM_TIMESTEPS
+) -> np.ndarray:
     """
     Make a mask for a given strategy and percentage of masked values.
     Args:
@@ -130,7 +131,7 @@ class MaskParamsNoDw:
     strategies: Tuple[str, ...] = ("NDVI",)
     ratio: float = 0.5
     num_timesteps: int = NUM_TIMESTEPS
-    
+
     def __post_init__(self):
         for strategy in self.strategies:
             assert strategy in [
@@ -140,9 +141,14 @@ class MaskParamsNoDw:
                 "random_combinations",
             ]
 
-    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray, num_timesteps: int=NUM_TIMESTEPS):
+    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray, num_timesteps: int = NUM_TIMESTEPS):
         strategy = choice(self.strategies)
-        mask = make_mask_no_dw(strategy=strategy, mask_ratio=self.ratio, existing_mask=mask, num_timesteps=num_timesteps)
+        mask = make_mask_no_dw(
+            strategy=strategy,
+            mask_ratio=self.ratio,
+            existing_mask=mask,
+            num_timesteps=num_timesteps,
+        )
         x = eo_data * ~mask
         y = np.zeros(eo_data.shape).astype(np.float32)
         y[mask] = eo_data[mask]

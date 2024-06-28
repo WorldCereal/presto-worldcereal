@@ -15,11 +15,10 @@ from tqdm import tqdm
 
 from presto.dataops import BANDS_GROUPS_IDX
 from presto.dataset import (
-    WorldCerealBase, 
+    WorldCerealBase,
     WorldCerealMasked10DDataset,
-    WorldCerealMaskedDataset, 
+    WorldCerealMaskedDataset,
 )
-from presto.dataset import filter_remove_noncrops, target_maize
 from presto.eval import WorldCerealEval
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
@@ -27,7 +26,7 @@ from presto.presto import (
     Presto,
     adjust_learning_rate,
     param_groups_weight_decay,
-    extend_to_dekadal
+    extend_to_dekadal,
 )
 from presto.utils import (
     DEFAULT_SEED,
@@ -36,8 +35,6 @@ from presto.utils import (
     default_model_path,
     device,
     initialize_logging,
-    load_world_df,
-    plot_results,
     plot_spatial,
     seed_everything,
     timestamp_dirname,
@@ -139,7 +136,7 @@ train_only_samples_file: str = args["train_only_samples_file"]
 dekadal = False
 if "10d" in parquet_file:
     dekadal = True
-    
+
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
 
@@ -185,12 +182,12 @@ else:
     model_kwargs = json.load(Path(path_to_config).open("r"))
     model = Presto.construct(**model_kwargs)
     best_model_path = None
-    
-if dekadal: 
+
+if dekadal:
     logger.info("extending model to dekadal architecture")
     model = extend_to_dekadal(model)
 model.to(device)
-# print(f"model pos embed shape {model.encoder.pos_embed.shape}") # correctly reinitialized 
+# print(f"model pos embed shape {model.encoder.pos_embed.shape}") # correctly reinitialized
 
 param_groups = param_groups_weight_decay(model, weight_decay)
 optimizer = optim.AdamW(param_groups, lr=max_learning_rate, betas=(0.9, 0.95))
@@ -224,7 +221,12 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
         train_size = 0
         model.train()
         for epoch_step, b in enumerate(tqdm(train_dataloader, desc="Train", leave=False)):
-            mask, x, y, start_month = b[0].to(device), b[2].to(device), b[3].to(device), b[6].to(device)
+            mask, x, y, start_month = (
+                b[0].to(device),
+                b[2].to(device),
+                b[3].to(device),
+                b[6].to(device),
+            )
             dw_mask, x_dw, y_dw = b[1].to(device), b[4].to(device).long(), b[5].to(device).long()
             latlons, real_mask = b[7].to(device), b[9].to(device)
             # zero the parameter gradients
@@ -408,4 +410,3 @@ if wandb_enabled:
 if wandb_enabled and run:
     run.finish()
     logger.info(f"Wandb url: {run.url}")
-    

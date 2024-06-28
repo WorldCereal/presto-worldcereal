@@ -227,40 +227,10 @@ class WorldCerealMaskedDataset(WorldCerealBase):
             real_mask_per_variable,
         )
 
-    
-class WorldCerealMasked10DDataset(WorldCerealBase):
-    
+
+class WorldCerealMasked10DDataset(WorldCerealMaskedDataset):
     NUM_TIMESTEPS = 36
-    
-    def __init__(self, dataframe: pd.DataFrame, mask_params: MaskParamsNoDw):
-        super().__init__(dataframe)
-        self.mask_params = mask_params
 
-    def __getitem__(self, idx):
-        # Get the sample
-        row = self.df.iloc[idx, :]
-        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop)
-        mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
-            self.normalize_and_mask(eo), real_mask_per_token, num_timesteps=self.NUM_TIMESTEPS
-        )
-        real_mask_per_variable = np.repeat(real_mask_per_token, BAND_EXPANSION, axis=1)
-
-        dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
-        mask_dw = np.full(self.NUM_TIMESTEPS, True)
-        y_dw = dynamic_world.copy()
-        return MaskedExample(
-            mask_eo,
-            mask_dw,
-            x_eo,
-            y_eo,
-            dynamic_world,
-            y_dw,
-            self.get_month_array(row),
-            latlon,
-            strat,
-            real_mask_per_variable,
-        )
-    
     @classmethod
     def get_month_array(cls, row: pd.Series) -> np.ndarray:
         start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
@@ -276,9 +246,8 @@ class WorldCerealMasked10DDataset(WorldCerealBase):
             date_vector[-1] = end_date
 
         return np.array([d.month - 1 for d in date_vector])
-    
-    
-    
+
+
 def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
     crop_labels = [10, 11, 12, 13]
     df = df.loc[df.LANDCOVER_LABEL.isin(crop_labels)]
