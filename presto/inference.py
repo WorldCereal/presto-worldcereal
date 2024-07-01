@@ -243,11 +243,7 @@ class PrestoFeatureExtractor:
 
         return np.concatenate(all_encodings, axis=0)
 
-    def extract_presto_features(
-        self, 
-        inarr: xr.DataArray, 
-        epsg: int = 4326
-        ) -> xr.DataArray:
+    def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
 
         eo, dynamic_world, months, latlons, mask = self._create_presto_input(inarr, epsg)
         dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask)
