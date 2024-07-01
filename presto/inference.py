@@ -280,24 +280,25 @@ def get_presto_features(
     """
 
     # Load the model
-    if presto_url.starts_with("http"):
+    if presto_url.startswith("http"):
         presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
     else:
         presto_model = Presto.load_pretrained(model_path=presto_url, strict=False)
 
     presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
 
-    if type(inarr) == pd.DataFrame:
+    if isinstance(inarr, pd.DataFrame):
         processed_df = process_parquet(inarr)
         test_ds = WorldCerealBase(processed_df)
         # test_ds = WorldCerealLabelledDataset(processed_df)
         dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
-        features = presto_extractor._get_encodings(dl)
+        return presto_extractor._get_encodings(dl)
 
-    if type(inarr) == xr.DataArray:
-        features = presto_extractor.extract_presto_features(inarr, epsg=epsg)
+    elif isinstance(inarr, xr.DataArray):
+        return presto_extractor.extract_presto_features(inarr, epsg=epsg)
 
-    return features
+    else:
+        raise ValueError("Input data must be either xr.DataArray or pd.DataFrame")
 
 
 def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
