@@ -1,6 +1,7 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 import numpy as np
+import pandas as pd
 import torch
 import xarray as xr
 from einops import rearrange
@@ -14,6 +15,8 @@ from .dataops import (
     S1_S2_ERA5_SRTM,
     DynamicWorld2020_2021,
 )
+from .dataset import WorldCerealBase
+from .eval import WorldCerealEval
 from .masking import BAND_EXPANSION
 from .presto import Presto
 from .utils import device
@@ -241,6 +244,7 @@ class PrestoFeatureExtractor:
         return np.concatenate(all_encodings, axis=0)
 
     def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
+
         eo, dynamic_world, months, latlons, mask = self._create_presto_input(inarr, epsg)
         dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask)
 
@@ -257,23 +261,142 @@ class PrestoFeatureExtractor:
 
 
 def get_presto_features(
-    inarr: xr.DataArray, presto_url: str, epsg: int = 4326, batch_size: int = 8192
-) -> xr.DataArray:
+    inarr: Union[pd.DataFrame, xr.DataArray],
+    presto_url: str,
+    epsg: int = 4326,
+    batch_size: int = 8192,
+) -> Union[np.ndarray, xr.DataArray]:
     """
     Extracts features from input data using Presto.
 
     Args:
-        inarr (xr.DataArray): Input data as xarray DataArray.
+        inarr (xr.DataArray or pd.DataFrame): Input data as xarray DataArray or pandas DataFrame.
         presto_url (str): URL to the pretrained Presto model.
         epsg (int) : EPSG code describing the coordinates.
         batch_size (int): Batch size to be used for Presto inference.
 
     Returns:
-        xr.DataArray: Extracted features as xarray DataArray.
+        xr.DataArray or np.ndarray: Extracted features as xarray DataArray or numpy ndarray.
     """
-    # Load the model
 
-    presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
+    # Load the model
+    if presto_url.startswith("http"):
+        presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
+    else:
+        presto_model = Presto.load_pretrained(model_path=presto_url, strict=False)
+
     presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
-    features = presto_extractor.extract_presto_features(inarr, epsg=epsg)
-    return features
+
+    if isinstance(inarr, pd.DataFrame):
+        processed_df = process_parquet(inarr)
+        test_ds = WorldCerealBase(processed_df)
+        # test_ds = WorldCerealLabelledDataset(processed_df)
+        dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+        return presto_extractor._get_encodings(dl)
+
+    elif isinstance(inarr, xr.DataArray):
+        return presto_extractor.extract_presto_features(inarr, epsg=epsg)
+
+    else:
+        raise ValueError("Input data must be either xr.DataArray or pd.DataFrame")
+
+
+def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
+    # add dummy value + rename stuff for compatibility with existing functions
+    df["OPTICAL-B8A"] = 0
+    df.rename(
+        columns={
+            "S1-SIGMA0-VV": "SAR-VH",
+            "S1-SIGMA0-VH": "SAR-VV",
+            "S2-L2A-B02": "OPTICAL-B02",
+            "S2-L2A-B03": "OPTICAL-B03",
+            "S2-L2A-B04": "OPTICAL-B04",
+            "S2-L2A-B05": "OPTICAL-B05",
+            "S2-L2A-B06": "OPTICAL-B06",
+            "S2-L2A-B07": "OPTICAL-B07",
+            "S2-L2A-B08": "OPTICAL-B08",
+            "S2-L2A-B11": "OPTICAL-B11",
+            "S2-L2A-B12": "OPTICAL-B12",
+            "AGERA5-precipitation-flux": "METEO-precipitation_flux",
+            "AGERA5-temperature-mean": "METEO-temperature_mean",
+        },
+        inplace=True,
+    )
+
+    feature_columns = [
+        "METEO-precipitation_flux",
+        "METEO-temperature_mean",
+        "SAR-VH",
+        "SAR-VV",
+        "OPTICAL-B02",
+        "OPTICAL-B03",
+        "OPTICAL-B04",
+        "OPTICAL-B08",
+        "OPTICAL-B8A",
+        "OPTICAL-B05",
+        "OPTICAL-B06",
+        "OPTICAL-B07",
+        "OPTICAL-B11",
+        "OPTICAL-B12",
+    ]
+    index_columns = [
+        "CROPTYPE_LABEL",
+        "DEM-alt-20m",
+        "DEM-slo-20m",
+        "LANDCOVER_LABEL",
+        "POTAPOV-LABEL-10m",
+        "WORLDCOVER-LABEL-10m",
+        "aez_zoneid",
+        "end_date",
+        "lat",
+        "lon",
+        "start_date",
+        "sample_id",
+        "valid_date",
+    ]
+
+    bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
+    bands20m = [
+        "SAR-VH",
+        "SAR-VV",
+        "OPTICAL-B05",
+        "OPTICAL-B06",
+        "OPTICAL-B07",
+        "OPTICAL-B11",
+        "OPTICAL-B12",
+        "OPTICAL-B8A",
+    ]
+    bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
+
+    # PLACEHOLDER for substituting start_date with one derived from crop calendars
+    # df['start_date'] = seasons.get_season_start(df[['lat','lon']])
+
+    df["valid_date_ind"] = ((df["timestamp"] - df["start_date"]).dt.days / 30).round().astype(int)
+
+    # once the start date is settled, we take 12 months from that as input to Presto
+    df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
+        index=index_columns, columns="valid_date_ind", values=feature_columns
+    )
+
+    df_pivot.reset_index(inplace=True)
+    df_pivot.columns = [
+        f"{xx[0]}-ts{xx[1]}" if isinstance(xx[1], int) else xx[0]
+        for xx in df_pivot.columns.to_flat_index()
+    ]
+    df_pivot.columns = [
+        f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns
+    ]
+    df_pivot.columns = [
+        f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns
+    ]
+    df_pivot.columns = [
+        f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
+    ]
+
+    df_pivot["start_date"] = df_pivot["start_date"].dt.date.astype(str)
+    df_pivot["end_date"] = df_pivot["end_date"].dt.date.astype(str)
+    df_pivot["valid_date"] = df_pivot["valid_date"].dt.date.astype(str)
+
+    df_pivot = WorldCerealEval.prep_dataframe(df_pivot)
+
+    return df_pivot
