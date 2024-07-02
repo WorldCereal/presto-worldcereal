@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Optional, cast
 
 import pickle
-import pandas as pd
 import torch
 import torch.utils.model_zoo
 import xarray as xr
+import pandas as pd
 
 from presto.dataset import (
     WorldCerealBase,
@@ -52,7 +52,7 @@ argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval
 
 # argparser.add_argument("--val_samples_file", type=str, def ault="cropland_spatial_generalization_test_split_samples.csv")
 
-# argparser.add_argument("--presto_model_type", type=str, default="presto-ft-ct")
+# argparser.add_argument("--presto_model_type", type=str, default="presto-pt")
 argparser.add_argument("--presto_model_type", type=str, default="presto-ss-wc-ft-ct")
 argparser.add_argument("--task_type", type=str, default="croptype")
 argparser.add_argument("--test_type", type=str, default="random")
@@ -120,8 +120,8 @@ if time_token != "none":
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
 
-model_modes = ["CatBoostClassifier"]
-# model_modes = ["CatBoostClassifier", "Hierarchical CatBoostClassifier"]
+# model_modes = ["CatBoostClassifier"]
+model_modes = ["CatBoostClassifier", "Hierarchical CatBoostClassifier"]
 # model_modes = ["Random Forest", "Regression", "CatBoostClassifier"] 
 
 logger.info("Loading data")
@@ -146,20 +146,26 @@ full_eval = WorldCerealEval(
     train_df, test_df, 
     task_type=task_type,
     finetune_classes=finetune_classes,
-    dekadal=dekadal
+    dekadal=dekadal,
+    spatial_inference_savedir=model_logging_dir
     )
 
 model_path = output_parent_dir / "data" 
 model_path.mkdir(exist_ok=True, parents=True)
-experiment_prefix = f"{presto_model_type}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_lr=0.03_schedule=True_batch=256_latlon=asis"
+experiment_prefix = f"{presto_model_type}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_lr=0.0001_w-hiclass"
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"
 results_path = model_logging_dir / f"{experiment_prefix}.csv"
 downstream_model_path = model_logging_dir / f"{experiment_prefix}_{downstream_classes}"
+
+# finetuned_model_path = "/home/vito/butskoc/presto-worldcereal/data/presto-ft-cl_30D_cropland_random.pt"
+# finetuned_model_path = "/home/vito/butskoc/presto-worldcereal/data/default_model.pt"
+# finetuned_model_path = "/home/vito/butskoc/presto-worldcereal/data/presto-ft-cl_10D_cropland_random.pt"
 
 # check if finetuned model already exists
 logger.info("Checking if the finetuned model exists")
 if os.path.isfile(finetuned_model_path):
     logger.info("Finetuned model found! Loading...")
+
     finetuned_model = Presto.load_pretrained(
         model_path=finetuned_model_path,
         strict=False,
@@ -168,8 +174,14 @@ if os.path.isfile(finetuned_model_path):
         valid_month_as_token=valid_month_as_token,
         num_outputs=full_eval.num_outputs,
         )
-    pretrained_model = Presto.load_pretrained()
-
+    
+    pretrained_model = Presto.load_pretrained(
+            # model_path="https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ft-cl_30D_cropland_random.pt", 
+            # from_url=True,
+            model_path=finetuned_model_path,
+            dekadal=dekadal,
+            valid_month_as_token=valid_month_as_token, 
+            strict=False)
     finetuned_model.to(device)
     pretrained_model.to(device)
 
@@ -224,6 +236,16 @@ results_df_combined.to_csv(results_path, index=False)
 for model in sklearn_models_trained:
     if type(model).__name__ == "CatBoostClassifier":
         model.save_model(f"{downstream_model_path}.cbm")
+        model.save_model(
+            f"{downstream_model_path}.onnx",
+            format="onnx",
+            export_parameters={
+                'onnx_domain': 'ai.catboost',
+                'onnx_model_version': 1,
+                'onnx_doc_string': f'model for croptype classification of {downstream_classes} classes',
+                'onnx_graph_name': 'CatBoostModel_for_MulticlassClassification'
+                }
+                )
     else:
         pickle.dump(model, open(f"{downstream_model_path}.sav", 'wb'))
 
@@ -231,7 +253,7 @@ all_spatial_preds = list(model_logging_dir.glob("*.nc"))
 for spatial_preds_path in all_spatial_preds:
     preds = xr.load_dataset(spatial_preds_path)
     output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
-    plot_spatial(preds, output_path, to_wandb=False)
+    plot_spatial(preds, output_path, to_wandb=False, task_type=task_type)
 
 # if wandb_enabled:
 #     wandb.log(results)

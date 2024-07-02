@@ -15,6 +15,7 @@ from einops import rearrange, repeat
 from pyproj import Transformer
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
+from rasterio import CRS
 
 from .dataops import (
     BANDS,
@@ -167,8 +168,10 @@ class WorldCerealBase(Dataset):
         ewoc_map = ewoc_map.apply(lambda x: x[:x.last_valid_index()].ffill(), axis=1)
         ewoc_map.set_index('ewoc_code', inplace=True)
 
-        df['CROPTYPE_LABEL'].replace(0, np.nan, inplace=True)
-        df['CROPTYPE_LABEL'].fillna(df['LANDCOVER_LABEL'], inplace=True)
+        # df['CROPTYPE_LABEL'].replace(0, np.nan, inplace=True)
+        # df['CROPTYPE_LABEL'].fillna(df['LANDCOVER_LABEL'], inplace=True)
+        df.loc[df['CROPTYPE_LABEL'] == 0, 'CROPTYPE_LABEL'] = np.nan
+        df['CROPTYPE_LABEL'] = df['CROPTYPE_LABEL'].fillna(df['LANDCOVER_LABEL'])
 
         df['ewoc_code'] = df['CROPTYPE_LABEL'].map(wc2ewoc_map.set_index('croptype')['ewoc_code'])
         df['landcover_name'] = df['ewoc_code'].map(ewoc_map['landcover_name'])
@@ -463,8 +466,12 @@ class WorldCerealInferenceDataset(Dataset):
     def nc_to_arrays(
         cls, filepath: Path
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        ds = cast(xr.Dataset, rioxarray.open_rasterio(filepath, decode_times=False))
-        epsg_coords = ds.rio.crs.to_epsg()
+        # ds = rioxarray.open_rasterio(filepath, decode_times=False)
+        # ds = cast(xr.Dataset, rioxarray.open_rasterio(filepath, decode_times=True))
+        # epsg_coords = ds.rio.crs.to_epsg()
+        print(filepath)
+        ds = xr.open_dataset(filepath)
+        epsg_coords = CRS.from_wkt(ds.crs.crs_wkt).to_epsg()
 
         num_instances = len(ds.x) * len(ds.y)
         num_timesteps = len(ds.t)
@@ -516,16 +523,54 @@ class WorldCerealInferenceDataset(Dataset):
 
     @staticmethod
     def combine_predictions(
-        latlons: np.ndarray, all_preds: np.ndarray, gt: np.ndarray, ndvi: np.ndarray
+        latlons: np.ndarray,
+        all_preds: np.ndarray,
+        all_preds_ewoc_code: np.ndarray,
+        all_probs: np.ndarray,
+        gt: np.ndarray,
+        ndvi: np.ndarray,
+        b2: np.ndarray,
+        b3: np.ndarray,
+        b4: np.ndarray,
     ) -> pd.DataFrame:
         flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
-        if len(all_preds.shape) == 1:
-            all_preds = np.expand_dims(all_preds, axis=-1)
 
         data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
-        for i in range(all_preds.shape[1]):
-            prediction_label = f"prediction_{i}"
-            data_dict[prediction_label] = all_preds[:, i]
+
+        # if len(all_preds.shape) == 1:
+        #     all_preds = np.expand_dims(all_preds, axis=-1)
+
+        if type(all_probs) == int:
+            all_probs = np.zeros_like(all_preds_ewoc_code)
+        if type(all_preds) == int :
+            all_preds = np.zeros_like(all_preds_ewoc_code)
+
+        if len(all_probs.shape) == 1:
+            all_probs = np.expand_dims(all_probs, axis=-1)
+
+        try:
+            top1_prob = np.max(all_probs, axis=-1)
+            if all_probs.shape[-1] > 1:
+                top2_prob = np.partition(all_probs, -2, axis=-1)[:, -2]
+            else:
+                top2_prob = np.zeros_like(all_preds_ewoc_code)
+        except:
+            top1_prob = np.zeros_like(all_preds_ewoc_code)
+            top2_prob = np.zeros_like(all_preds_ewoc_code)
+
+        data_dict["prob_0"] = top1_prob
+        data_dict["prob_1"] = top2_prob
+
+        # for i in range(all_preds.shape[1]):
+        #     prediction_label = f"prediction_{i}"
+        #     data_dict[prediction_label] = all_preds[:, i]
+        data_dict["prediction_0"] = all_preds
+
         data_dict["ground_truth"] = gt[:, 0]
         data_dict["ndvi"] = ndvi
+        data_dict["b2"] = b2
+        data_dict["b3"] = b3
+        data_dict["b4"] = b4
+        data_dict["pred0_ewoc"] = all_preds_ewoc_code
+
         return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])

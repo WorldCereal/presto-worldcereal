@@ -858,22 +858,44 @@ class Presto(nn.Module):
         )
 
         if dekadal:
-            # max_sequence_length = 72
-            # model.encoder.pos_embed = nn.Parameter(
-            #     torch.zeros(1, max_sequence_length, model.encoder.pos_embed.shape[-1]),
-            #     requires_grad=False,
-            # )
-            # pos_embed = get_sinusoid_encoding_table(
-            #     model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
-            # )
-            # model.encoder.pos_embed.data.copy_(pos_embed)
             model = extend_to_dekadal(model)
 
         if is_finetuned:
             model = cast(Callable, model.construct_finetuning_model)(num_outputs=num_outputs)
-        #     model: PrestoFineTuningModel = cast(Callable, pretrained_model.construct_finetuning_model)(
-        #     num_outputs=self.num_outputs
-        # ) 
+            # model: PrestoFineTuningModel = cast(Callable, model.construct_finetuning_model)(
+            #     num_outputs=num_outputs
+            #     )
+
+            # model.encoder.valid_month_encoding = nn.Parameter(
+            #     torch.ones(
+            #         valid_month_size,
+            #         device=device,
+            #         )
+            #     )
+
+            # valid_month = torch.ones((valid_month_size,), device=device).long()
+            # val_month_token = model.valid_month_encoding(valid_month)
+            # model.encoder.valid_month_encoding = nn.Parameter(
+            #     torch.ones(
+            #         # 1,
+            #         valid_month_size,
+            #         # model.encoder.valid_month_encoding.shape[-1],
+            #         device=device,
+            #     ).long(),
+            #     requires_grad=False,
+            #     )
+            # model.encoder.valid_month_encoding.copy_(valid_month)
+            
+        #     val_month_token = get_sinusoid_encoding_table(
+        #         model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
+        #     )
+        #     nn.Embedding.from_pretrained(
+        #     get_month_encoding_table(valid_month_size)
+        # )
+            
+        #     # valid_month = torch.ones((x.shape[0],), device=x.device).long()
+        #     # val_month_token = model.valid_month_encoding(valid_month)
+        #     print(model)
             
         if from_url:
             response = requests.get(model_path)

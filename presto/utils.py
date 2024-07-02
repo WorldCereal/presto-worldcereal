@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+import json
+import numpy as np
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -11,6 +13,8 @@ import pandas as pd
 import torch
 import xarray as xr
 from matplotlib import pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.colors as mcolors
 
 from .dataops import (
     BANDS,
@@ -31,6 +35,9 @@ config_dir = Path(__file__).parent.parent / "config"
 default_model_path = data_dir / "default_model.pt"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DEFAULT_SEED: int = 42
+
+with open(data_dir / "croptype_mappings" / "croptype_classes.json") as f:
+    CLASS_MAPPINGS = json.load(f)
 
 
 # From https://gist.github.com/ihoromi4/b681a9088f348942b01711f251e5f964
@@ -279,13 +286,77 @@ def plot_results(
     metrics_df.groupby(["model", "metric_type"]).apply(plot_for_group)
 
 
-def plot_spatial(spatial_preds: xr.Dataset, output_path: Path, to_wandb: bool = False):
-    plt.clf()
-    _, axs = plt.subplots(ncols=4, figsize=(25, 4))
-    spatial_preds.ndvi.plot(ax=axs[0], vmin=0, vmax=1)
-    spatial_preds.ground_truth.plot(ax=axs[1], vmin=0, vmax=1)
-    spatial_preds.prediction_0.plot(ax=axs[2], vmin=0, vmax=1)
-    (spatial_preds.prediction_0 > 0.5).plot(ax=axs[3], vmin=0, vmax=1)
+def plot_spatial(
+    spatial_preds: xr.Dataset,
+    output_path: Path,
+    to_wandb: bool = False,
+    task_type: str = "cropland",
+):
+    croptype_map = CLASS_MAPPINGS["CROPTYPE0"]
+    colors_map = CLASS_MAPPINGS["CROPTYPE0_COLORS"]
+
+    rgb_ts6 = np.dstack(
+        (
+            (spatial_preds.b4.values - spatial_preds.b4.values.min())
+            / (spatial_preds.b4.values.max() - spatial_preds.b4.values.min()),
+            (spatial_preds.b3.values - spatial_preds.b3.values.min())
+            / (spatial_preds.b3.values.max() - spatial_preds.b3.values.min()),
+            (spatial_preds.b2.values - spatial_preds.b2.values.min())
+            / (spatial_preds.b2.values.max() - spatial_preds.b2.values.min()),
+        )
+    )
+
+    fig = plt.figure(figsize=(20, 12))
+
+    fig.add_subplot(2, 3, 1)
+    plt.imshow(spatial_preds.ground_truth)
+    plt.axis("off")
+    plt.title("Phase I WorldCereal Mask")
+
+    fig.add_subplot(2, 3, 2)
+    plt.imshow(rgb_ts6)
+    plt.axis("off")
+    plt.title("RGB TS6")
+
+    fig.add_subplot(2, 3, 3)
+    plt.imshow(spatial_preds.ndvi)
+    plt.axis("off")
+    plt.title("NDVI TS6")
+
+    if task_type == "croptype":
+        fig.add_subplot(2, 3, 4)
+        values = [croptype_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
+        colors = [colors_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
+        cmap = mcolors.ListedColormap(colors)
+        im = plt.imshow(spatial_preds.prediction_0, cmap=cmap)
+        patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
+        plt.legend(
+            handles=patches, bbox_to_anchor=(1.25, 0.65), loc=1, borderaxespad=0.0, prop={"size": 6}
+        )
+        plt.axis("off")
+        plt.title("Croptype predictions")
+
+    if task_type == "cropland":
+        fig.add_subplot(2, 3, 4)
+        plt.imshow(spatial_preds.prob_0>0.5)
+        plt.axis('off')
+        plt.title('Cropland predictions')
+
+    fig.add_subplot(2, 3, 5)
+    plt.imshow(spatial_preds.prob_0, cmap="Greens", vmin=0, vmax=1)
+    plt.colorbar()
+    plt.axis("off")
+    plt.title("Top1 class prob")
+
+    if task_type == "croptype":
+        fig.add_subplot(2, 3, 6)
+        plt.imshow(spatial_preds.prob_1, cmap="Greens", vmin=0, vmax=1)
+        plt.colorbar()
+        plt.axis("off")
+        plt.title("Top2 class prob")
+
+    # plt.suptitle(test_patch_name)
+
     plt.savefig(output_path, bbox_inches="tight")
     if to_wandb:
         import wandb
