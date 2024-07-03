@@ -374,7 +374,6 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     df["valid_date_ind"] = ((df["timestamp"] - df["start_date"]).dt.days / 30).round().astype(int)
 
     # once the start date is settled, we take 12 months from that as input to Presto
-    df.drop_duplicates(index_columns, inplace=True)
     df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
         index=index_columns, columns="valid_date_ind", values=feature_columns
     )
