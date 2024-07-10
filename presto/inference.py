@@ -313,7 +313,7 @@ def get_presto_features(
 
 def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     # add dummy value + rename stuff for compatibility with existing functions
-    df["OPTICAL-B8A"] = 0
+    df["OPTICAL-B8A"] = 65535
     df.rename(
         columns={
             "S1-SIGMA0-VV": "SAR-VH",
