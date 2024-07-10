@@ -235,7 +235,8 @@ def plot_results(
                     partial(plot_map, diff_country, vmin=-1, cmap="coolwarm"),
                 ),
                 plot(
-                    f"{name} AEZ - CatBoost", partial(plot_map, diff_aez, vmin=-1, cmap="coolwarm")
+                    f"{name} AEZ - CatBoost",
+                    partial(plot_map, diff_aez, vmin=-1, cmap="coolwarm"),
                 ),
                 plot(
                     f"{name} Year - CatBoost",
@@ -308,3 +309,23 @@ def load_world_df() -> pd.DataFrame:
     world_df = gpd.read_file(data_dir / filename)
     world_df = world_df.drop(columns=["status", "color_code", "iso_3166_1_"])
     return world_df
+
+
+def prep_dataframe(
+    df: pd.DataFrame,
+    filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+    dekadal: bool = False,
+):
+    """Duplication from eval.py but otherwise we would need catboost during
+    presto inference on OpenEO.
+    """
+    # SAR cannot equal 0.0 since we take the log of it
+    cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
+
+    df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
+    df = df[~pd.isna(df).any(axis=1)]
+    df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
+    df = df.set_index("sample_id")
+    if filter_function is not None:
+        df = filter_function(df)
+    return df

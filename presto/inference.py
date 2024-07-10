@@ -16,10 +16,9 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .dataset import WorldCerealBase
-from .eval import WorldCerealEval
 from .masking import BAND_EXPANSION
 from .presto import Presto
-from .utils import device
+from .utils import device, prep_dataframe
 
 # Index to band groups mapping
 IDX_TO_BAND_GROUPS = {
@@ -402,6 +401,6 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     df_pivot["end_date"] = df_pivot["end_date"].dt.date.astype(str)
     df_pivot["valid_date"] = df_pivot["valid_date"].dt.date.astype(str)
 
-    df_pivot = WorldCerealEval.prep_dataframe(df_pivot)
+    df_pivot = prep_dataframe(df_pivot)
 
     return df_pivot
