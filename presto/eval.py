@@ -30,7 +30,7 @@ from .presto import (
     get_sinusoid_encoding_table,
     param_groups_lrd,
 )
-from .utils import DEFAULT_SEED, device
+from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
 
@@ -73,9 +73,9 @@ class WorldCerealEval:
         self.target_function = target_function
 
         train_data, val_data = WorldCerealLabelledDataset.split_df(train_data, val_size=val_size)
-        self.train_df = self.prep_dataframe(train_data, filter_function, dekadal=dekadal)
-        self.val_df = self.prep_dataframe(val_data, filter_function, dekadal=dekadal)
-        self.test_df = self.prep_dataframe(test_data, filter_function, dekadal=dekadal)
+        self.train_df = prep_dataframe(train_data, filter_function, dekadal=dekadal)
+        self.val_df = prep_dataframe(val_data, filter_function, dekadal=dekadal)
+        self.test_df = prep_dataframe(test_data, filter_function, dekadal=dekadal)
 
         self.spatial_inference_savedir = spatial_inference_savedir
 
@@ -89,23 +89,6 @@ class WorldCerealEval:
 
         self.dekadal = dekadal
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
-
-    @staticmethod
-    def prep_dataframe(
-        df: pd.DataFrame,
-        filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
-        dekadal: bool = False,
-    ):
-        # SAR cannot equal 0.0 since we take the log of it
-        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
-
-        df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
-        df = df[~pd.isna(df).any(axis=1)]
-        df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
-        df = df.set_index("sample_id")
-        if filter_function is not None:
-            df = filter_function(df)
-        return df
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model: PrestoFineTuningModel = cast(Callable, pretrained_model.construct_finetuning_model)(

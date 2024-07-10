@@ -51,7 +51,9 @@ def seed_everything(seed: int = DEFAULT_SEED):
     torch.backends.cudnn.benchmark = True
 
 
-def initialize_logging(output_dir: Union[str, Path], to_file=True, logger_name="__main__"):
+def initialize_logging(
+    output_dir: Union[str, Path], to_file=True, logger_name="__main__"
+):
     logger = logging.getLogger(logger_name)
     formatter = logging.Formatter(
         fmt="%(asctime)s - %(levelname)s - %(message)s",
@@ -116,7 +118,9 @@ def construct_single_presto_input(
     assert len(num_timesteps_list) > 0
     assert all(num_timesteps_list[0] == timestep for timestep in num_timesteps_list)
     num_timesteps = num_timesteps_list[0]
-    mask, x = torch.ones(num_timesteps, len(BANDS)), torch.zeros(num_timesteps, len(BANDS))
+    mask, x = torch.ones(num_timesteps, len(BANDS)), torch.zeros(
+        num_timesteps, len(BANDS)
+    )
 
     for band_group in [
         (s1, s1_bands, S1_BANDS),
@@ -132,7 +136,9 @@ def construct_single_presto_input(
 
         kept_output_bands = [x for x in output_bands if x not in REMOVED_BANDS]
         # construct a mapping from the input bands to the expected bands
-        kept_input_band_idxs = [i for i, val in enumerate(input_bands) if val in kept_output_bands]
+        kept_input_band_idxs = [
+            i for i, val in enumerate(input_bands) if val in kept_output_bands
+        ]
         kept_input_band_names = [val for val in input_bands if val in kept_output_bands]
 
         input_to_output_mapping = [BANDS.index(val) for val in kept_input_band_names]
@@ -194,12 +200,16 @@ def plot_results(
         plt.ylabel(ylabel)
 
     def plot_for_group(grp_df):
-        mrgd_country = world_df.merge(grp_df, left_on="name", right_on="country", how="left")
+        mrgd_country = world_df.merge(
+            grp_df, left_on="name", right_on="country", how="left"
+        )
         mrgd_country = mrgd_country.dropna(subset="model")
 
         grp_df_aez = grp_df.loc[~pd.isna(grp_df.aez)]
         grp_df_aez.loc[:, "aez"] = grp_df_aez.aez.astype(int)
-        mrgd_aez = aez_df.merge(grp_df_aez, left_on="zoneID", right_on="aez", how="left")
+        mrgd_aez = aez_df.merge(
+            grp_df_aez, left_on="zoneID", right_on="aez", how="left"
+        )
         mrgd_aez = mrgd_aez.dropna(subset="model")
 
         grp_df_y = grp_df.loc[pd.notna(grp_df.year)].sort_values("year")
@@ -235,7 +245,8 @@ def plot_results(
                     partial(plot_map, diff_country, vmin=-1, cmap="coolwarm"),
                 ),
                 plot(
-                    f"{name} AEZ - CatBoost", partial(plot_map, diff_aez, vmin=-1, cmap="coolwarm")
+                    f"{name} AEZ - CatBoost",
+                    partial(plot_map, diff_aez, vmin=-1, cmap="coolwarm"),
                 ),
                 plot(
                     f"{name} Year - CatBoost",
@@ -260,8 +271,12 @@ def plot_results(
     country = metrics_df.metric.apply(
         lambda m: m.split(":")[-1].lstrip() if "country" in m else None
     )
-    aez = metrics_df.metric.apply(lambda m: m.split(":")[-1].lstrip() if "aez" in m else None)
-    year = metrics_df.metric.apply(lambda m: m.split(":")[-1].lstrip() if "year" in m else None)
+    aez = metrics_df.metric.apply(
+        lambda m: m.split(":")[-1].lstrip() if "aez" in m else None
+    )
+    year = metrics_df.metric.apply(
+        lambda m: m.split(":")[-1].lstrip() if "year" in m else None
+    )
     model = metrics_df.metric.apply(lambda m: m.split("_")[1].strip())
     metrics_df = pd.concat((metrics_df, model, aez, year, country), axis=1)
     metrics_df.columns = ["metric", "value", "model", "aez", "year", "country"]
@@ -271,8 +286,12 @@ def plot_results(
         lambda x: "_".join(x[-2:]) if x[-2] not in metrics_df.model.unique() else x[-1]
     )
     # e.g. f1, recall, precision
-    metrics_df["metric_type"] = metrics_df.metric_wo_model.str.split(":", expand=True).loc[:, 0]
-    metrics_df["metric_type"] = metrics_df["metric_type"].str.split("_").apply(lambda x: x[-1])
+    metrics_df["metric_type"] = metrics_df.metric_wo_model.str.split(
+        ":", expand=True
+    ).loc[:, 0]
+    metrics_df["metric_type"] = (
+        metrics_df["metric_type"].str.split("_").apply(lambda x: x[-1])
+    )
     # add catboost performance to other model's rows to plot difference
     metrics_df = metrics_df.merge(
         metrics_df.loc[metrics_df.model == "CatBoost"],
@@ -308,3 +327,25 @@ def load_world_df() -> pd.DataFrame:
     world_df = gpd.read_file(data_dir / filename)
     world_df = world_df.drop(columns=["status", "color_code", "iso_3166_1_"])
     return world_df
+
+
+def prep_dataframe(
+    df: pd.DataFrame,
+    filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+    dekadal: bool = False,
+):
+    """Duplication from eval.py but otherwise we would need catboost during
+    presto inference on OpenEO.
+    """
+    # SAR cannot equal 0.0 since we take the log of it
+    cols = [
+        f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)
+    ]
+
+    df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
+    df = df[~pd.isna(df).any(axis=1)]
+    df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
+    df = df.set_index("sample_id")
+    if filter_function is not None:
+        df = filter_function(df)
+    return df
