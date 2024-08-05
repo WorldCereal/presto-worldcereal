@@ -1,10 +1,10 @@
-import logging
 import json
+import logging
 from datetime import datetime, timedelta
 from math import modf
 from pathlib import Path
 from random import sample
-from typing import Callable, Dict, List, Optional, Tuple, cast, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union, cast
 
 import geopandas as gpd
 import numpy as np
@@ -13,17 +13,11 @@ import rioxarray
 import xarray as xr
 from einops import rearrange, repeat
 from pyproj import Transformer
+from rasterio import CRS
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
-from rasterio import CRS
 
-from .dataops import (
-    BANDS,
-    BANDS_GROUPS_IDX,
-    NORMED_BANDS,
-    S1_S2_ERA5_SRTM,
-    DynamicWorld2020_2021,
-)
+from .dataops import BANDS, BANDS_GROUPS_IDX, NORMED_BANDS, S1_S2_ERA5_SRTM, DynamicWorld2020_2021
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, load_world_df
 
@@ -67,39 +61,36 @@ class WorldCerealBase(Dataset):
 
     @staticmethod
     def target_crop(
-        # row_d: Dict,
-        row_d: pd.Series,  
+        row_d: pd.Series,
         task_type: str = "cropland",
         croptype_list: List = [],
         model_mode: str = "",
-        ):
+    ):
         # by default, we predict crop vs non crop
-        if task_type=="cropland":
+        if task_type == "cropland":
             return int(row_d["LANDCOVER_LABEL"] == 11)
-        if task_type=="croptype":
-            if model_mode=="Hierarchical CatBoostClassifier":
+        if task_type == "croptype":
+            if model_mode == "Hierarchical CatBoostClassifier":
                 return [row_d["landcover_name"], row_d["downstream_class"]]
-            elif len(croptype_list)==0:
+            elif len(croptype_list) == 0:
                 return row_d["downstream_class"]
             else:
                 return row_d[croptype_list].astype(int).values
 
     @classmethod
     def row_to_arrays(
-        cls, 
-        row: pd.Series, 
-        target_function: Callable[[Dict], int], 
+        cls,
+        row: pd.Series,
+        target_function: Callable[[Dict], int],
         task_type: str = "cropland",
         croptype_list: List = [],
-        model_mode: str = ""
+        model_mode: str = "",
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int, Union[int, str, np.ndarray, list]]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
-        # latlon = np.zeros_like(latlon)
-
         month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
         valid_month = datetime.strptime(row_d["valid_date"], "%Y-%m-%d").month - 1
 
@@ -137,7 +128,7 @@ class WorldCerealBase(Dataset):
             latlon,
             month,
             valid_month,
-            target_function(row, task_type, croptype_list, model_mode)
+            target_function(row, task_type, croptype_list, model_mode),
         )
 
     def __getitem__(self, idx):
@@ -157,32 +148,33 @@ class WorldCerealBase(Dataset):
         df: pd.DataFrame,
         finetune_classes="CROPTYPE0",
         downstream_classes="CROPTYPE19",
-        ) -> pd.DataFrame:
+    ) -> pd.DataFrame:
 
         wc2ewoc_map = pd.read_csv(data_dir / "croptype_mappings" / "wc2eurocrops_map.csv")
-        wc2ewoc_map['ewoc_code'] = wc2ewoc_map['ewoc_code'].str.replace('-','').astype(int)
+        wc2ewoc_map["ewoc_code"] = wc2ewoc_map["ewoc_code"].str.replace("-", "").astype(int)
 
         ewoc_map = pd.read_csv(data_dir / "croptype_mappings" / "eurocrops_map_wcr_edition.csv")
-        ewoc_map = ewoc_map[ewoc_map['ewoc_code'].notna()]
-        ewoc_map['ewoc_code'] = ewoc_map['ewoc_code'].str.replace('-','').astype(int)
-        ewoc_map = ewoc_map.apply(lambda x: x[:x.last_valid_index()].ffill(), axis=1)
-        ewoc_map.set_index('ewoc_code', inplace=True)
+        ewoc_map = ewoc_map[ewoc_map["ewoc_code"].notna()]
+        ewoc_map["ewoc_code"] = ewoc_map["ewoc_code"].str.replace("-", "").astype(int)
+        ewoc_map = ewoc_map.apply(lambda x: x[: x.last_valid_index()].ffill(), axis=1)
+        ewoc_map.set_index("ewoc_code", inplace=True)
 
-        # df['CROPTYPE_LABEL'].replace(0, np.nan, inplace=True)
-        # df['CROPTYPE_LABEL'].fillna(df['LANDCOVER_LABEL'], inplace=True)
-        df.loc[df['CROPTYPE_LABEL'] == 0, 'CROPTYPE_LABEL'] = np.nan
-        df['CROPTYPE_LABEL'] = df['CROPTYPE_LABEL'].fillna(df['LANDCOVER_LABEL'])
+        df.loc[df["CROPTYPE_LABEL"] == 0, "CROPTYPE_LABEL"] = np.nan
+        df["CROPTYPE_LABEL"] = df["CROPTYPE_LABEL"].fillna(df["LANDCOVER_LABEL"])
 
-        df['ewoc_code'] = df['CROPTYPE_LABEL'].map(wc2ewoc_map.set_index('croptype')['ewoc_code'])
-        df['landcover_name'] = df['ewoc_code'].map(ewoc_map['landcover_name'])
-        df['cropgroup_name'] = df['ewoc_code'].map(ewoc_map['cropgroup_name'])
-        df['croptype_name'] = df['ewoc_code'].map(ewoc_map['croptype_name'])
+        df["ewoc_code"] = df["CROPTYPE_LABEL"].map(wc2ewoc_map.set_index("croptype")["ewoc_code"])
+        df["landcover_name"] = df["ewoc_code"].map(ewoc_map["landcover_name"])
+        df["cropgroup_name"] = df["ewoc_code"].map(ewoc_map["cropgroup_name"])
+        df["croptype_name"] = df["ewoc_code"].map(ewoc_map["croptype_name"])
 
-        df['downstream_class'] = df['ewoc_code'].map({int(k):v for k,v in CLASS_MAPPINGS[downstream_classes].items()})
-        df['finetune_class'] = df['ewoc_code'].map({int(k):v for k,v in CLASS_MAPPINGS[finetune_classes].items()})
-        
+        df["downstream_class"] = df["ewoc_code"].map(
+            {int(k): v for k, v in CLASS_MAPPINGS[downstream_classes].items()}
+        )
+        df["finetune_class"] = df["ewoc_code"].map(
+            {int(k): v for k, v in CLASS_MAPPINGS[finetune_classes].items()}
+        )
+
         return df
-
 
     @staticmethod
     def check(array: np.ndarray) -> np.ndarray:
@@ -266,7 +258,9 @@ class WorldCerealMaskedDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, real_mask_per_token, latlon, month, _, _ = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list, self.model_mode)
+        eo, real_mask_per_token, latlon, month, _, _ = self.row_to_arrays(
+            row, self.target_crop, self.task_type, self.croptype_list, self.model_mode
+        )
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
         )
@@ -291,16 +285,27 @@ class WorldCerealMaskedDataset(WorldCerealBase):
 
 def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
     labels_to_exclude = [
-        0, 991, 7900, 9900, 9998, # unspecified cropland 
-        1910, 1900, 1920, 1000, # cereals, too generic
-        11, 9910, 6212,  # temporary crops, too generic
-        7920, 9520, 3400, 3900, # generic and other classes
-        4390, 4000, 4300, # generic and other classes
+        0,
+        991,
+        7900,
+        9900,
+        9998,  # unspecified cropland
+        1910,
+        1900,
+        1920,
+        1000,  # cereals, too generic
+        11,
+        9910,
+        6212,  # temporary crops, too generic
+        7920,
+        9520,
+        3400,
+        3900,  # generic and other classes
+        4390,
+        4000,
+        4300,  # generic and other classes
     ]
-    df = df[
-    (df["LANDCOVER_LABEL"] == 11) & 
-    (~df['CROPTYPE_LABEL'].isin(labels_to_exclude))
-    ]
+    df = df[(df["LANDCOVER_LABEL"] == 11) & (~df["CROPTYPE_LABEL"].isin(labels_to_exclude))]
     df.reset_index(inplace=True)
     return df
 
@@ -323,7 +328,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         balance: bool = False,
         task_type: str = "cropland",
         croptype_list: List = [],
-        model_mode: str = ""
+        model_mode: str = "",
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -374,7 +379,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, month, valid_month, target = self.row_to_arrays(row, self.target_function, self.task_type, self.croptype_list, self.model_mode)
+        eo, mask_per_token, latlon, month, valid_month, target = self.row_to_arrays(
+            row, self.target_function, self.task_type, self.croptype_list, self.model_mode
+        )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -391,7 +398,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if self._class_weights is None:
             ys = []
             for _, row in self.df.iterrows():
-                ys.append(self.target_function(row, self.task_type, self.croptype_list, self.model_mode))
+                ys.append(
+                    self.target_function(row, self.task_type, self.croptype_list, self.model_mode)
+                )
             self._class_weights = compute_class_weight(
                 class_weight="balanced", classes=np.unique(ys), y=ys
             )
@@ -422,7 +431,9 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, _, valid_month, target = self.row_to_arrays(row, self.target_crop, self.task_type, self.croptype_list, self.model_mode)
+        eo, mask_per_token, latlon, _, valid_month, target = self.row_to_arrays(
+            row, self.target_crop, self.task_type, self.croptype_list, self.model_mode
+        )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -466,10 +477,7 @@ class WorldCerealInferenceDataset(Dataset):
     def nc_to_arrays(
         cls, filepath: Path
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        # ds = rioxarray.open_rasterio(filepath, decode_times=False)
-        # ds = cast(xr.Dataset, rioxarray.open_rasterio(filepath, decode_times=True))
-        # epsg_coords = ds.rio.crs.to_epsg()
-        print(filepath)
+
         ds = xr.open_dataset(filepath)
         epsg_coords = CRS.from_wkt(ds.crs.crs_wkt).to_epsg()
 
@@ -537,12 +545,9 @@ class WorldCerealInferenceDataset(Dataset):
 
         data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
 
-        # if len(all_preds.shape) == 1:
-        #     all_preds = np.expand_dims(all_preds, axis=-1)
-
         if type(all_probs) == int:
             all_probs = np.zeros_like(all_preds_ewoc_code)
-        if type(all_preds) == int :
+        if type(all_preds) == int:
             all_preds = np.zeros_like(all_preds_ewoc_code)
 
         if len(all_probs.shape) == 1:
@@ -561,11 +566,7 @@ class WorldCerealInferenceDataset(Dataset):
         data_dict["prob_0"] = top1_prob
         data_dict["prob_1"] = top2_prob
 
-        # for i in range(all_preds.shape[1]):
-        #     prediction_label = f"prediction_{i}"
-        #     data_dict[prediction_label] = all_preds[:, i]
         data_dict["prediction_0"] = all_preds
-
         data_dict["ground_truth"] = gt[:, 0]
         data_dict["ndvi"] = ndvi
         data_dict["b2"] = b2
