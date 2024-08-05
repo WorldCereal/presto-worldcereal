@@ -840,7 +840,7 @@ class Presto(nn.Module):
 
     @classmethod
     def load_pretrained(
-        cls, 
+        cls,
         model_path: Union[str, Path] = default_model_path,
         from_url: bool = False,
         strict: bool = True,
@@ -852,51 +852,18 @@ class Presto(nn.Module):
     ):
 
         model = cls.construct(
-                # max_sequence_length=max_sequence_length,
-                valid_month_as_token=valid_month_as_token, 
-                valid_month_size=valid_month_size
+            valid_month_as_token=valid_month_as_token,
+            valid_month_size=valid_month_size,
         )
 
         if dekadal:
             model = extend_to_dekadal(model)
 
         if is_finetuned:
-            model = cast(Callable, model.construct_finetuning_model)(num_outputs=num_outputs)
-            # model: PrestoFineTuningModel = cast(Callable, model.construct_finetuning_model)(
-            #     num_outputs=num_outputs
-            #     )
+            # here, I want to be able to upload Presto model that has already been finetuned so that I can only play with the head 
+            # a model needs to be constructed so that weights can be loaded
+            # currently, cannot correctly construct the finetuned head and populate it with weights 😥
 
-            # model.encoder.valid_month_encoding = nn.Parameter(
-            #     torch.ones(
-            #         valid_month_size,
-            #         device=device,
-            #         )
-            #     )
-
-            # valid_month = torch.ones((valid_month_size,), device=device).long()
-            # val_month_token = model.valid_month_encoding(valid_month)
-            # model.encoder.valid_month_encoding = nn.Parameter(
-            #     torch.ones(
-            #         # 1,
-            #         valid_month_size,
-            #         # model.encoder.valid_month_encoding.shape[-1],
-            #         device=device,
-            #     ).long(),
-            #     requires_grad=False,
-            #     )
-            # model.encoder.valid_month_encoding.copy_(valid_month)
-            
-        #     val_month_token = get_sinusoid_encoding_table(
-        #         model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
-        #     )
-        #     nn.Embedding.from_pretrained(
-        #     get_month_encoding_table(valid_month_size)
-        # )
-            
-        #     # valid_month = torch.ones((x.shape[0],), device=x.device).long()
-        #     # val_month_token = model.valid_month_encoding(valid_month)
-        #     print(model)
-            
         if from_url:
             response = requests.get(model_path)
             presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
@@ -905,6 +872,7 @@ class Presto(nn.Module):
             model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
 
         return model
+
 
 def param_groups_lrd(
     model: PrestoFineTuningModel,
@@ -988,7 +956,7 @@ def extend_to_dekadal(model):
         model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
     )
     model.encoder.pos_embed.data.copy_(pos_embed.to(device=old_pos_embed_device))
-    
+
     # reinitialize positional embeddings for decoder to deal with decadal data
     old_pos_embed_device = model.decoder.pos_embed.device
     model.decoder.pos_embed = nn.Parameter(
