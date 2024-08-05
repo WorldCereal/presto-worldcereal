@@ -488,6 +488,9 @@ class Encoder(nn.Module):
         latlon_tokens = self.latlon_embed(self.cartesian(latlons)).unsqueeze(1)
         x, upd_mask, orig_indices = self.add_token(latlon_tokens, x, upd_mask, orig_indices)
 
+        # un-comment the next line to ignore latlon tokens to test if location overfitting is happenning 
+        # upd_mask[:, 0] = 1
+
         if valid_month is not None:
             val_month_token = self.valid_month_encoding(valid_month)
             if self.valid_month_as_token:
