@@ -12,9 +12,7 @@ from hiclass import LocalClassifierPerNode
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    classification_report,
-)
+from sklearn.metrics import classification_report
 from torch import nn
 from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
@@ -27,9 +25,7 @@ from .dataset import (
     WorldCerealLabelled10DDataset,
     WorldCerealLabelledDataset,
 )
-from .hierarchical_classification import (
-    CatBoostClassifierWrapper,
-)
+from .hierarchical_classification import CatBoostClassifierWrapper
 from .presto import (
     Presto,
     PrestoFineTuningModel,
