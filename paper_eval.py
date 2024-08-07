@@ -9,12 +9,10 @@ from typing import Optional, cast
 
 import pandas as pd
 import requests
-import torch
-import torch.utils.model_zoo
 import xarray as xr
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
-from presto.presto import Presto, PrestoFineTuningModel
+from presto.presto import Presto
 from presto.utils import (
     DEFAULT_SEED,
     config_dir,

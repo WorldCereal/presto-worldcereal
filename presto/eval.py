@@ -1,7 +1,6 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
@@ -9,27 +8,35 @@ import numpy as np
 import pandas as pd
 import torch
 from catboost import CatBoostClassifier, Pool
-from hiclass import LocalClassifierPerNode, LocalClassifierPerParentNode
+from hiclass import LocalClassifierPerNode
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (classification_report, f1_score, precision_score,
-                             recall_score)
+from sklearn.metrics import (
+    classification_report,
+)
 from torch import nn
 from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
-                      WorldCerealInferenceDataset,
-                      WorldCerealLabelled10DDataset,
-                      WorldCerealLabelledDataset)
-from .hierarchical_classification import (CatBoostClassifierWrapper,
-                                          LocalClassifierPerNodeWrapper,
-                                          LocalClassifierPerParentNodeWrapper)
-from .presto import (Presto, PrestoFineTuningModel,
-                     get_sinusoid_encoding_table, param_groups_lrd)
-from .utils import DEFAULT_SEED, device
+from .dataset import (
+    CLASS_MAPPINGS,
+    NORMED_BANDS,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelled10DDataset,
+    WorldCerealLabelledDataset,
+)
+from .hierarchical_classification import (
+    CatBoostClassifierWrapper,
+)
+from .presto import (
+    Presto,
+    PrestoFineTuningModel,
+    get_sinusoid_encoding_table,
+    param_groups_lrd,
+)
+from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
 
@@ -74,9 +81,9 @@ class WorldCerealEval:
         self.name = f"WorldCereal{task_type.title()}"
 
         train_data, val_data = WorldCerealLabelledDataset.split_df(train_data, val_size=val_size)
-        self.train_df = self.prep_dataframe(train_data, filter_function, dekadal=dekadal)
-        self.val_df = self.prep_dataframe(val_data, filter_function, dekadal=dekadal)
-        self.test_df = self.prep_dataframe(test_data, filter_function, dekadal=dekadal)
+        self.train_df = prep_dataframe(train_data, filter_function, dekadal=dekadal)
+        self.val_df = prep_dataframe(val_data, filter_function, dekadal=dekadal)
+        self.test_df = prep_dataframe(test_data, filter_function, dekadal=dekadal)
 
         if task_type == "cropland":
             self.num_outputs = 1
@@ -135,24 +142,6 @@ class WorldCerealEval:
 
         self.dekadal = dekadal
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
-
-    @staticmethod
-    def prep_dataframe(
-        df: pd.DataFrame,
-        filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
-        dekadal: bool = False,
-    ):
-        # SAR cannot equal 0.0 since we take the log of it
-        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
-
-        df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
-        df = df[~pd.isna(df).any(axis=1)]
-        df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
-        df = df.set_index("sample_id")
-        if filter_function is not None:
-            df = filter_function(df)
-
-        return df
 
     @staticmethod
     def convert_to_onehot(
@@ -481,7 +470,15 @@ class WorldCerealEval:
 
             if self.task_type == "cropland":
                 df = ds.combine_predictions(
-                    latlons, test_preds_np, test_preds_np, test_preds_np, y, ndvi, b2, b3, b4
+                    latlons,
+                    test_preds_np,
+                    test_preds_np,
+                    test_preds_np,
+                    y,
+                    ndvi,
+                    b2,
+                    b3,
+                    b4,
                 )
             if self.task_type == "croptype":
                 df = ds.combine_predictions(
@@ -563,7 +560,11 @@ class WorldCerealEval:
             metrics_agg = "macro"
 
         _results = classification_report(
-            target_np, test_preds_np, labels=_croptype_list, output_dict=True, zero_division=0
+            target_np,
+            test_preds_np,
+            labels=_croptype_list,
+            output_dict=True,
+            zero_division=0,
         )
         _results_df = pd.DataFrame(_results).transpose().reset_index()
         _results_df.columns = ["class", "precision", "recall", "f1-score", "support"]
@@ -595,10 +596,20 @@ class WorldCerealEval:
             for prop in prop_series.dropna().unique():
                 f: pd.Series = cast(pd.Series, prop_series == prop)
                 _report = classification_report(
-                    target[f], preds[f], labels=croptype_list, output_dict=True, zero_division=0
+                    target[f],
+                    preds[f],
+                    labels=croptype_list,
+                    output_dict=True,
+                    zero_division=0,
                 )
                 _report_df = pd.DataFrame(_report).transpose().reset_index()
-                _report_df.columns = ["class", "precision", "recall", "f1-score", "support"]
+                _report_df.columns = [
+                    "class",
+                    "precision",
+                    "recall",
+                    "f1-score",
+                    "support",
+                ]
                 if prop_name == "year":
                     _report_df["year"] = prop
                     _report_df["country"] = "all"

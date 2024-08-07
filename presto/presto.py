@@ -2,7 +2,7 @@ import io
 import math
 from copy import deepcopy
 from pathlib import Path
-from typing import Callable, Optional, Sized, Tuple, Union, cast
+from typing import Optional, Sized, Tuple, Union, cast
 
 import numpy as np
 import requests
@@ -488,7 +488,7 @@ class Encoder(nn.Module):
         latlon_tokens = self.latlon_embed(self.cartesian(latlons)).unsqueeze(1)
         x, upd_mask, orig_indices = self.add_token(latlon_tokens, x, upd_mask, orig_indices)
 
-        # un-comment the next line to ignore latlon tokens to test if location overfitting is happenning 
+        # un-comment the next line to ignore latlon tokens to test if location overfitting is happenning
         # upd_mask[:, 0] = 1
 
         if valid_month is not None:
@@ -630,7 +630,9 @@ class Decoder(nn.Module):
         remove_mask[torch.arange(num_timesteps - 1) + srtm_index] = True
 
         month_embedding = repeat(
-            self.month_embed(months), "b t d -> b (repeat t) d", repeat=num_channel_groups
+            self.month_embed(months),
+            "b t d -> b (repeat t) d",
+            repeat=num_channel_groups,
         )
         month_embedding = month_embedding[:, ~remove_mask]
         month_embedding[:, srtm_index] = 0
@@ -863,9 +865,9 @@ class Presto(nn.Module):
             model = extend_to_dekadal(model)
 
         # if is_finetuned:
-            # here, I want to be able to upload Presto model that has already been finetuned so that I can only play with the head 
-            # a model needs to be constructed so that weights can be loaded
-            # currently, cannot correctly construct the finetuned head and populate it with weights 😥
+        # here, I want to be able to upload Presto model that has already been finetuned so that I can only play with the head
+        # a model needs to be constructed so that weights can be loaded
+        # currently, cannot correctly construct the finetuned head and populate it with weights 😥
 
         if from_url:
             response = requests.get(model_path)
@@ -874,6 +876,14 @@ class Presto(nn.Module):
         else:
             model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
 
+        return model
+
+    @classmethod
+    def load_pretrained_url(cls, presto_url: str, strict: bool = True):
+        response = requests.get(presto_url)
+        presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
+        model = cls.construct()
+        model.load_state_dict(presto_model_layers, strict=strict)
         return model
 
 

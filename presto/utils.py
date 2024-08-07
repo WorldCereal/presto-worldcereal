@@ -28,6 +28,8 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 
+plt = None
+
 logger = logging.getLogger("__main__")
 
 data_dir = Path(__file__).parent.parent / "data"
@@ -172,6 +174,10 @@ def plot_results(
     to_wandb: bool = False,
     prefix: str = "",
 ):
+    global plt
+    if plt is None:
+        from matplotlib import pyplot as plt
+
     def plot(title: str, plot_fn: Callable, figsize=(15, 5)) -> Path:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         plot_fn(ax=ax)
@@ -186,10 +192,10 @@ def plot_results(
         plt.close()
         return path
 
-    def plot_map(scores: gpd.GeoDataFrame, ax: plt.Axes, vmin=0, vmax=1, cmap="coolwarm"):
+    def plot_map(scores: gpd.GeoDataFrame, ax, vmin=0, vmax=1, cmap="coolwarm"):
         scores.plot(column="value", legend=True, ax=ax, vmin=vmin, vmax=vmax, cmap=cmap)
 
-    def plot_year(scores: pd.DataFrame, ax: plt.Axes, ymin=0, ymax=1, ylabel=""):
+    def plot_year(scores: pd.DataFrame, ax, ymin=0, ymax=1, ylabel=""):
         scores.loc[:, ["year", "value"]].plot(kind="bar", legend=False, ax=ax)
         plt.xticks(ticks=range(len(scores.index)), labels=scores.year)
         plt.ylim(ymin, ymax)
@@ -237,7 +243,8 @@ def plot_results(
                     partial(plot_map, diff_country, vmin=-1, cmap="coolwarm"),
                 ),
                 plot(
-                    f"{name} AEZ - CatBoost", partial(plot_map, diff_aez, vmin=-1, cmap="coolwarm")
+                    f"{name} AEZ - CatBoost",
+                    partial(plot_map, diff_aez, vmin=-1, cmap="coolwarm"),
                 ),
                 plot(
                     f"{name} Year - CatBoost",
@@ -331,16 +338,20 @@ def plot_spatial(
         im = plt.imshow(spatial_preds.prediction_0, cmap=cmap)
         patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
         plt.legend(
-            handles=patches, bbox_to_anchor=(1.25, 0.65), loc=1, borderaxespad=0.0, prop={"size": 6}
+            handles=patches,
+            bbox_to_anchor=(1.25, 0.65),
+            loc=1,
+            borderaxespad=0.0,
+            prop={"size": 6},
         )
         plt.axis("off")
         plt.title("Croptype predictions")
 
     if task_type == "cropland":
         fig.add_subplot(2, 3, 4)
-        plt.imshow(spatial_preds.prob_0>0.5)
-        plt.axis('off')
-        plt.title('Cropland predictions')
+        plt.imshow(spatial_preds.prob_0 > 0.5)
+        plt.axis("off")
+        plt.title("Cropland predictions")
 
     fig.add_subplot(2, 3, 5)
     plt.imshow(spatial_preds.prob_0, cmap="Greens", vmin=0, vmax=1)
@@ -362,7 +373,7 @@ def plot_spatial(
         import wandb
 
         wandb.log({str(output_path): wandb.Image(str(output_path))})
-    plt.close()
+    plt.close()  # type: ignore
 
 
 def load_world_df() -> pd.DataFrame:
@@ -371,3 +382,23 @@ def load_world_df() -> pd.DataFrame:
     world_df = gpd.read_file(data_dir / filename)
     world_df = world_df.drop(columns=["status", "color_code", "iso_3166_1_"])
     return world_df
+
+
+def prep_dataframe(
+    df: pd.DataFrame,
+    filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+    dekadal: bool = False,
+):
+    """Duplication from eval.py but otherwise we would need catboost during
+    presto inference on OpenEO.
+    """
+    # SAR cannot equal 0.0 since we take the log of it
+    cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
+
+    df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
+    df = df[~pd.isna(df).any(axis=1)]
+    df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
+    df = df.set_index("sample_id")
+    if filter_function is not None:
+        df = filter_function(df)
+    return df
