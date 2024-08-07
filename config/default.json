@@ -7,5 +7,7 @@
     "encoder_num_heads": 8,
     "decoder_embedding_size": 128,
     "decoder_depth": 2,
-    "decoder_num_heads": 8
+    "decoder_num_heads": 8,
+    "valid_month_as_token": false,
+    "valid_month_size": 32
 }
