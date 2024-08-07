@@ -13,25 +13,22 @@ from hiclass import LocalClassifierPerNode, LocalClassifierPerParentNode
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, f1_score, precision_score, recall_score
+from sklearn.metrics import (classification_report, f1_score, precision_score,
+                             recall_score)
 from torch import nn
 from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    CLASS_MAPPINGS,
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
-from .hierarchical_classification import (
-    CatBoostClassifierWrapper,
-    LocalClassifierPerNodeWrapper,
-    LocalClassifierPerParentNodeWrapper,
-)
-from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
+from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
+                      WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
+from .hierarchical_classification import (CatBoostClassifierWrapper,
+                                          LocalClassifierPerNodeWrapper,
+                                          LocalClassifierPerParentNodeWrapper)
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device
 
 logger = logging.getLogger("__main__")
@@ -69,6 +66,7 @@ class WorldCerealEval:
         num_outputs: int = 1,
         croptype_list: List = [],
         finetune_classes: str = "CROPTYPE0",
+        downstream_classes: str = "CROPTYPE9",
     ):
         self.seed = seed
         self.target_function = target_function
@@ -121,6 +119,9 @@ class WorldCerealEval:
             # for test and val, additional step is needed to check whether certain classes are missing and need to be forced into df
             self.val_df = self.convert_to_onehot(self.val_df, self.croptype_list)
             self.test_df = self.convert_to_onehot(self.test_df, self.croptype_list)
+
+            self.finetune_classes = finetune_classes
+            self.downstream_classes = downstream_classes
 
         self.spatial_inference_savedir = spatial_inference_savedir
 
@@ -232,8 +233,11 @@ class WorldCerealEval:
 
         if self.task_type == "cropland":
             eval_metric = "F1"
+            loss_function = "Logloss"
         if self.task_type == "croptype":
-            eval_metric = "TotalF1"
+            # eval_metric = "TotalF1"
+            eval_metric = "MultiClass"
+            loss_function = "MultiClass"
 
         fit_models = []
         for model in tqdm(models, desc="Fitting sklearn models"):
@@ -272,6 +276,11 @@ class WorldCerealEval:
             if model != "Hierarchical CatBoostClassifier":
                 class_weights = cast(WorldCerealLabelledDataset, dl.dataset).class_weights
                 class_weight_dict = dict(zip(np.unique(train_targets), class_weights))
+                sample_weights_trn = np.ones((len(train_targets),))
+                sample_weights_val = np.ones((len(val_targets),))
+                for k, v in class_weight_dict.items():
+                    sample_weights_trn[train_targets == k] = v
+                    sample_weights_val[val_targets == k] = v
 
             if model == "CatBoostClassifier":
                 # Parameters emulate
@@ -286,8 +295,9 @@ class WorldCerealEval:
                     l2_leaf_reg=30,
                     # l2_leaf_reg=3,
                     eval_metric=eval_metric,
+                    loss_function=loss_function,
                     random_state=self.seed,
-                    class_weights=class_weight_dict,
+                    # class_weights=class_weight_dict,
                     verbose=25,
                     class_names=np.unique(train_targets),
                 )
@@ -295,7 +305,8 @@ class WorldCerealEval:
                     clone(downstream_model).fit(
                         train_encodings,
                         train_targets,
-                        eval_set=Pool(val_encodings, val_targets),
+                        sample_weight=sample_weights_trn,
+                        eval_set=Pool(val_encodings, val_targets, weight=sample_weights_val),
                     )
                 )
             elif model == "Hierarchical CatBoostClassifier":
@@ -311,7 +322,6 @@ class WorldCerealEval:
                 fit_models.append(
                     LocalClassifierPerNode(
                         local_classifier=downstream_model,
-                        # n_jobs=-1,
                         binary_policy="exclusive_siblings",
                     ).fit(
                         np.concatenate((train_encodings, val_encodings), axis=0),
@@ -439,14 +449,16 @@ class WorldCerealEval:
             if self.task_type == "croptype":
                 if pretrained_model is None:
                     temp_croptype_map = pd.DataFrame(
-                        CLASS_MAPPINGS["CROPTYPE19"].items(), columns=["ewoc_code", "name"]
+                        CLASS_MAPPINGS[self.finetuning_classes].items(),
+                        columns=["ewoc_code", "name"],
                     )
                     test_preds_np = np.argmax(test_preds_np, axis=-1)
                     test_preds_str = np.array([self.croptype_list[xx] for xx in test_preds_np])
                 else:
                     test_preds_np = np.argmax(test_probs_np, axis=-1)
                     temp_croptype_map = pd.DataFrame(
-                        CLASS_MAPPINGS["CROPTYPE19"].items(), columns=["ewoc_code", "name"]
+                        CLASS_MAPPINGS[self.downstream_classes].items(),
+                        columns=["ewoc_code", "name"],
                     )
 
                 temp_croptype_map.sort_values(
@@ -613,7 +625,7 @@ class WorldCerealEval:
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
             target_function=self.target_function,
-            # balance=True,
+            balance=False,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
         )
