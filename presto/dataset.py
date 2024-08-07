@@ -350,19 +350,37 @@ class WorldCerealLabelledDataset(WorldCerealBase):
 
         super().__init__(dataframe)
         if balance:
-            neg_indices, pos_indices = [], []
-            for loc_idx, (_, row) in enumerate(self.df.iterrows()):
-                target = self.target_function(row.to_dict())
-                if target == 0:
-                    neg_indices.append(loc_idx)
+            if task_type == "cropland":
+                neg_indices, pos_indices = [], []
+                for loc_idx, (_, row) in enumerate(self.df.iterrows()):
+                    target = self.target_function(row.to_dict())
+                    if target == 0:
+                        neg_indices.append(loc_idx)
+                    else:
+                        pos_indices.append(loc_idx)
+                if len(pos_indices) > len(neg_indices):
+                    self.indices = (
+                        pos_indices + (len(pos_indices) // len(neg_indices)) * neg_indices
+                    )
+                elif len(neg_indices) > len(pos_indices):
+                    self.indices = (
+                        neg_indices + (len(neg_indices) // len(pos_indices)) * pos_indices
+                    )
                 else:
-                    pos_indices.append(loc_idx)
-            if len(pos_indices) > len(neg_indices):
-                self.indices = pos_indices + (len(pos_indices) // len(neg_indices)) * neg_indices
-            elif len(neg_indices) > len(pos_indices):
-                self.indices = neg_indices + (len(neg_indices) // len(pos_indices)) * pos_indices
-            else:
-                self.indices = neg_indices + pos_indices
+                    self.indices = neg_indices + pos_indices
+            if task_type == "croptype":
+                classes_lst = self.df["finetune_class"].unique()
+                optimal_class_size = self.df["finetune_class"].value_counts().max()
+                balanced_inds = []
+                for tclass in classes_lst:
+                    tclass_sample_ids = self.df[self.df["finetune_class"] == tclass].index
+                    tclass_loc_idx = [self.df.index.get_loc(xx) for xx in tclass_sample_ids]
+                    if len(tclass_loc_idx) < optimal_class_size:
+                        tclass_loc_idx = tclass_loc_idx * (
+                            optimal_class_size // len(tclass_loc_idx)
+                        )
+                    balanced_inds.extend(tclass_loc_idx)
+                self.indices = balanced_inds
         else:
             self.indices = [i for i in range(len(self.df))]
 
