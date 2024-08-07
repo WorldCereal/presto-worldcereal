@@ -173,6 +173,9 @@ class WorldCerealBase(Dataset):
         df["finetune_class"] = df["ewoc_code"].map(
             {int(k): v for k, v in CLASS_MAPPINGS[finetune_classes].items()}
         )
+        df["balancing_class"] = df["ewoc_code"].map(
+            {int(k): v for k, v in CLASS_MAPPINGS["CROPTYPE19"].items()}
+        )
 
         return df
 
@@ -369,11 +372,11 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 else:
                     self.indices = neg_indices + pos_indices
             if task_type == "croptype":
-                classes_lst = self.df["finetune_class"].unique()
-                optimal_class_size = self.df["finetune_class"].value_counts().max()
+                classes_lst = self.df["balancing_class"].unique()
+                optimal_class_size = self.df["balancing_class"].value_counts().max()
                 balanced_inds = []
                 for tclass in classes_lst:
-                    tclass_sample_ids = self.df[self.df["finetune_class"] == tclass].index
+                    tclass_sample_ids = self.df[self.df["balancing_class"] == tclass].index
                     tclass_loc_idx = [self.df.index.get_loc(xx) for xx in tclass_sample_ids]
                     if len(tclass_loc_idx) < optimal_class_size:
                         tclass_loc_idx = tclass_loc_idx * (
