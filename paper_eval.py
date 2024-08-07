@@ -62,7 +62,7 @@ argparser.add_argument(
 argparser.add_argument(
     "--test_type",
     type=str,
-    default="temporal",
+    default="random",
     choices=["random", "spatial", "temporal", "seasonal"],
 )
 argparser.add_argument("--time_token", type=str, default="month", choices=["month", "none"])
@@ -70,11 +70,11 @@ argparser.add_argument("--time_token", type=str, default="month", choices=["mont
 argparser.add_argument(
     "--finetune_classes",
     type=str,
-    default="CROPTYPE19",
+    default="CROPTYPE0",
     choices=["CROPTYPE0", "CROPTYPE9", "CROPTYPE19"],
 )
 argparser.add_argument(
-    "--downstream_classes", type=str, default="CROPTYPE19", choices=["CROPTYPE9", "CROPTYPE19"]
+    "--downstream_classes", type=str, default="CROPTYPE9", choices=["CROPTYPE9", "CROPTYPE19"]
 )
 
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
@@ -87,10 +87,8 @@ model_name = args["model_name"]
 seed: int = args["seed"]
 num_workers: int = args["num_workers"]
 path_to_config = args["path_to_config"]
-
-
-# wandb_enabled: bool = args["wandb"]
-wandb_enabled = False
+warm_start = args["warm_start"]
+wandb_enabled: bool = args["wandb"]
 wandb_org: str = args["wandb_org"]
 
 presto_model_description: str = args["presto_model_description"]
@@ -121,7 +119,6 @@ initialize_logging(model_logging_dir)
 logger.info("Using output dir: %s" % model_logging_dir)
 
 parquet_file: str = args["parquet_file"]
-# val_samples_file: str = args["val_samples_file"]
 train_only_samples_file: str = args["train_only_samples_file"]
 
 dekadal = False
@@ -159,6 +156,7 @@ full_eval = WorldCerealEval(
     test_df,
     task_type=task_type,
     finetune_classes=finetune_classes,
+    downstream_classes=downstream_classes,
     dekadal=dekadal,
     spatial_inference_savedir=model_logging_dir,
 )
@@ -201,10 +199,12 @@ if os.path.isfile(finetuned_model_path):
 else:
     logger.info("Setting up model")
     if warm_start:
-        model_path = f"https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/{presto_model_description}_{compositing_window}_{cropland}.pt"
+        warm_start_model_name = "presto-ss-wc"
+        # warm_start_model_name = "presto-pt"
+        model_path = f"https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/{warm_start_model_name}_{compositing_window}.pt"
 
         if requests.get(model_path).status_code >= 400:
-            logger.error(f"No url for {presto_model_description} available")
+            logger.error(f"No url for {warm_start_model_name} available")
 
         model = Presto.load_pretrained(
             model_path=model_path,
@@ -226,7 +226,7 @@ else:
     results_df_combined, finetuned_model, sklearn_models_trained = full_eval.finetuning_results(
         model, sklearn_model_modes=model_modes
     )
-    torch.save(finetuned_model.state_dict(), finetuned_model_path)
+    # torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 results_df_combined["presto_model_description"] = presto_model_description
 results_df_combined["compositing_window"] = compositing_window
