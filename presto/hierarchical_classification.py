@@ -1,7 +1,7 @@
-from sklearn.model_selection import train_test_split
-from sklearn.utils.validation import check_is_fitted, check_array
 from catboost import CatBoostClassifier
-from hiclass import LocalClassifierPerParentNode, LocalClassifierPerNode
+from hiclass import LocalClassifierPerNode, LocalClassifierPerParentNode
+from sklearn.model_selection import train_test_split
+from sklearn.utils.validation import check_array, check_is_fitted
 
 
 class CatBoostClassifierWrapper(CatBoostClassifier):
@@ -15,7 +15,10 @@ class CatBoostClassifierWrapper(CatBoostClassifier):
         _X_trn, _X_val, _y_trn, _y_val = train_test_split(X, y, stratify=y, test_size=val_fraction)
 
         return super().fit(
-            _X_trn, _y_trn, eval_set=(_X_val, _y_val), early_stopping_rounds=early_stopping_rounds
+            _X_trn,
+            _y_trn,
+            eval_set=(_X_val, _y_val),
+            early_stopping_rounds=early_stopping_rounds,
         )
 
 
