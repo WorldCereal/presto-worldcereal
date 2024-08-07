@@ -53,7 +53,13 @@ argparser.add_argument(
     "--presto_model_description",
     type=str,
     default="presto-ss-wc-ft-ct",
-    choices=["presto-ss-wc-ft-ct", "presto-pt", "presto-ss-wc", "presto-ft-cl", "presto-ft-ct"],
+    choices=[
+        "presto-ss-wc-ft-ct",
+        "presto-pt",
+        "presto-ss-wc",
+        "presto-ft-cl",
+        "presto-ft-ct",
+    ],
 )
 argparser.add_argument(
     "--task_type", type=str, default="croptype", choices=["cropland", "croptype"]
@@ -73,7 +79,10 @@ argparser.add_argument(
     choices=["CROPTYPE0", "CROPTYPE9", "CROPTYPE19"],
 )
 argparser.add_argument(
-    "--downstream_classes", type=str, default="CROPTYPE9", choices=["CROPTYPE9", "CROPTYPE19"]
+    "--downstream_classes",
+    type=str,
+    default="CROPTYPE9",
+    choices=["CROPTYPE9", "CROPTYPE19"],
 )
 
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
@@ -255,11 +264,6 @@ for spatial_preds_path in all_spatial_preds:
     preds = xr.load_dataset(spatial_preds_path)
     output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
     plot_spatial(preds, output_path, to_wandb=False, task_type=task_type)
-
-if wandb_enabled:
-    wandb.log(results)
-    wandb.log(country_results)
-    wandb.log(year_results)
 
 if wandb_enabled and run:
     run.finish()
