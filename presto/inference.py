@@ -8,13 +8,7 @@ from einops import rearrange
 from pyproj import Transformer
 from torch.utils.data import DataLoader, TensorDataset
 
-from .dataops import (
-    BANDS,
-    BANDS_GROUPS_IDX,
-    NORMED_BANDS,
-    S1_S2_ERA5_SRTM,
-    DynamicWorld2020_2021,
-)
+from .dataops import BANDS, BANDS_GROUPS_IDX, NORMED_BANDS, S1_S2_ERA5_SRTM, DynamicWorld2020_2021
 from .dataset import WorldCerealBase
 from .masking import BAND_EXPANSION
 from .presto import Presto
@@ -279,10 +273,8 @@ def get_presto_features(
     """
 
     # Load the model
-    if presto_url.startswith("http"):
-        presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
-    else:
-        presto_model = Presto.load_pretrained(model_path=presto_url, strict=False)
+    from_url = presto_url.startswith("http")
+    presto_model = Presto.load_pretrained(model_path=presto_url, from_url=from_url, strict=False)
 
     presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
 
