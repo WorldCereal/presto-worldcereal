@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
 import geopandas as gpd
-import matplotlib.colors as mcolors
+
+# import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
@@ -28,7 +29,7 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 
-plt = None
+# plt = None
 
 logger = logging.getLogger("__main__")
 
@@ -334,8 +335,8 @@ def plot_spatial(
         fig.add_subplot(2, 3, 4)
         values = [croptype_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
         colors = [colors_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
-        cmap = mcolors.ListedColormap(colors)
-        im = plt.imshow(spatial_preds.prediction_0, cmap=cmap)
+        # cmap = mcolors.ListedColormap(colors)
+        # im = plt.imshow(spatial_preds.prediction_0, cmap=cmap)
         patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
         plt.legend(
             handles=patches,

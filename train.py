@@ -142,8 +142,12 @@ if time_token != "none":
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
 
-model_modes = ["CatBoostClassifier", "Hierarchical CatBoostClassifier"]
-# model_modes = ["Random Forest", "Regression", "CatBoostClassifier", "Hierarchical CatBoostClassifier"]
+model_modes = [
+    #   "Random Forest",
+    #   "Regression",
+    "CatBoostClassifier",
+    "Hierarchical CatBoostClassifier",
+]
 
 logger.info("Loading data")
 df = pd.read_parquet(data_dir / parquet_file)
@@ -171,7 +175,9 @@ full_eval = WorldCerealEval(
 
 model_path = output_parent_dir / "data"
 model_path.mkdir(exist_ok=True, parents=True)
-experiment_prefix = f"{presto_model_description}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}"
+experiment_prefix = f"""
+{presto_model_description}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}
+"""
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"
 results_path = model_logging_dir / f"{experiment_prefix}.csv"
 downstream_model_path = model_logging_dir / f"{experiment_prefix}_{downstream_classes}"
@@ -209,7 +215,9 @@ else:
     if warm_start:
         warm_start_model_name = "presto-ss-wc"
         # warm_start_model_name = "presto-pt"
-        warm_start_model_path = f"https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/{warm_start_model_name}_{compositing_window}.pt"
+        warm_start_model_path = f"""
+        https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/{warm_start_model_name}_{compositing_window}.pt
+        """
 
         if requests.get(warm_start_model_path).status_code >= 400:
             logger.error(f"No url for {warm_start_model_name} available")
@@ -252,7 +260,9 @@ for model in sklearn_models_trained:
             export_parameters={
                 "onnx_domain": "ai.catboost",
                 "onnx_model_version": 1,
-                "onnx_doc_string": f"model for croptype classification of {downstream_classes} classes",
+                "onnx_doc_string": f"""
+                model for croptype classification of {downstream_classes} classes
+                """,
                 "onnx_graph_name": "CatBoostModel_for_MulticlassClassification",
             },
         )

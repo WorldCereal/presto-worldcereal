@@ -55,7 +55,6 @@ class WorldCerealEval:
         years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
-        # target_function: Optional[Callable[[Dict], int]] = None,
         filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
         name: Optional[str] = None,
         val_size: float = 0.2,
@@ -67,7 +66,6 @@ class WorldCerealEval:
         downstream_classes: str = "CROPTYPE9",
     ):
         self.seed = seed
-        # self.target_function = target_function
         self.task_type = task_type
         self.name = f"WorldCereal{task_type.title()}"
 
@@ -85,8 +83,10 @@ class WorldCerealEval:
             for class_column in ["finetune_class", "downstream_class"]:
                 class_counts = self.train_df[class_column].value_counts()
                 small_classes = class_counts[class_counts < classes_threshold].index
-                # if no classes with n_samples < classes_threshold are present in train, force the "other" class using the class with minimal number of samples
-                # this is done so that the other class is always present, thus making test set with new labels compatible with the model,
+                # if no classes with n_samples < classes_threshold are present in train,
+                # force the "other" class using the class with minimal number of samples
+                # this is done so that the other class is always present,
+                # thus making test set with new labels compatible with the model,
                 # as in this way unseen labels will be mapped into "other" class
                 if len(small_classes) == 0:
                     small_classes = [class_counts.index[-1]]
@@ -94,7 +94,6 @@ class WorldCerealEval:
                 self.train_df.loc[
                     self.train_df[class_column].isin(small_classes), class_column
                 ] = "other_crop"
-                # train_classes = list(np.sort(self.train_df[class_column].unique()))
                 train_classes = list(self.train_df[class_column].unique())
                 if class_column == "finetune_class":
                     self.croptype_list = train_classes
@@ -109,12 +108,14 @@ class WorldCerealEval:
                 )
 
             # create one-hot representation from obtained labels
-            # one-hot is needed for finetuning, while downstream CatBoost can work with categorical labels
+            # one-hot is needed for finetuning,
+            # while downstream CatBoost can work with categorical labels
             self.train_df["finetune_class_oh"] = self.train_df["finetune_class"].copy()
             self.train_df = pd.get_dummies(
                 self.train_df, prefix="", prefix_sep="", columns=["finetune_class_oh"]
             )
-            # for test and val, additional step is needed to check whether certain classes are missing and need to be forced into df
+            # for test and val, additional step is needed to check
+            # whether certain classes are missing and need to be forced into df
             self.val_df = self.convert_to_onehot(self.val_df, self.croptype_list)
             self.test_df = self.convert_to_onehot(self.test_df, self.croptype_list)
 
@@ -188,7 +189,7 @@ class WorldCerealEval:
                 x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
                     t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
                 ]
-                if type(y) == list and len(y) == 2:
+                if isinstance(y, list) and len(y) == 2:
                     y = np.moveaxis(np.array(y), -1, 0)
                 target_list.append(y)
                 with torch.no_grad():
@@ -215,7 +216,6 @@ class WorldCerealEval:
             eval_metric = "F1"
             loss_function = "Logloss"
         if self.task_type == "croptype":
-            # eval_metric = "TotalF1"
             eval_metric = "MultiClass"
             loss_function = "MultiClass"
 
@@ -226,7 +226,6 @@ class WorldCerealEval:
                     self.train_df,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
-                    # target_function=self.target_function,
                     task_type=self.task_type,
                     croptype_list=[],
                     model_mode=model,
@@ -240,7 +239,6 @@ class WorldCerealEval:
                     self.val_df,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
-                    # target_function=self.target_function,
                     task_type=self.task_type,
                     croptype_list=[],
                     model_mode=model,
@@ -265,7 +263,8 @@ class WorldCerealEval:
             if model == "CatBoostClassifier":
                 # Parameters emulate
                 # # https://github.com/WorldCereal/wc-classification/blob/
-                # # 4a9a839507d9b4f63c378b3b1d164325cbe843d6/src/worldcereal/classification/models.py#L490
+                # # 4a9a839507d9b4f63c378b3b1d164325cbe843d6/src/
+                # # worldcereal/classification/models.py#L490
                 downstream_model = CatBoostClassifier(
                     iterations=8000,
                     depth=8,
@@ -359,7 +358,7 @@ class WorldCerealEval:
                     "mask": variable_mask_f,
                     "month": month_f,
                 }
-            if type(y) == list and len(y) == 2:
+            if isinstance(y, list) and len(y) == 2:
                 y = np.moveaxis(np.array(y), -1, 0)
             targets.append(y)
             if isinstance(finetuned_model, PrestoFineTuningModel) or isinstance(
@@ -507,7 +506,6 @@ class WorldCerealEval:
 
         test_ds = self.ds_class(
             self.test_df,
-            # target_function=self.target_function,
             task_type=self.task_type,
             croptype_list=croptype_list,
             model_mode=model_mode,
@@ -516,7 +514,6 @@ class WorldCerealEval:
         dl = DataLoader(
             test_ds,
             batch_size=2048,
-            # batch_size=8192,
             shuffle=False,  # keep as False!
             num_workers=Hyperparams.num_workers,
         )
@@ -540,8 +537,6 @@ class WorldCerealEval:
                 target_np = np.array(target_np)[:, -1]
 
             _croptype_list = list(np.unique(target_np))
-
-        prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
         if self.task_type == "cropland":
             metrics_agg = "binary"
@@ -580,7 +575,7 @@ class WorldCerealEval:
         croptype_list: List = [],
     ) -> pd.DataFrame:
         partitioned_result_df = pd.DataFrame()
-        years = test_df.end_date.apply(lambda date: date[:4])
+        # years = test_df.end_date.apply(lambda date: date[:4])
         test_df = WorldCerealLabelledDataset.join_with_world_df(test_df)
         for prop_name in ["year", "name"]:
             prop_series = test_df[prop_name]
@@ -628,7 +623,6 @@ class WorldCerealEval:
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
-            # target_function=self.target_function,
             balance=False,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
@@ -639,7 +633,6 @@ class WorldCerealEval:
             self.val_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
-            # target_function=self.target_function,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
         )
@@ -765,7 +758,12 @@ class WorldCerealEval:
                         break
 
             pbar.set_description(
-                f"Train metric: {train_loss[-1]:.3f}, Val metric: {val_loss[-1]:.3f}, Best Val Loss: {best_loss:.3f} (no improvement for {epochs_since_improvement} epochs)"
+                f"""
+                Train metric: {train_loss[-1]:.3f},
+                Val metric: {val_loss[-1]:.3f},
+                Best Val Loss: {best_loss:.3f}
+                (no improvement for {epochs_since_improvement} epochs)
+                """
             )
             if run is not None:
                 wandb.log(

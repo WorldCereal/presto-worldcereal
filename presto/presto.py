@@ -488,7 +488,8 @@ class Encoder(nn.Module):
         latlon_tokens = self.latlon_embed(self.cartesian(latlons)).unsqueeze(1)
         x, upd_mask, orig_indices = self.add_token(latlon_tokens, x, upd_mask, orig_indices)
 
-        # un-comment the next line to ignore latlon tokens to test if location overfitting is happenning
+        # un-comment the next line to ignore latlon tokens to test
+        # if location overfitting is happenning
         # upd_mask[:, 0] = 1
 
         if valid_month is not None:
@@ -865,7 +866,8 @@ class Presto(nn.Module):
             model = extend_to_dekadal(model)
 
         # if is_finetuned:
-        # here, I want to be able to upload Presto model that has already been finetuned so that I can only play with the head
+        # here, I want to be able to upload Presto model that
+        # has already been finetuned so that I can only play with the head
         # a model needs to be constructed so that weights can be loaded
         # currently, cannot correctly construct the finetuned head and populate it with weights 😥
 

@@ -10,7 +10,7 @@ from presto.dataset import (
 )
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
-from tests.utils import NUM_CROP_POINTS, NUM_MAIZE_POINTS, read_test_file
+from tests.utils import NUM_CROP_POINTS, read_test_file
 
 
 class TestDataset(TestCase):
@@ -110,17 +110,6 @@ class TestDataset(TestCase):
             assert y in [0, 1]
             num_positives += y == 1
         self.assertTrue(num_positives == NUM_CROP_POINTS)
-
-    def test_targets_correctly_calculated_maize(self):
-        df = read_test_file()
-        ds = WorldCerealLabelledDataset(df, target_function=target_maize)
-        num_positives = 0
-        for i in range(len(ds)):
-            batch = ds[i]
-            y = batch[1]
-            assert y in [0, 1]
-            num_positives += y == 1
-        self.assertTrue(num_positives == NUM_MAIZE_POINTS)
 
     def test_list_correctly_resized(self):
         input_list = [1] * 10

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from math import modf
 from pathlib import Path
 from random import sample
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -82,11 +82,6 @@ class WorldCerealBase(Dataset):
     def row_to_arrays(
         cls,
         row: pd.Series,
-        # target_function: Callable[[Union[Dict, pd.Series], str, List, str], Union[int, List]],
-        # target_function: Union[
-        #     Callable[[Union[Dict, pd.Series], str, List, str], Union[int, List]], Callable
-        # ],
-        # target_function: Optional[Callable] = None,
         task_type: str = "cropland",
         croptype_list: List = [],
         model_mode: str = "",
@@ -212,8 +207,6 @@ class WorldCerealBase(Dataset):
         train_only_samples: Optional[List[str]] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
-        # is_val: Union[pd.Series, np.ndarray]
-
         if val_size is not None:
             assert (
                 (val_countries_iso3 is None) and (val_years is None) and (val_sample_ids is None)
@@ -250,8 +243,7 @@ class WorldCerealBase(Dataset):
             is_train = ~df.end_date_ts.dt.year.isin(val_years)
 
         logger.info(f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples")
-        # train = df[is_train]
-        # val = df[is_val]
+
         return df[is_train], df[is_val]
 
 
@@ -263,14 +255,12 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         task_type: str = "cropland",
         croptype_list: List = [],
         model_mode: str = "",
-        # target_function: Optional[Callable] = None,
     ):
         super().__init__(dataframe)
         self.mask_params = mask_params
         self.task_type = task_type
         self.croptype_list = croptype_list
         self.model_mode = model_mode
-        # self.target_function = target_function if target_function is not None else self.target_crop
 
     def __getitem__(self, idx):
         # Get the sample
@@ -354,7 +344,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if years_to_remove is not None:
             dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
-        # self.target_function = target_function if target_function is not None else self.target_crop
+
         self._class_weights: Optional[np.ndarray] = None
         self.task_type = task_type
         self.croptype_list = croptype_list
@@ -578,22 +568,13 @@ class WorldCerealInferenceDataset(Dataset):
 
         data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
 
-        if type(all_probs) == int:
-            all_probs = np.zeros_like(all_preds_ewoc_code)
-        if type(all_preds) == int:
-            all_preds = np.zeros_like(all_preds_ewoc_code)
-
         if len(all_probs.shape) == 1:
             all_probs = np.expand_dims(all_probs, axis=-1)
 
-        try:
-            top1_prob = np.max(all_probs, axis=-1)
-            if all_probs.shape[-1] > 1:
-                top2_prob = np.partition(all_probs, -2, axis=-1)[:, -2]
-            else:
-                top2_prob = np.zeros_like(all_preds_ewoc_code)
-        except:
-            top1_prob = np.zeros_like(all_preds_ewoc_code)
+        top1_prob = np.max(all_probs, axis=-1)
+        if all_probs.shape[-1] > 1:
+            top2_prob = np.partition(all_probs, -2, axis=-1)[:, -2]
+        else:
             top2_prob = np.zeros_like(all_preds_ewoc_code)
 
         data_dict["prob_0"] = top1_prob
