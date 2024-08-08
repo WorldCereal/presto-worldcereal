@@ -1,3 +1,5 @@
+import networkx as nx
+import numpy as np
 from catboost import CatBoostClassifier
 from hiclass import LocalClassifierPerNode, LocalClassifierPerParentNode
 from sklearn.model_selection import train_test_split
