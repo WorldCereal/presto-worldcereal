@@ -5,13 +5,7 @@ from typing import Any, List, Tuple
 
 import numpy as np
 
-from .dataops import (
-    BAND_EXPANSION,
-    BANDS_GROUPS_IDX,
-    NUM_TIMESTEPS,
-    SRTM_INDEX,
-    TIMESTEPS_IDX,
-)
+from .dataops import BAND_EXPANSION, BANDS_GROUPS_IDX, NUM_TIMESTEPS, SRTM_INDEX, TIMESTEPS_IDX
 
 MASK_STRATEGIES = (
     "group_bands",
@@ -66,7 +60,8 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
             mask[:, SRTM_INDEX] = True
             # then, we flatten the mask and dw arrays
             all_tokens_mask = mask.flatten()
-            unmasked_tokens = all_tokens_mask == False
+            unmasked_tokens = all_tokens_mask == 0
+            # unmasked_tokens = all_tokens_mask == False
             idx = np.flatnonzero(unmasked_tokens)
             np.random.shuffle(idx)
             idx = idx[:num_tokens_to_mask]

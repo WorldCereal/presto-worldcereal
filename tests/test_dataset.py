@@ -37,7 +37,8 @@ class TestDataset(TestCase):
         eo_data = vals[2]
         y = vals[3]
         true_mask = vals[9]
-        self.assertTrue((mask[true_mask] == True).all())
+        # self.assertTrue((mask[true_mask] == True).all())
+        self.assertTrue((mask[true_mask] == 1).all())
         self.assertTrue((eo_data[true_mask] == 0).all())
         # we are very confident these should not be 0 after normalization
         combined_s2_s1 = (eo_data + y)[:, :-5]
