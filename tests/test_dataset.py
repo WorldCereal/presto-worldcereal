@@ -2,13 +2,11 @@ from unittest import TestCase
 
 import numpy as np
 import torch
-
 from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
 from presto.dataset import (
     WorldCerealInferenceDataset,
     WorldCerealLabelledDataset,
     WorldCerealMaskedDataset,
-    target_maize,
 )
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
