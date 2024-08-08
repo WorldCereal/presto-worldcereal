@@ -10,7 +10,6 @@ from typing import Optional, cast
 import pandas as pd
 import requests
 import xarray as xr
-
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
@@ -209,13 +208,13 @@ else:
     if warm_start:
         warm_start_model_name = "presto-ss-wc"
         # warm_start_model_name = "presto-pt"
-        model_path = f"https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/{warm_start_model_name}_{compositing_window}.pt"
+        warm_start_model_path = f"https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/{warm_start_model_name}_{compositing_window}.pt"
 
-        if requests.get(model_path).status_code >= 400:
+        if requests.get(warm_start_model_path).status_code >= 400:
             logger.error(f"No url for {warm_start_model_name} available")
 
         model = Presto.load_pretrained(
-            model_path=model_path,
+            model_path=warm_start_model_path,
             from_url=True,
             dekadal=dekadal,
             valid_month_as_token=valid_month_as_token,
