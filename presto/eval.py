@@ -26,12 +26,7 @@ from .dataset import (
     WorldCerealLabelledDataset,
 )
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (
-    Presto,
-    PrestoFineTuningModel,
-    get_sinusoid_encoding_table,
-    param_groups_lrd,
-)
+from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
@@ -106,12 +101,12 @@ class WorldCerealEval:
                     self.num_outputs = len(train_classes)
 
                 # use classes obtained from train to trim val and test classes
-                self.val_df.loc[
-                    ~self.val_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
-                self.test_df.loc[
-                    ~self.test_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
+                self.val_df.loc[~self.val_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
+                self.test_df.loc[~self.test_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
 
             # create one-hot representation from obtained labels
             # one-hot is needed for finetuning, while downstream CatBoost can work with categorical labels
@@ -806,7 +801,7 @@ class WorldCerealEval:
         self,
         pretrained_model,
         sklearn_model_modes: List[str],
-    ) -> Tuple[Dict, PrestoFineTuningModel]:
+    ) -> Tuple[pd.DataFrame, PrestoFineTuningModel, List]:
         for model_mode in sklearn_model_modes:
             assert model_mode in [
                 "Regression",
