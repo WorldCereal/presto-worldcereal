@@ -878,14 +878,6 @@ class Presto(nn.Module):
 
         return model
 
-    @classmethod
-    def load_pretrained_url(cls, presto_url: str, strict: bool = True):
-        response = requests.get(presto_url)
-        presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
-        model = cls.construct()
-        model.load_state_dict(presto_model_layers, strict=strict)
-        return model
-
 
 def param_groups_lrd(
     model: PrestoFineTuningModel,
