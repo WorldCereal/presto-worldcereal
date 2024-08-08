@@ -273,7 +273,7 @@ def plot_results(
     year = metrics_df.metric.apply(lambda m: m.split(":")[-1].lstrip() if "year" in m else None)
     model = metrics_df.metric.apply(lambda m: m.split("_")[1].strip())
     metrics_df = pd.concat((metrics_df, model, aez, year, country), axis=1)
-    metrics_df.columns = ["metric", "value", "model", "aez", "year", "country"]
+    metrics_df.columns = pd.Index(["metric", "value", "model", "aez", "year", "country"])
 
     # e.g. f1, aez_recall: 46172, ...
     metrics_df["metric_wo_model"] = metrics_df.metric.str.split("_").apply(
@@ -376,7 +376,7 @@ def plot_spatial(
     plt.close()  # type: ignore
 
 
-def load_world_df() -> pd.DataFrame:
+def load_world_df() -> gpd.DataFrame:
     # this could be memoized, but it should only be called 2 or 3 times in a run
     filename = "world-administrative-boundaries/world-administrative-boundaries.shp"
     world_df = gpd.read_file(data_dir / filename)

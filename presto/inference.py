@@ -375,19 +375,21 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Left with an empty DataFrame!")
 
     df_pivot.reset_index(inplace=True)
-    df_pivot.columns = [
-        f"{xx[0]}-ts{xx[1]}" if isinstance(xx[1], int) else xx[0]
-        for xx in df_pivot.columns.to_flat_index()
-    ]
-    df_pivot.columns = [
-        f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns
-    ]
-    df_pivot.columns = [
-        f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns
-    ]
-    df_pivot.columns = [
-        f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
-    ]
+    df_pivot.columns = pd.Index(
+        [
+            f"{xx[0]}-ts{xx[1]}" if isinstance(xx[1], int) else xx[0]
+            for xx in df_pivot.columns.to_flat_index()
+        ]
+    )
+    df_pivot.columns = pd.Index(
+        [f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns]
+    )
+    df_pivot.columns = pd.Index(
+        [f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns]
+    )
+    df_pivot.columns = pd.Index(
+        [f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns]
+    )
 
     df_pivot["start_date"] = df_pivot["start_date"].dt.date.astype(str)
     df_pivot["end_date"] = df_pivot["end_date"].dt.date.astype(str)

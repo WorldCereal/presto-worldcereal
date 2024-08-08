@@ -18,15 +18,13 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    CLASS_MAPPINGS,
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
+from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
+                      WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
@@ -55,7 +53,7 @@ class WorldCerealEval:
         years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
         seed: int = DEFAULT_SEED,
-        target_function: Optional[Callable[[Dict], int]] = None,
+        # target_function: Optional[Callable[[Dict], int]] = None,
         filter_function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
         name: Optional[str] = None,
         val_size: float = 0.2,
@@ -67,7 +65,7 @@ class WorldCerealEval:
         downstream_classes: str = "CROPTYPE9",
     ):
         self.seed = seed
-        self.target_function = target_function
+        # self.target_function = target_function
         self.task_type = task_type
         self.name = f"WorldCereal{task_type.title()}"
 
@@ -226,7 +224,7 @@ class WorldCerealEval:
                     self.train_df,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
-                    target_function=self.target_function,
+                    # target_function=self.target_function,
                     task_type=self.task_type,
                     croptype_list=[],
                     model_mode=model,
@@ -240,7 +238,7 @@ class WorldCerealEval:
                     self.val_df,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
-                    target_function=self.target_function,
+                    # target_function=self.target_function,
                     task_type=self.task_type,
                     croptype_list=[],
                     model_mode=model,
@@ -507,7 +505,7 @@ class WorldCerealEval:
 
         test_ds = self.ds_class(
             self.test_df,
-            target_function=self.target_function,
+            # target_function=self.target_function,
             task_type=self.task_type,
             croptype_list=croptype_list,
             model_mode=model_mode,
@@ -628,7 +626,7 @@ class WorldCerealEval:
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
-            target_function=self.target_function,
+            # target_function=self.target_function,
             balance=False,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
@@ -639,11 +637,12 @@ class WorldCerealEval:
             self.val_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
-            target_function=self.target_function,
+            # target_function=self.target_function,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
         )
 
+        loss_fn: nn.Module
         if self.task_type == "croptype":
             loss_fn = nn.CrossEntropyLoss()
         if self.task_type == "cropland":

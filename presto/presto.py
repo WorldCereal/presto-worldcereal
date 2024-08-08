@@ -870,7 +870,7 @@ class Presto(nn.Module):
         # currently, cannot correctly construct the finetuned head and populate it with weights 😥
 
         if from_url:
-            response = requests.get(model_path)
+            response = requests.get(str(model_path))
             presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
             model.load_state_dict(presto_model_layers, strict=strict)
         else:

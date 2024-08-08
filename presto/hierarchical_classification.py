@@ -92,8 +92,8 @@ class LocalClassifierPerNodeWrapper(LocalClassifierPerNode):
                 for i in highest_probability:
                     prediction.append(successors[i])
                 level = nx.shortest_path_length(self.hierarchy_, self.root_, predecessor)
-                prediction = np.array(prediction)
-                y[mask, level] = prediction
+                # prediction = np.array(prediction)
+                y[mask, level] = np.array(prediction)
 
         y = self._convert_to_1d(y)
 
