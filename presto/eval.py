@@ -429,7 +429,7 @@ class WorldCerealEval:
             if self.task_type == "croptype":
                 if pretrained_model is None:
                     temp_croptype_map = pd.DataFrame(
-                        CLASS_MAPPINGS[self.finetuning_classes].items(),
+                        CLASS_MAPPINGS[self.finetune_classes].items(),
                         columns=["ewoc_code", "name"],
                     )
                     test_preds_np = np.argmax(test_preds_np, axis=-1)
@@ -558,7 +558,7 @@ class WorldCerealEval:
             zero_division=0,
         )
         _results_df = pd.DataFrame(_results).transpose().reset_index()
-        _results_df.columns = ["class", "precision", "recall", "f1-score", "support"]
+        _results_df.columns = pd.Index(["class", "precision", "recall", "f1-score", "support"])
         _results_df["year"] = "all"
         _results_df["country"] = "all"
 
@@ -594,13 +594,15 @@ class WorldCerealEval:
                     zero_division=0,
                 )
                 _report_df = pd.DataFrame(_report).transpose().reset_index()
-                _report_df.columns = [
-                    "class",
-                    "precision",
-                    "recall",
-                    "f1-score",
-                    "support",
-                ]
+                _report_df.columns = pd.Index(
+                    [
+                        "class",
+                        "precision",
+                        "recall",
+                        "f1-score",
+                        "support",
+                    ]
+                )
                 if prop_name == "year":
                     _report_df["year"] = prop
                     _report_df["country"] = "all"
