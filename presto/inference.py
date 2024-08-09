@@ -219,8 +219,8 @@ class PrestoFeatureExtractor:
         """
 
         encodings = np.empty(
-            [len(dl.dataset), self.model.encoder.embedding_size],
-            dtype=np.float32,  # type: ignore[arg-type]
+            [len(dl.dataset), self.model.encoder.embedding_size],  # type: ignore[arg-type]
+            dtype=np.float32,
         )
 
         with torch.no_grad():
