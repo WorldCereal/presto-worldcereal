@@ -218,15 +218,18 @@ class PrestoFeatureExtractor:
             np.ndarray: Array containing encoded features.
         """
 
-        all_encodings = []
+        encodings = np.empty(
+            [len(dl.dataset), self.model.encoder.embedding_size], dtype=np.float32
+        )
 
-        for x, dw, latlons, month, variable_mask in dl:
-            x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                t.to(device) for t in (x, dw, latlons, month, variable_mask)
-            ]
+        with torch.no_grad():
 
-            with torch.no_grad():
-                encodings = (
+            for i, (x, dw, latlons, month, variable_mask) in enumerate(dl):
+                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+                ]
+
+                encodings[i * self.batch_size : i * self.batch_size + self.batch_size, :] = (
                     self.model.encoder(
                         x_f,
                         dynamic_world=dw_f.long(),
@@ -238,9 +241,7 @@ class PrestoFeatureExtractor:
                     .numpy()
                 )
 
-            all_encodings.append(encodings)
-
-        return np.concatenate(all_encodings, axis=0)
+        return encodings
 
     def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
 
