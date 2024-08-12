@@ -1,6 +1,6 @@
 import functools
 import logging
-from typing import Tuple, Union
+from typing import Any, Callable, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -421,7 +421,7 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @functools.lru_cache(maxsize=6)
-def compile_encoder(presto_encoder: nn.Module) -> nn.Module:
+def compile_encoder(presto_encoder: nn.Module) -> Callable[..., Any]:
     """Helper function that compiles the encoder of a Presto model
     and performs a warm-up on dummy data. The lru_cache decorator
     ensures caching on compute nodes to be able to actually benefit
