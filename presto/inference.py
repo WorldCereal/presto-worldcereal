@@ -1,3 +1,5 @@
+import functools
+import logging
 from typing import Tuple, Union
 
 import numpy as np
@@ -6,6 +8,7 @@ import torch
 import xarray as xr
 from einops import rearrange
 from pyproj import Transformer
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from .dataops import (
@@ -19,6 +22,8 @@ from .dataset import WorldCerealBase
 from .masking import BAND_EXPANSION
 from .presto import Presto
 from .utils import device, prep_dataframe
+
+logger = logging.getLogger(__name__)
 
 # Index to band groups mapping
 IDX_TO_BAND_GROUPS = {
@@ -266,6 +271,7 @@ def get_presto_features(
     presto_url: str,
     epsg: int = 4326,
     batch_size: int = 8192,
+    compile: bool = False,
 ) -> Union[np.ndarray, xr.DataArray]:
     """
     Extracts features from input data using Presto.
@@ -275,6 +281,7 @@ def get_presto_features(
         presto_url (str): URL to the pretrained Presto model.
         epsg (int) : EPSG code describing the coordinates.
         batch_size (int): Batch size to be used for Presto inference.
+        compile (bool): Whether to compile the model before extracting features.
 
     Returns:
         xr.DataArray or np.ndarray: Extracted features as xarray DataArray or numpy ndarray.
@@ -285,6 +292,11 @@ def get_presto_features(
         presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
     else:
         presto_model = Presto.load_pretrained(model_path=presto_url, strict=False)
+
+    # Compile for optimized inference. Note that warmup takes some time
+    # so this is only recommended for larger inference jobs
+    if compile:
+        presto_model.encoder = compile_encoder(presto_model.encoder)
 
     presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
 
@@ -406,3 +418,33 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     df_pivot = prep_dataframe(df_pivot)
 
     return df_pivot
+
+
+@functools.lru_cache(maxsize=6)
+def compile_encoder(presto_encoder: nn.Module) -> nn.Module:
+    """Helper function that compiles the encoder of a Presto model
+    and performs a warm-up on dummy data. The lru_cache decorator
+    ensures caching on compute nodes to be able to actually benefit
+    from the compilation process.
+
+    Parameters
+    ----------
+    presto_encoder : nn.Module
+        Encoder part of Presto model to compile
+
+    """
+
+    logger.info("Compiling Presto encoder ...")
+    presto_encoder = torch.compile(presto_encoder)
+
+    logger.info("Warming-up ...")
+    for _ in range(3):
+        presto_encoder(
+            torch.rand((1, 12, 17)).to(device),
+            torch.ones((1, 12)).to(device).long(),
+            torch.rand(1, 2).to(device),
+        )
+
+    logger.info("Compilation done.")
+
+    return presto_encoder
