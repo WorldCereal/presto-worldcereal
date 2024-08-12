@@ -564,8 +564,8 @@ class WorldCerealInferenceDataset(Dataset):
         b3: np.ndarray,
         b4: np.ndarray,
     ) -> pd.DataFrame:
-        flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
 
+        flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
         data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
 
         if len(all_probs.shape) == 1:
