@@ -435,7 +435,7 @@ def compile_encoder(presto_encoder: nn.Module) -> Callable[..., Any]:
     """
 
     logger.info("Compiling Presto encoder ...")
-    presto_encoder = torch.compile(presto_encoder)
+    presto_encoder = torch.compile(presto_encoder)  # type: ignore
 
     logger.info("Warming-up ...")
     for _ in range(3):
