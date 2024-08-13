@@ -9,7 +9,6 @@ from typing import Optional, cast
 
 import pandas as pd
 import requests
-import torch
 import xarray as xr
 
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
