@@ -148,7 +148,12 @@
         "1110000000": "flower_crops",
         "1111000000": "grass_fodder_crops",
         "1111000010": "grass_fodder_crops",
-        "1111010100": "grass_fodder_crops"
+        "1111010100": "grass_fodder_crops",
+        "1300000000":"other_crop",
+        "1600000000":"other_crop",
+        "4302000000":"other_crop",
+        "6000000000":"other_crop",
+        "3000000000":"other_crop"
     },
     "CROPTYPE9": {
         "1300000000":"other_crop",
