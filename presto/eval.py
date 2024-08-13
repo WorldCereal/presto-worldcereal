@@ -18,13 +18,15 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
-                      WorldCerealInferenceDataset,
-                      WorldCerealLabelled10DDataset,
-                      WorldCerealLabelledDataset)
+from .dataset import (
+    CLASS_MAPPINGS,
+    NORMED_BANDS,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelled10DDataset,
+    WorldCerealLabelledDataset,
+)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (Presto, PrestoFineTuningModel,
-                     get_sinusoid_encoding_table, param_groups_lrd)
+from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
@@ -34,10 +36,11 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 
 @dataclass
 class Hyperparams:
-    lr: float = 2e-5
-    max_epochs: int = 50
+    # lr: float = 2e-5
+    lr: float = 0.01
+    max_epochs: int = 100
     batch_size: int = 256
-    patience: int = 20
+    patience: int = 10
     num_workers: int = 8
 
 
@@ -62,7 +65,7 @@ class WorldCerealEval:
         croptype_list: List = [],
         finetune_classes: str = "CROPTYPE0",
         downstream_classes: str = "CROPTYPE9",
-        balance: bool = False
+        balance: bool = False,
     ):
         self.seed = seed
         self.task_type = task_type
@@ -132,6 +135,7 @@ class WorldCerealEval:
             self.name = f"{self.name}_removed_years_{years_to_remove}"
 
         self.dekadal = dekadal
+        self.balance = balance
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
 
     @staticmethod
@@ -444,7 +448,7 @@ class WorldCerealEval:
                     by=["name", "ewoc_code"], ascending=True, inplace=True
                 )
                 temp_croptype_map.drop_duplicates(subset=["name"], keep="first", inplace=True)
-                temp_croptype_map.set_index("name", inplace=True)☺
+                temp_croptype_map.set_index("name", inplace=True)
 
                 if test_preds_str.ndim > 1:
                     test_preds_str = test_preds_str.flatten()
@@ -626,7 +630,7 @@ class WorldCerealEval:
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
-            balance=balance,
+            balance=self.balance,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
         )
