@@ -92,7 +92,16 @@ class WorldCerealBase(Dataset):
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
         month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
-        valid_month = datetime.strptime(row_d["valid_date"], "%Y-%m-%d").month - 1
+
+        # adding workaround for compatibility between Phase I and Phase II datasets.
+        # (in Phase II, the relevant attribute name was changed to valid_time)
+        # once we fully move to Phase II data, this should be replaced to valid_tome only.
+        if "valid_date" in row_d.keys():
+            valid_month = datetime.strptime(row_d["valid_date"], "%Y-%m-%d").month - 1
+        elif "valid_time" in row_d.keys():
+            valid_month = datetime.strptime(row_d["valid_time"], "%Y-%m-%d").month - 1
+        else:
+            logger.error("Dataset does not contain neither valid_date, nor valid_time attribute.")
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
         # an assumption we make here is that all timesteps for a token
