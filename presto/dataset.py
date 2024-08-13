@@ -16,7 +16,13 @@ from rasterio import CRS
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
 
-from .dataops import BANDS, BANDS_GROUPS_IDX, NORMED_BANDS, S1_S2_ERA5_SRTM, DynamicWorld2020_2021
+from .dataops import (
+    BANDS,
+    BANDS_GROUPS_IDX,
+    NORMED_BANDS,
+    S1_S2_ERA5_SRTM,
+    DynamicWorld2020_2021,
+)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, load_world_df
 

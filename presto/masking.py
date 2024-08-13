@@ -5,7 +5,13 @@ from typing import Any, List, Tuple
 
 import numpy as np
 
-from .dataops import BAND_EXPANSION, BANDS_GROUPS_IDX, NUM_TIMESTEPS, SRTM_INDEX, TIMESTEPS_IDX
+from .dataops import (
+    BAND_EXPANSION,
+    BANDS_GROUPS_IDX,
+    NUM_TIMESTEPS,
+    SRTM_INDEX,
+    TIMESTEPS_IDX,
+)
 
 MASK_STRATEGIES = (
     "group_bands",

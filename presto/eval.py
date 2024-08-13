@@ -26,7 +26,12 @@ from .dataset import (
     WorldCerealLabelledDataset,
 )
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
+from .presto import (
+    Presto,
+    PrestoFineTuningModel,
+    get_sinusoid_encoding_table,
+    param_groups_lrd,
+)
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
