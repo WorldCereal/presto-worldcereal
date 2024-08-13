@@ -84,11 +84,7 @@ argparser.add_argument(
     default="CROPTYPE9",
     choices=["CROPTYPE9", "CROPTYPE19"],
 )
-argparser.add_argument(
-    "--balance",
-    type=bool,
-    default=False,
-)
+argparser.add_argument("--balance", dest="balance", default=False, action="store_true")
 
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
@@ -183,7 +179,7 @@ full_eval = WorldCerealEval(
 model_path = output_parent_dir / "data"
 model_path.mkdir(exist_ok=True, parents=True)
 experiment_prefix = f"""\
-{presto_model_description}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_balance=True\
+{presto_model_description}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_balance={balance}\
 """
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"
 results_path = model_logging_dir / f"{experiment_prefix}.csv"
