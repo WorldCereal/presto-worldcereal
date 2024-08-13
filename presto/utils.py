@@ -335,7 +335,7 @@ def plot_spatial(
         values = [croptype_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
         colors = [colors_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
         cmap = mcolors.ListedColormap(colors)
-        im = plt.imshow(spatial_preds.prediction_0, cmap=cmap)
+        plt.imshow(spatial_preds.prediction_0, cmap=cmap)
         patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
         plt.legend(
             handles=patches,
