@@ -18,15 +18,13 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    CLASS_MAPPINGS,
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
+from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
+                      WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
@@ -37,7 +35,7 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
-    max_epochs: int = 1000
+    max_epochs: int = 50
     batch_size: int = 256
     patience: int = 20
     num_workers: int = 8
@@ -64,6 +62,7 @@ class WorldCerealEval:
         croptype_list: List = [],
         finetune_classes: str = "CROPTYPE0",
         downstream_classes: str = "CROPTYPE9",
+        balance: bool = False
     ):
         self.seed = seed
         self.task_type = task_type
@@ -256,9 +255,10 @@ class WorldCerealEval:
                 class_weight_dict = dict(zip(np.unique(train_targets), class_weights))
                 sample_weights_trn = np.ones((len(train_targets),))
                 sample_weights_val = np.ones((len(val_targets),))
-                for k, v in class_weight_dict.items():
-                    sample_weights_trn[train_targets == k] = v
-                    sample_weights_val[val_targets == k] = v
+                if self.balance:
+                    for k, v in class_weight_dict.items():
+                        sample_weights_trn[train_targets == k] = v
+                        sample_weights_val[val_targets == k] = v
 
             if model == "CatBoostClassifier":
                 # Parameters emulate
@@ -268,18 +268,18 @@ class WorldCerealEval:
                 downstream_model = CatBoostClassifier(
                     iterations=8000,
                     depth=8,
-                    # learning_rate=0.3,
-                    learning_rate=0.05,
+                    learning_rate=0.1,
+                    # learning_rate=0.05,
                     early_stopping_rounds=50,
                     l2_leaf_reg=30,
                     # l2_leaf_reg=3,
                     eval_metric=eval_metric,
                     loss_function=loss_function,
                     random_state=self.seed,
-                    # class_weights=class_weight_dict,
                     verbose=25,
                     class_names=np.unique(train_targets),
                 )
+
                 fit_models.append(
                     clone(downstream_model).fit(
                         train_encodings,
@@ -288,6 +288,7 @@ class WorldCerealEval:
                         eval_set=Pool(val_encodings, val_targets, weight=sample_weights_val),
                     )
                 )
+
             elif model == "Hierarchical CatBoostClassifier":
                 downstream_model = CatBoostClassifierWrapper(
                     iterations=8000,
@@ -380,9 +381,9 @@ class WorldCerealEval:
                     probs = preds.copy()
                 if task_type == "croptype":
                     preds = finetuned_model.predict(encodings)
-
                     # for hierarchical classification, get predictions on the most granular level
-                    if preds.ndim > 1:
+                    # if preds.ndim > 1:
+                    if preds.ndim > 2:
                         preds = preds[:, -1]
                         probs = np.zeros_like(preds)
                     else:
@@ -422,7 +423,6 @@ class WorldCerealEval:
             test_preds_np, test_probs_np, _ = self._inference_for_dl(
                 dl, finetuned_model, pretrained_model, task_type=self.task_type
             )
-
             test_preds_str = test_preds_np.copy()
 
             if self.task_type == "croptype":
@@ -444,7 +444,10 @@ class WorldCerealEval:
                     by=["name", "ewoc_code"], ascending=True, inplace=True
                 )
                 temp_croptype_map.drop_duplicates(subset=["name"], keep="first", inplace=True)
-                temp_croptype_map.set_index("name", inplace=True)
+                temp_croptype_map.set_index("name", inplace=True)☺
+
+                if test_preds_str.ndim > 1:
+                    test_preds_str = test_preds_str.flatten()
 
                 test_preds_ewoc_code = np.array(
                     [int(temp_croptype_map.loc[xx].iloc[0]) for xx in test_preds_str]
@@ -623,7 +626,7 @@ class WorldCerealEval:
             self.train_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
-            balance=False,
+            balance=balance,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
         )
@@ -758,12 +761,9 @@ class WorldCerealEval:
                         break
 
             pbar.set_description(
-                f"""
-                Train metric: {train_loss[-1]:.3f},
-                Val metric: {val_loss[-1]:.3f},
-                Best Val Loss: {best_loss:.3f}
-                (no improvement for {epochs_since_improvement} epochs)
-                """
+                f"Train metric: {train_loss[-1]:.3f}, Val metric: {val_loss[-1]:.3f}, \
+                Best Val Loss: {best_loss:.3f} \
+                (no improvement for {epochs_since_improvement} epochs)"
             )
             if run is not None:
                 wandb.log(

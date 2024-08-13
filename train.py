@@ -84,6 +84,11 @@ argparser.add_argument(
     default="CROPTYPE9",
     choices=["CROPTYPE9", "CROPTYPE19"],
 )
+argparser.add_argument(
+    "--balance",
+    type=bool,
+    default=False,
+)
 
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
@@ -105,6 +110,7 @@ finetune_classes: str = args["finetune_classes"]
 downstream_classes: str = args["downstream_classes"]
 test_type: str = args["test_type"]
 time_token: str = args["time_token"]
+balance: bool = args["balance"]
 assert test_type in ["random", "spatial", "temporal", "seasonal"]
 
 seed_everything(seed)
@@ -146,7 +152,7 @@ model_modes = [
     #   "Random Forest",
     #   "Regression",
     "CatBoostClassifier",
-    "Hierarchical CatBoostClassifier",
+    # "Hierarchical CatBoostClassifier",
 ]
 
 logger.info("Loading data")
@@ -170,13 +176,14 @@ full_eval = WorldCerealEval(
     finetune_classes=finetune_classes,
     downstream_classes=downstream_classes,
     dekadal=dekadal,
+    balance=balance,
     spatial_inference_savedir=model_logging_dir,
 )
 
 model_path = output_parent_dir / "data"
 model_path.mkdir(exist_ok=True, parents=True)
-experiment_prefix = f"""
-{presto_model_description}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}
+experiment_prefix = f"""\
+{presto_model_description}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_balance=True\
 """
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"
 results_path = model_logging_dir / f"{experiment_prefix}.csv"
@@ -242,7 +249,7 @@ else:
     results_df_combined, finetuned_model, sklearn_models_trained = full_eval.finetuning_results(
         model, sklearn_model_modes=model_modes
     )
-    torch.save(finetuned_model.state_dict(), finetuned_model_path)
+    # torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 results_df_combined["presto_model_description"] = presto_model_description
 results_df_combined["compositing_window"] = compositing_window
