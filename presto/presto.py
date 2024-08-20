@@ -249,10 +249,11 @@ def get_month_encoding_table(d_hid):
     cos_table = np.cos(np.stack([angles for _ in range(d_hid // 2)], axis=-1))
     month_table = np.concatenate([sin_table[:-1], cos_table[:-1]], axis=-1)
 
-    if torch.cuda.is_available():
-        return torch.FloatTensor(month_table).cuda()
-    else:
-        return torch.FloatTensor(month_table)
+    return torch.FloatTensor(month_table).to(device)
+    # if torch.cuda.is_available():
+    #     return torch.FloatTensor(month_table).cuda()
+    # else:
+    #     return torch.FloatTensor(month_table)
 
 
 def month_to_tensor(
@@ -425,6 +426,14 @@ class Encoder(nn.Module):
         eval_task: bool = True,
     ):
         # device = x.device
+
+        # print(f"x: {x.shape}")
+        # print(f"dw: {dynamic_world.shape}")
+        # print(f"latlons: {latlons.shape}")
+        # print(f"mask: {mask.shape}")
+        # print(f"month: {month}")
+        # print(f"valid_month: {valid_month}")
+
         x = x.to(device)
 
         if mask is None:
@@ -433,6 +442,8 @@ class Encoder(nn.Module):
             mask = mask.to(device)
 
         months = month_to_tensor(month, x.shape[0], x.shape[1], device)
+        # print(f"months shape: {months.shape}")
+        # print(f"months device: {months.get_device()}")
         month_embedding = self.month_embed(months)
         positional_embedding = repeat(
             self.pos_embed[:, : x.shape[1], :],
@@ -513,7 +524,8 @@ class Encoder(nn.Module):
         # upd_mask[:, 0] = 1
 
         if valid_month is not None:
-            val_month_token = self.valid_month_encoding(valid_month.to(device))
+            val_month_token = self.valid_month_encoding(valid_month).to(device)
+            # val_month_token = self.valid_month_encoding(valid_month.to(device))
             if self.valid_month_as_token:
                 x, upd_mask, orig_indices = self.add_token(
                     val_month_token.unsqueeze(1), x, upd_mask, orig_indices
@@ -523,7 +535,8 @@ class Encoder(nn.Module):
             # the output embedding
             valid_month = torch.ones((x.shape[0],), device=device).long()
             # valid_month = torch.ones((x.shape[0],), device=x.device).long()
-            val_month_token = self.valid_month_encoding(valid_month.to(device))
+            val_month_token = self.valid_month_encoding(valid_month).to(device)
+            # val_month_token = self.valid_month_encoding(valid_month.to(device))
 
         # apply Transformer blocks
         attn_mask = (~upd_mask.bool()).to(device)

@@ -166,7 +166,8 @@ class WorldCerealEval:
                 model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
             )
             model.encoder.pos_embed.data.copy_(pos_embed)
-            model.to(device)
+            # model.to(device)
+        model.to(device)
         return model
 
     @torch.no_grad()
@@ -411,7 +412,7 @@ class WorldCerealEval:
         assert self.spatial_inference_savedir is not None
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
-            eo, dynamic_world, mask, latlons, months, y = ds[i]
+            eo, dynamic_world, mask, latlons, months, y, valid_months = ds[i]
             dl = DataLoader(
                 TensorDataset(
                     torch.from_numpy(eo).float(),
@@ -419,6 +420,7 @@ class WorldCerealEval:
                     torch.from_numpy(dynamic_world).long(),
                     torch.from_numpy(latlons).float(),
                     torch.from_numpy(months).long(),
+                    torch.from_numpy(valid_months).long(),
                     torch.from_numpy(mask).float(),
                 ),
                 batch_size=2048,
@@ -709,9 +711,12 @@ class WorldCerealEval:
                         "month": month,
                     }
 
-                print(f"valid_month shape: {valid_month.shape}")
-                print(f"dw shape: {dw.shape}")
-                print(f"month shape: {month.shape}")
+                # print(f"x device: {x.get_device()}")
+                # print(f"dw device: {dw.get_device()}")
+                # print(f"latlons device: {latlons.get_device()}")
+                # print(f"mask device: {variable_mask.get_device()}")
+                # print(f"month device: {month.get_device()}")
+                # print(f"valid_month device: {valid_month.get_device()}")
 
                 optimizer.zero_grad()
                 preds = model(**input_d)
