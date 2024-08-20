@@ -26,12 +26,7 @@ from .dataset import (
     WorldCerealLabelledDataset,
 )
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (
-    Presto,
-    PrestoFineTuningModel,
-    get_sinusoid_encoding_table,
-    param_groups_lrd,
-)
+from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
@@ -107,12 +102,12 @@ class WorldCerealEval:
                     self.num_outputs = len(train_classes)
 
                 # use classes obtained from train to trim val and test classes
-                self.val_df.loc[
-                    ~self.val_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
-                self.test_df.loc[
-                    ~self.test_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
+                self.val_df.loc[~self.val_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
+                self.test_df.loc[~self.test_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
 
             # create one-hot representation from obtained labels
             # one-hot is needed for finetuning,
@@ -713,6 +708,10 @@ class WorldCerealEval:
                         "mask": variable_mask,
                         "month": month,
                     }
+
+                print(f"valid_month shape: {valid_month.shape}")
+                print(f"dw shape: {dw.shape}")
+                print(f"month shape: {month.shape}")
 
                 optimizer.zero_grad()
                 preds = model(**input_d)

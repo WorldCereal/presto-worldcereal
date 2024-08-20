@@ -19,6 +19,7 @@ def read_test_file() -> pd.DataFrame:
     )
     test_df["sample_id"] = np.arange(len(test_df))
     test_df["year"] = 2021
+    test_df["valid_date"] = "2021-06-01"
     labels = [99] * len(test_df)  # 99 = No cropland
     labels[:NUM_CROP_POINTS] = [11] * NUM_CROP_POINTS  # 11 = Annual cropland
     test_df["LANDCOVER_LABEL"] = labels

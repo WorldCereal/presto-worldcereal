@@ -1,8 +1,9 @@
+import json
+from pathlib import Path
 from unittest import TestCase
 
 import numpy as np
 import torch
-
 from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
 from presto.dataset import (
     WorldCerealInferenceDataset,
@@ -11,6 +12,7 @@ from presto.dataset import (
 )
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
+from presto.utils import config_dir
 from tests.utils import NUM_CROP_POINTS, read_test_file
 
 
@@ -55,8 +57,11 @@ class TestDataset(TestCase):
         num_vals = 100
         ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
-        model = Presto.construct()
-        eo, dw, mask, latlons, months, _ = ds[0]
+        path_to_config = config_dir / "default.json"
+        model_kwargs = json.load(Path(path_to_config).open("r"))
+        model = Presto.construct(**model_kwargs)
+        eo, dw, mask, latlons, months, _, valid_months = ds[0]
+
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
@@ -74,12 +79,23 @@ class TestDataset(TestCase):
             [[0.43200156], [0.55286014], [0.5265], [0.5236109], [0.4110847]]
         )
         ndvi = np.array([0.43200156, 0.55286014, 0.5265, 0.5236109, 0.4110847])
+        b2 = np.array([0.0209, 0.0216, 0.0199, 0.0204, 0.0211])
+        b3 = np.array([0.0584, 0.0556, 0.0518, 0.058, 0.0556])
+        b4 = np.array([0.0254, 0.0271, 0.0204, 0.0219, 0.0228])
+
         worldcereal_labels = np.array([[1, 1], [0, 0], [1, 1], [0, 0], [1, 1]])
+        all_preds_ewoc_code = np.array([0, 110000000, 110000000, 110000000, 0])
+
         df_predictions = WorldCerealInferenceDataset.combine_predictions(
             latlons=np.stack([flat_lat, flat_lon], axis=-1),
             all_preds=batch_predictions,
             gt=worldcereal_labels,
             ndvi=ndvi,
+            all_preds_ewoc_code=all_preds_ewoc_code,
+            all_probs=batch_predictions,
+            b2=b3,
+            b3=b3,
+            b4=b4,
         )
 
         # Check size

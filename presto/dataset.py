@@ -514,7 +514,7 @@ class WorldCerealInferenceDataset(Dataset):
     @classmethod
     def nc_to_arrays(
         cls, filepath: Path
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
         ds = xr.open_dataset(filepath)
         epsg_coords = CRS.from_wkt(ds.crs.crs_wkt).to_epsg()
@@ -548,7 +548,9 @@ class WorldCerealInferenceDataset(Dataset):
         # -1 because we index from 0
         start_month = (ds.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
         months = np.ones((num_instances)) * start_month
-
+        valid_month = pd.to_datetime(np.sort(ds.t.values)[6]).month - 1
+        valid_months = np.array(num_instances * [valid_month])
+    
         transformer = Transformer.from_crs(f"EPSG:{epsg_coords}", "EPSG:4326", always_xy=True)
         lon, lat = transformer.transform(ds.x, ds.y)
 
@@ -557,15 +559,15 @@ class WorldCerealInferenceDataset(Dataset):
             axis=-1,
         )
 
-        return eo_data, np.repeat(mask, BAND_EXPANSION, axis=-1), latlons, months, y
+        return eo_data, np.repeat(mask, BAND_EXPANSION, axis=-1), latlons, months, y, valid_months
 
     def __getitem__(self, idx):
         filepath = self.all_files[idx]
-        eo, mask, latlons, months, y = self.nc_to_arrays(filepath)
+        eo, mask, latlons, months, y, valid_months = self.nc_to_arrays(filepath)
 
         dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
 
-        return S1_S2_ERA5_SRTM.normalize(eo), dynamic_world, mask, latlons, months, y
+        return S1_S2_ERA5_SRTM.normalize(eo), dynamic_world, mask, latlons, months, y, valid_months
 
     @staticmethod
     def combine_predictions(
@@ -586,6 +588,9 @@ class WorldCerealInferenceDataset(Dataset):
         if len(all_probs.shape) == 1:
             all_probs = np.expand_dims(all_probs, axis=-1)
 
+        if len(all_preds.shape) > 1:
+            all_preds = all_preds.flatten()
+
         top1_prob = np.max(all_probs, axis=-1)
         if all_probs.shape[-1] > 1:
             top2_prob = np.partition(all_probs, -2, axis=-1)[:, -2]
@@ -594,7 +599,6 @@ class WorldCerealInferenceDataset(Dataset):
 
         data_dict["prob_0"] = top1_prob
         data_dict["prob_1"] = top2_prob
-
         data_dict["prediction_0"] = all_preds
         data_dict["ground_truth"] = gt[:, 0]
         data_dict["ndvi"] = ndvi
