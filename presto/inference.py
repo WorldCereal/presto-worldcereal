@@ -307,8 +307,8 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     df["OPTICAL-B8A"] = 65535
     df.rename(
         columns={
-            "S1-SIGMA0-VV": "SAR-VH",
-            "S1-SIGMA0-VH": "SAR-VV",
+            "S1-SIGMA0-VV": "SAR-VV",
+            "S1-SIGMA0-VH": "SAR-VH",
             "S2-L2A-B02": "OPTICAL-B02",
             "S2-L2A-B03": "OPTICAL-B03",
             "S2-L2A-B04": "OPTICAL-B04",
