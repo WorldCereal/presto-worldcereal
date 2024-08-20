@@ -218,15 +218,19 @@ class PrestoFeatureExtractor:
             np.ndarray: Array containing encoded features.
         """
 
-        all_encodings = []
+        encodings = np.empty(
+            [len(dl.dataset), self.model.encoder.embedding_size],  # type: ignore[arg-type]
+            dtype=np.float32,
+        )
 
-        for x, dw, latlons, month, variable_mask in dl:
-            x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                t.to(device) for t in (x, dw, latlons, month, variable_mask)
-            ]
+        with torch.no_grad():
 
-            with torch.no_grad():
-                encodings = (
+            for i, (x, dw, latlons, month, variable_mask) in enumerate(dl):
+                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+                ]
+
+                encodings[i * self.batch_size : i * self.batch_size + self.batch_size, :] = (
                     self.model.encoder(
                         x_f,
                         dynamic_world=dw_f.long(),
@@ -238,9 +242,7 @@ class PrestoFeatureExtractor:
                     .numpy()
                 )
 
-            all_encodings.append(encodings)
-
-        return np.concatenate(all_encodings, axis=0)
+        return encodings
 
     def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
 
@@ -303,8 +305,8 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     df["OPTICAL-B8A"] = 65535
     df.rename(
         columns={
-            "S1-SIGMA0-VV": "SAR-VH",
-            "S1-SIGMA0-VH": "SAR-VV",
+            "S1-SIGMA0-VV": "SAR-VV",
+            "S1-SIGMA0-VH": "SAR-VH",
             "S2-L2A-B02": "OPTICAL-B02",
             "S2-L2A-B03": "OPTICAL-B03",
             "S2-L2A-B04": "OPTICAL-B04",
