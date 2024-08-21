@@ -190,6 +190,9 @@ class WorldCerealEval:
         ) -> Tuple[np.ndarray, np.ndarray]:
             encoding_list, target_list = [], []
             for x, y, dw, latlons, month, valid_month, variable_mask in dl:
+                # print(
+                #     f"dataloader_to_encodings_and_targets valid momth shape: {valid_month.shape}"
+                # )
                 x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
                     t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
                 ]
@@ -352,6 +355,7 @@ class WorldCerealEval:
                     "month": month_f,
                     "valid_month": valid_month_f,
                 }
+                # print(f"_inference_for_dl valid momth shape: {valid_month.shape}")
             except ValueError:
                 x, y, dw, latlons, month, variable_mask = b
                 x_f, dw_f, latlons_f, month_f, variable_mask_f = [
@@ -413,6 +417,7 @@ class WorldCerealEval:
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
             eo, dynamic_world, mask, latlons, months, y, valid_months = ds[i]
+            # print(f"spatial_inference valid months shape: {valid_months.shape}")
             dl = DataLoader(
                 TensorDataset(
                     torch.from_numpy(eo).float(),
@@ -689,6 +694,7 @@ class WorldCerealEval:
             for x, y, dw, latlons, month, valid_month, variable_mask in tqdm(
                 train_dl, desc="Training", leave=False
             ):
+                # print(f"finetune valid month shape: {valid_month.shape}")
                 x, y, dw, latlons, month, valid_month, variable_mask = [
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]

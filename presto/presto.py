@@ -442,8 +442,12 @@ class Encoder(nn.Module):
             mask = mask.to(device)
 
         months = month_to_tensor(month, x.shape[0], x.shape[1], device)
-        # print(f"months shape: {months.shape}")
-        # print(f"months device: {months.get_device()}")
+
+        if months.device != device:
+            months = months.to(device)
+
+        # print(f"months device: {months.device}")
+
         month_embedding = self.month_embed(months)
         positional_embedding = repeat(
             self.pos_embed[:, : x.shape[1], :],
@@ -523,7 +527,14 @@ class Encoder(nn.Module):
         # if location overfitting is happenning
         # upd_mask[:, 0] = 1
 
+        # print(f"valid_month shape: {valid_month.shape}")
+        # print(f"valid_month: {valid_month}")
+
         if valid_month is not None:
+
+            if valid_month.device != device:
+                valid_month = valid_month.to(device)
+
             val_month_token = self.valid_month_encoding(valid_month).to(device)
             # val_month_token = self.valid_month_encoding(valid_month.to(device))
             if self.valid_month_as_token:
@@ -535,8 +546,8 @@ class Encoder(nn.Module):
             # the output embedding
             valid_month = torch.ones((x.shape[0],), device=device).long()
             # valid_month = torch.ones((x.shape[0],), device=x.device).long()
-            val_month_token = self.valid_month_encoding(valid_month).to(device)
-            # val_month_token = self.valid_month_encoding(valid_month.to(device))
+            # val_month_token = self.valid_month_encoding(valid_month).to(device)
+            val_month_token = self.valid_month_encoding(valid_month.to(device))
 
         # apply Transformer blocks
         attn_mask = (~upd_mask.bool()).to(device)
@@ -670,6 +681,9 @@ class Decoder(nn.Module):
         remove_mask = torch.full(size=(num_timesteps * num_channel_groups,), fill_value=False)
         remove_mask[torch.arange(num_timesteps - 1) + srtm_index] = True
 
+        if months.device != device:
+            months = months.to(device)
+
         month_embedding = repeat(
             self.month_embed(months),
             "b t d -> b (repeat t) d",
@@ -702,6 +716,9 @@ class Decoder(nn.Module):
             [torch.zeros_like(positional_embedding[:, 0:1, :]), positional_embedding],
             dim=1,
         ).to(device)
+
+        if x.device != device:
+            x = x.to(device)
 
         x += positional_embedding
         return x
