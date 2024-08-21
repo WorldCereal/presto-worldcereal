@@ -403,7 +403,7 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Now reassign start_date to the actual subset counted back from end_date
-    df["start_date"] = df["end_date"] - pd.Timedelta(days=364)
+    df["start_date"] = df["end_date"] - pd.DateOffset(years=1) + pd.DateOffset(days=1)
 
     df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
         index=index_columns, columns="valid_date_ind", values=feature_columns
