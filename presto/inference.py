@@ -9,13 +9,7 @@ from einops import rearrange
 from pyproj import Transformer
 from torch.utils.data import DataLoader, TensorDataset
 
-from .dataops import (
-    BANDS,
-    BANDS_GROUPS_IDX,
-    NORMED_BANDS,
-    S1_S2_ERA5_SRTM,
-    DynamicWorld2020_2021,
-)
+from .dataops import BANDS, BANDS_GROUPS_IDX, NORMED_BANDS, S1_S2_ERA5_SRTM, DynamicWorld2020_2021
 from .dataset import WorldCerealBase
 from .masking import BAND_EXPANSION
 from .presto import Presto
