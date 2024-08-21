@@ -27,13 +27,10 @@ class TestEval(TestCase):
         )
 
         output, _, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
-        # print(output.shape)
-        # print(output.head())
-        print(f"len of output: {len(output)}")
-        # * 283 per model: WorldCereal CatBoost, Presto finetuned, Presto + CatBoost3
-        self.assertEqual(len(output), 282 * 3)
-        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
-        self.assertTrue("WorldCerealCropland_CatBoostClassifier_f1" in output)
+
+        self.assertTrue("PrestoFineTuningModel" in output["downstream_model_type"].unique())
+        self.assertTrue("CatBoostClassifier" in output["downstream_model_type"].unique())
+        self.assertEqual(output["f1-score"].isna().sum(), 0)
 
     # def test_eval_croptype(self):
     #     # loading not strict so that absent valid_month
