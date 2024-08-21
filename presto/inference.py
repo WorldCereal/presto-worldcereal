@@ -1,3 +1,4 @@
+import logging
 from typing import Tuple, Union
 
 import numpy as np
@@ -19,6 +20,9 @@ from .dataset import WorldCerealBase
 from .masking import BAND_EXPANSION
 from .presto import Presto
 from .utils import device, prep_dataframe
+
+logger = logging.getLogger(__name__)
+
 
 # Index to band groups mapping
 IDX_TO_BAND_GROUPS = {
@@ -108,6 +112,11 @@ class PrestoFeatureExtractor:
                 values = cls._preprocess_band_values(values, presto_band)
                 eo_data[:, :, BANDS.index(presto_band)] = values
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
+            else:
+                logger.warning(f"Band {org_band} not found in input data.")
+                eo_data[:, :, BANDS.index(presto_band)] = 0
+                mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] = 1
+
 
         return eo_data, mask
 
