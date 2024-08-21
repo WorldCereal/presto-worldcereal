@@ -63,6 +63,8 @@ class PrestoFeatureExtractor:
         "temperature-mean": "temperature_2m",
     }
 
+    STATIC_BAND_MAPPING = {"DEM-alt-20m": "elevation", "DEM-slo-20m": "slope"}
+
     @classmethod
     def _preprocess_band_values(cls, values: np.ndarray, presto_band: str) -> np.ndarray:
         """
@@ -117,6 +119,18 @@ class PrestoFeatureExtractor:
                 eo_data[:, :, BANDS.index(presto_band)] = 0
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] = 1
 
+        for org_band, presto_band in cls.STATIC_BAND_MAPPING.items():
+            if org_band in inarr.coords["bands"]:
+                values = np.swapaxes(
+                    inarr.sel(bands=org_band).values.reshape((num_timesteps, -1)), 0, 1
+                )
+                idx_valid = values != cls._NODATAVALUE
+                eo_data[:, :, BANDS.index(presto_band)] = values * idx_valid
+                mask[:, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
+            else:
+                logger.warning(f"Band {org_band} not found in input data.")
+                eo_data[:, :, BANDS.index(presto_band)] = 0
+                mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] = 1
 
         return eo_data, mask
 
