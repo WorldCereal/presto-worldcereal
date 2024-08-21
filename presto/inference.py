@@ -392,17 +392,23 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     ]
     bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
 
+    # ----------------------------------------------------------------------------
     # PLACEHOLDER for substituting start_date with one derived from crop calendars
     # df['start_date'] = seasons.get_season_start(df[['lat','lon']])
 
+    # For now, in absence of a relevant start_date, we get time difference with respect
+    # to end_date so we can take 12 months counted back from end_date
     df["valid_date_ind"] = (
         (((df["timestamp"] - df["end_date"]).dt.days + 365) / 30).round().astype(int)
     )
 
-    # once the start date is settled, we take 12 months from that as input to Presto
     df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
         index=index_columns, columns="valid_date_ind", values=feature_columns
     )
+
+    # Now reassign start_date to the actual subset counted back from end_date
+    df["start_date"] = df["end_date"] - pd.Timedelta(days=364)
+    # ----------------------------------------------------------------------------
 
     if df_pivot.empty:
         raise ValueError("Left with an empty DataFrame!")
