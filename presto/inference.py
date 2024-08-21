@@ -112,7 +112,7 @@ class PrestoFeatureExtractor:
                 )
                 idx_valid = values != cls._NODATAVALUE
                 values = cls._preprocess_band_values(values, presto_band)
-                eo_data[:, :, BANDS.index(presto_band)] = values
+                eo_data[:, :, BANDS.index(presto_band)] = values * idx_valid
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
             else:
                 logger.warning(f"Band {org_band} not found in input data.")
