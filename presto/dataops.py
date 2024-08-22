@@ -130,8 +130,9 @@ class S1_S2_ERA5_SRTM:
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="invalid value encountered in true_divide")
+            warnings.filterwarnings("ignore", message="invalid value encountered in divide")
             # suppress the following warning
-            # RuntimeWarning: invalid value encountered in true_divide
+            # RuntimeWarning: invalid value encountered in true_divide/divide
             # for cases where near_infrared + red == 0
             # since this is handled in the where condition
             if isinstance(band_1_np, np.ndarray):
