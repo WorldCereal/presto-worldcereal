@@ -18,15 +18,13 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    CLASS_MAPPINGS,
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
+from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
+                      WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
@@ -36,8 +34,7 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 
 @dataclass
 class Hyperparams:
-    # lr: float = 2e-5
-    lr: float = 0.01
+    lr: float = 2e-5
     max_epochs: int = 100
     batch_size: int = 256
     patience: int = 10
@@ -190,9 +187,6 @@ class WorldCerealEval:
         ) -> Tuple[np.ndarray, np.ndarray]:
             encoding_list, target_list = [], []
             for x, y, dw, latlons, month, valid_month, variable_mask in dl:
-                # print(
-                #     f"dataloader_to_encodings_and_targets valid momth shape: {valid_month.shape}"
-                # )
                 x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
                     t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
                 ]
@@ -273,18 +267,24 @@ class WorldCerealEval:
                 # # https://github.com/WorldCereal/wc-classification/blob/
                 # # 4a9a839507d9b4f63c378b3b1d164325cbe843d6/src/
                 # # worldcereal/classification/models.py#L490
+
+                if self.task_type == "cropland":
+                    learning_rate = 0.05
+                    l2_leaf_reg = 3
+                if self.task_type == "croptype":
+                    learning_rate = 0.1
+                    l2_leaf_reg = 30
+
                 downstream_model = CatBoostClassifier(
                     iterations=8000,
                     depth=8,
-                    learning_rate=0.1,
-                    # learning_rate=0.05,
+                    learning_rate=learning_rate,
                     early_stopping_rounds=50,
-                    l2_leaf_reg=30,
-                    # l2_leaf_reg=3,
+                    l2_leaf_reg=l2_leaf_reg,
                     eval_metric=eval_metric,
                     loss_function=loss_function,
                     random_state=self.seed,
-                    verbose=25,
+                    verbose=100,
                     class_names=np.unique(train_targets),
                 )
 
@@ -355,7 +355,6 @@ class WorldCerealEval:
                     "month": month_f,
                     "valid_month": valid_month_f,
                 }
-                # print(f"_inference_for_dl valid momth shape: {valid_month.shape}")
             except ValueError:
                 x, y, dw, latlons, month, variable_mask = b
                 x_f, dw_f, latlons_f, month_f, variable_mask_f = [
@@ -417,7 +416,6 @@ class WorldCerealEval:
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
             eo, dynamic_world, mask, latlons, months, y, valid_months = ds[i]
-            # print(f"spatial_inference valid months shape: {valid_months.shape}")
             dl = DataLoader(
                 TensorDataset(
                     torch.from_numpy(eo).float(),
@@ -654,6 +652,7 @@ class WorldCerealEval:
         loss_fn: nn.Module
         if self.task_type == "croptype":
             loss_fn = nn.CrossEntropyLoss()
+            lr = 0.01
         if self.task_type == "cropland":
             loss_fn = nn.BCEWithLogitsLoss()
 
@@ -694,7 +693,6 @@ class WorldCerealEval:
             for x, y, dw, latlons, month, valid_month, variable_mask in tqdm(
                 train_dl, desc="Training", leave=False
             ):
-                # print(f"finetune valid month shape: {valid_month.shape}")
                 x, y, dw, latlons, month, valid_month, variable_mask = [
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
@@ -716,13 +714,6 @@ class WorldCerealEval:
                         "mask": variable_mask,
                         "month": month,
                     }
-
-                # print(f"x device: {x.get_device()}")
-                # print(f"dw device: {dw.get_device()}")
-                # print(f"latlons device: {latlons.get_device()}")
-                # print(f"mask device: {variable_mask.get_device()}")
-                # print(f"month device: {month.get_device()}")
-                # print(f"valid_month device: {valid_month.get_device()}")
 
                 optimizer.zero_grad()
                 preds = model(**input_d)
