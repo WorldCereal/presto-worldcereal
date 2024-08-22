@@ -96,12 +96,12 @@ class WorldCerealBase(Dataset):
                 # remove scaling
                 values[idx_valid] = values[idx_valid] / 100
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
-            eo_data[:, BANDS.index(presto_val)] = values
+            eo_data[:, BANDS.index(presto_val)] = values * idx_valid
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             # this occurs for the DEM values in one point in Fiji
             values = np.nan_to_num(row_d[df_val], nan=cls._NODATAVALUE)
             idx_valid = values != cls._NODATAVALUE
-            eo_data[:, BANDS.index(presto_val)] = values
+            eo_data[:, BANDS.index(presto_val)] = values * idx_valid
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
         return (
