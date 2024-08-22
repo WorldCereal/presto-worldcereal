@@ -26,12 +26,7 @@ from .dataset import (
     WorldCerealLabelledDataset,
 )
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (
-    Presto,
-    PrestoFineTuningModel,
-    get_sinusoid_encoding_table,
-    param_groups_lrd,
-)
+from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
@@ -635,6 +630,10 @@ class WorldCerealEval:
         model = self._construct_finetuning_model(pretrained_model)
 
         parameters = param_groups_lrd(model)
+
+        if self.task_type == "croptype":
+            hyperparams.lr = 0.01
+
         optimizer = AdamW(parameters, lr=hyperparams.lr)
         scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
 
@@ -659,7 +658,6 @@ class WorldCerealEval:
         loss_fn: nn.Module
         if self.task_type == "croptype":
             loss_fn = nn.CrossEntropyLoss()
-            lr = 0.01
         if self.task_type == "cropland":
             loss_fn = nn.BCEWithLogitsLoss()
 
