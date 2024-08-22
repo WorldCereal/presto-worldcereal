@@ -18,13 +18,20 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
-                      WorldCerealInferenceDataset,
-                      WorldCerealLabelled10DDataset,
-                      WorldCerealLabelledDataset)
+from .dataset import (
+    CLASS_MAPPINGS,
+    NORMED_BANDS,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelled10DDataset,
+    WorldCerealLabelledDataset,
+)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (Presto, PrestoFineTuningModel,
-                     get_sinusoid_encoding_table, param_groups_lrd)
+from .presto import (
+    Presto,
+    PrestoFineTuningModel,
+    get_sinusoid_encoding_table,
+    param_groups_lrd,
+)
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")

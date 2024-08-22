@@ -7,6 +7,9 @@ from unittest import TestCase
 import numpy as np
 import torch
 from einops import repeat
+from torch import nn
+from torch.optim import AdamW
+
 from presto.dataops import (
     BANDS_GROUPS_IDX,
     NUM_BANDS,
@@ -18,8 +21,6 @@ from presto.dataops import (
 )
 from presto.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
 from presto.utils import config_dir, data_dir, default_model_path, device
-from torch import nn
-from torch.optim import AdamW
 
 
 class TestPresto(TestCase):
