@@ -10,7 +10,6 @@ from typing import Optional, cast
 import pandas as pd
 import requests
 import xarray as xr
-
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
@@ -142,7 +141,8 @@ if time_token != "none":
     valid_month_as_token = True
 
 path_to_config = config_dir / "default.json"
-model_kwargs = json.load(Path(path_to_config).open("r"))
+with open(path_to_config) as file:
+    model_kwargs = json.load(file)
 
 model_modes = [
     #   "Random Forest",
