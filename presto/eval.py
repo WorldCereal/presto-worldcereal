@@ -108,10 +108,10 @@ class WorldCerealEval:
                 # use classes obtained from train to trim val and test classes
                 self.val_df.loc[
                     ~self.val_df[class_column].isin(train_classes), class_column
-                    ] = "other_crop"
+                ] = "other_crop"
                 self.test_df.loc[
                     ~self.test_df[class_column].isin(train_classes), class_column
-                    ] = "other_crop"
+                ] = "other_crop"
 
             # create one-hot representation from obtained labels
             # one-hot is needed for finetuning,
