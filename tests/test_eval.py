@@ -4,10 +4,10 @@ from pathlib import Path
 from unittest import TestCase
 
 import numpy as np
-import rioxarray
-import xarray as xr
 
-from presto.dataset import WorldCerealBase, filter_remove_noncrops
+# import rioxarray
+import xarray as xr
+from presto.dataset import filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
 from presto.utils import config_dir, data_dir
@@ -85,13 +85,6 @@ class TestEval(TestCase):
 
         ground_truth_one_timestep = spatial_data.worldcereal_cropland.values[0, :, :]
         with tempfile.TemporaryDirectory() as tmpdirname:
-            # print(f"tmpdirname: {tmpdirname}")
-
-            # config_dir.parent
-            tmpdirname = config_dir.parent / "output" / "tests"
-            print(f"tmpdirname: {tmpdirname}")
-            # path_to_config = config_dir.parent / "output" / "tests"
-
             eval_task = WorldCerealEval(
                 test_data,
                 test_data,
@@ -102,12 +95,9 @@ class TestEval(TestCase):
             )
             finetuned_model = eval_task._construct_finetuning_model(model)
 
-            tpath = Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning.nc"
-            print(f"path to preds: {tpath}")
-
             eval_task.spatial_inference(finetuned_model, None)
             output = xr.load_dataset(
-                Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning.nc"
+                Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning_cropland.nc"
             )
             # np.flip because of how lat lons are stored vs x y
             self.assertTrue(
@@ -116,38 +106,43 @@ class TestEval(TestCase):
             self.assertTrue(np.max(output.ndvi) <= 1)
             self.assertTrue(np.max(output.ndvi) >= 0)
 
-    # def test_spatial_inference_croptype(
-    #     self,
-    # ):
-    #     # loading not strict so that absent valid_month
-    #     # in pre-trained model is not a problem
-    #     model = Presto.load_pretrained(strict=False)
+    def test_spatial_inference_croptype(
+        self,
+    ):
 
-    #     test_data = read_test_file()
-    #     spatial_data_prefix = "belgium_good_2020-12-01_2021-11-30"
-    #     spatial_data = xr.load_dataset(data_dir / f"inference_areas/{spatial_data_prefix}.nc")
+        path_to_config = config_dir / "default.json"
+        with open(path_to_config) as file:
+            model_kwargs = json.load(file)
+        model = Presto.construct(**model_kwargs)
 
-    #     ground_truth_one_timestep = spatial_data.worldcereal_cropland.values[0, :, :]
-    #     with tempfile.TemporaryDirectory() as tmpdirname:
-    #         eval_task = WorldCerealEval(
-    #             test_data,
-    #             test_data,
-    #             task_type="cropland",
-    #             dekadal=False,
-    #             balance=True,
-    #             spatial_inference_savedir=Path(tmpdirname),
-    #         )
-    #         finetuned_model = eval_task._construct_finetuning_model(model)
+        finetune_classes = "CROPTYPE0"
+        downstream_classes = "CROPTYPE9"
+        test_data = read_test_file(finetune_classes, downstream_classes)
+        test_data = filter_remove_noncrops(test_data)
 
-    #         print(f"path to preds: {Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning.nc"}")
+        spatial_data_prefix = "belgium_good_2020-12-01_2021-11-30"
+        spatial_data = xr.load_dataset(data_dir / f"inference_areas/{spatial_data_prefix}.nc")
 
-    #         eval_task.spatial_inference(finetuned_model, None)
-    #         output = xr.load_dataset(
-    #             Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning.nc"
-    #         )
-    #         # np.flip because of how lat lons are stored vs x y
-    #         self.assertTrue(
-    #             np.equal(np.flip(output.ground_truth.values, 0), ground_truth_one_timestep).all()
-    #         )
-    #         self.assertTrue(np.max(output.ndvi) <= 1)
-    #         self.assertTrue(np.max(output.ndvi) >= 0)
+        ground_truth_one_timestep = spatial_data.worldcereal_cropland.values[0, :, :]
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            eval_task = WorldCerealEval(
+                test_data,
+                test_data,
+                task_type="croptype",
+                finetune_classes=finetune_classes,
+                downstream_classes=downstream_classes,
+                dekadal=False,
+                balance=False,
+            )
+            finetuned_model = eval_task._construct_finetuning_model(model)
+            eval_task.spatial_inference(finetuned_model, None)
+            output = xr.load_dataset(
+                Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning_croptype.nc"
+            )
+            # np.flip because of how lat lons are stored vs x y
+            self.assertTrue(
+                np.equal(np.flip(output.ground_truth.values, 0), ground_truth_one_timestep).all()
+            )
+            self.assertTrue(np.max(output.ndvi) <= 1)
+            self.assertTrue(np.max(output.ndvi) >= 0)
