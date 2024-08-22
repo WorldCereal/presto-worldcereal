@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 from unittest import TestCase
 
 import numpy as np
@@ -96,7 +95,7 @@ class TestDataset(TestCase):
             ndvi=ndvi,
             all_preds_ewoc_code=all_preds_ewoc_code,
             all_probs=batch_predictions,
-            b2=b3,
+            b2=b2,
             b3=b3,
             b4=b4,
         )

@@ -26,7 +26,12 @@ from .dataset import (
     WorldCerealLabelledDataset,
 )
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table, param_groups_lrd
+from .presto import (
+    Presto,
+    PrestoFineTuningModel,
+    get_sinusoid_encoding_table,
+    param_groups_lrd,
+)
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 logger = logging.getLogger("__main__")
@@ -498,9 +503,9 @@ class WorldCerealEval:
                 )
             prefix = f"{self.name}_{ds.all_files[i].stem}"
             if pretrained_model is None:
-                filename = f"{prefix}_finetuning.nc"
+                filename = f"{prefix}_finetuning_{self.task_type}.nc"
             else:
-                filename = f"{prefix}_{finetuned_model.__class__.__name__}.nc"
+                filename = f"{prefix}_{finetuned_model.__class__.__name__}_{self.task_type}.nc"
             df.to_xarray().to_netcdf(self.spatial_inference_savedir / filename)
 
     @torch.no_grad()

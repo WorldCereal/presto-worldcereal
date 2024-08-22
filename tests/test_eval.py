@@ -4,9 +4,8 @@ from pathlib import Path
 from unittest import TestCase
 
 import numpy as np
-
-# import rioxarray
 import xarray as xr
+
 from presto.dataset import filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
@@ -30,8 +29,6 @@ class TestEval(TestCase):
         )
 
         output, _, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
-
-        print(output.iloc[:10])
 
         self.assertTrue("PrestoFineTuningModel" in output["downstream_model_type"].unique())
         self.assertTrue("CatBoostClassifier" in output["downstream_model_type"].unique())
@@ -63,12 +60,13 @@ class TestEval(TestCase):
 
         output, _, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
 
-        print(output.iloc[:14])
-
         self.assertTrue("PrestoFineTuningModel" in output["downstream_model_type"].unique())
         self.assertTrue("CatBoostClassifier" in output["downstream_model_type"].unique())
         self.assertTrue(
-            output["class"][~output["class"].isin(["accuracy", "macro avg"])].nunique() > 2
+            output["class"][
+                ~output["class"].isin(["accuracy", "macro avg", "weighted avg"])
+            ].nunique()
+            > 2
         )
         self.assertEqual(output["f1-score"].isna().sum(), 0)
 
@@ -109,7 +107,6 @@ class TestEval(TestCase):
     def test_spatial_inference_croptype(
         self,
     ):
-
         path_to_config = config_dir / "default.json"
         with open(path_to_config) as file:
             model_kwargs = json.load(file)
@@ -134,6 +131,7 @@ class TestEval(TestCase):
                 downstream_classes=downstream_classes,
                 dekadal=False,
                 balance=False,
+                spatial_inference_savedir=Path(tmpdirname),
             )
             finetuned_model = eval_task._construct_finetuning_model(model)
             eval_task.spatial_inference(finetuned_model, None)
