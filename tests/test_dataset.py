@@ -13,7 +13,7 @@ from presto.dataset import (
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
 from presto.utils import config_dir
-from tests.utils import NUM_CROP_POINTS, read_test_file
+from tests.utils import read_test_file
 
 
 class TestDataset(TestCase):
@@ -58,7 +58,9 @@ class TestDataset(TestCase):
         ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
         path_to_config = config_dir / "default.json"
-        model_kwargs = json.load(Path(path_to_config).open("r"))
+        with open(path_to_config) as file:
+            model_kwargs = json.load(file)
+
         model = Presto.construct(**model_kwargs)
         eo, dw, mask, latlons, months, _, valid_months = ds[0]
 
@@ -120,6 +122,7 @@ class TestDataset(TestCase):
 
     def test_targets_correctly_calculated_crop_noncrop(self):
         df = read_test_file()
+        NUM_CROP_POINTS = (df["LANDCOVER_LABEL"] == 11).sum()
         ds = WorldCerealLabelledDataset(df)
         num_positives = 0
         for i in range(len(ds)):
