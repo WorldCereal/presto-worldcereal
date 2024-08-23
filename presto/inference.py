@@ -97,6 +97,9 @@ class PrestoFeatureExtractor:
                 values = cls._preprocess_band_values(values, presto_band)
                 eo_data[:, :, BANDS.index(presto_band)] = values * idx_valid
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
+            elif presto_band == "NDVI":
+                # Band NDVI will be computed by Presto
+                continue
             else:
                 logger.warning(f"Band {presto_band} not found in input data.")
                 eo_data[:, :, BANDS.index(presto_band)] = 0
