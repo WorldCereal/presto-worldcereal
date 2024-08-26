@@ -3,7 +3,7 @@ from unittest import TestCase
 import numpy as np
 from torch.utils.data import DataLoader
 
-from presto.dataset import WorldCerealDataset
+from presto.dataset import WorldCerealBase
 from presto.inference import PrestoFeatureExtractor, compile_encoder
 from presto.presto import Presto
 from presto.utils import prep_dataframe
@@ -15,7 +15,7 @@ class TestInference(TestCase):
         model = Presto.load_pretrained()
         test_data = read_test_file()
         df = prep_dataframe(test_data)
-        ds = WorldCerealDataset(df)
+        ds = WorldCerealBase(df)
         dl = DataLoader(
             ds,
             batch_size=512,

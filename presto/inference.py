@@ -18,7 +18,7 @@ from .dataops import (
     S1_S2_ERA5_SRTM,
     DynamicWorld2020_2021,
 )
-from .dataset import WorldCerealDataset
+from .dataset import WorldCerealBase
 from .masking import BAND_EXPANSION
 from .presto import Presto
 from .utils import device, prep_dataframe
@@ -294,7 +294,7 @@ def get_presto_features(
 
     if isinstance(inarr, pd.DataFrame):
         processed_df = process_parquet(inarr)
-        test_ds = WorldCerealDataset(processed_df)
+        test_ds = WorldCerealBase(processed_df)
         dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
         return presto_extractor._get_encodings(dl)
 
