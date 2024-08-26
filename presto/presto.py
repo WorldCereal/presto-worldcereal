@@ -1,3 +1,4 @@
+import functools
 import io
 import math
 from copy import deepcopy
@@ -804,14 +805,17 @@ class Presto(nn.Module):
     ):
         model = cls.construct()
         model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
+
         return model
 
     @classmethod
+    @functools.lru_cache(maxsize=6)
     def load_pretrained_url(cls, presto_url: str, strict: bool = True):
         response = requests.get(presto_url)
         presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
         model = cls.construct()
         model.load_state_dict(presto_model_layers, strict=strict)
+
         return model
 
 
@@ -877,5 +881,4 @@ def get_layer_id_for_rest_finetuning(name, num_layers):
     elif name.startswith("encoder.blocks"):
         return int(name.split(".")[2]) + 1
     else:
-        return num_layers
         return num_layers
