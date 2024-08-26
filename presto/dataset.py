@@ -197,6 +197,23 @@ class WorldCerealBase(Dataset):
         return train, val
 
 
+class WorldCerealDataset(WorldCerealBase):
+    # The simplest pd.DataFrame based dataset just
+    # for inference without labels
+    def __getitem__(self, idx):
+        # Get the sample
+        row = self.df.iloc[idx, :]
+        eo, mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop)
+        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+        return (
+            self.normalize_and_mask(eo),
+            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            latlon,
+            month,
+            mask_per_variable,
+        )
+
+
 class WorldCerealMaskedDataset(WorldCerealBase):
     def __init__(self, dataframe: pd.DataFrame, mask_params: MaskParamsNoDw):
         super().__init__(dataframe)
