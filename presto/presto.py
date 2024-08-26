@@ -800,7 +800,6 @@ class Presto(nn.Module):
         return model
 
     @classmethod
-    @functools.lru_cache(maxsize=6)
     def load_pretrained(
         cls, model_path: Union[str, Path] = default_model_path, strict: bool = True
     ):
