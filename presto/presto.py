@@ -250,10 +250,6 @@ def get_month_encoding_table(d_hid):
     month_table = np.concatenate([sin_table[:-1], cos_table[:-1]], axis=-1)
 
     return torch.FloatTensor(month_table).to(device)
-    # if torch.cuda.is_available():
-    #     return torch.FloatTensor(month_table).cuda()
-    # else:
-    #     return torch.FloatTensor(month_table)
 
 
 def month_to_tensor(
@@ -425,15 +421,6 @@ class Encoder(nn.Module):
         valid_month: Optional[torch.Tensor] = None,
         eval_task: bool = True,
     ):
-        # device = x.device
-
-        # print(f"x: {x.shape}")
-        # print(f"dw: {dynamic_world.shape}")
-        # print(f"latlons: {latlons.shape}")
-        # print(f"mask: {mask.shape}")
-        # print(f"month: {month}")
-        # print(f"valid_month: {valid_month}")
-
         x = x.to(device)
 
         if mask is None:
@@ -445,8 +432,6 @@ class Encoder(nn.Module):
 
         if months.device != device:
             months = months.to(device)
-
-        # print(f"months device: {months.device}")
 
         month_embedding = self.month_embed(months)
         positional_embedding = repeat(
@@ -495,9 +480,6 @@ class Encoder(nn.Module):
         # then, dynamic world
         tokens = self.dw_embed(dynamic_world.to(device))
 
-        # channel_embedding = self.channel_embed(
-        #     torch.tensor(self.band_group_to_idx["dynamic_world"]).long()
-        # ).to(device)
         channel_embedding = self.channel_embed(
             torch.tensor(self.band_group_to_idx["dynamic_world"]).long().to(device)
         )
@@ -527,16 +509,12 @@ class Encoder(nn.Module):
         # if location overfitting is happenning
         # upd_mask[:, 0] = 1
 
-        # print(f"valid_month shape: {valid_month.shape}")
-        # print(f"valid_month: {valid_month}")
-
         if valid_month is not None:
 
             if valid_month.device != device:
                 valid_month = valid_month.to(device)
 
             val_month_token = self.valid_month_encoding(valid_month).to(device)
-            # val_month_token = self.valid_month_encoding(valid_month.to(device))
             if self.valid_month_as_token:
                 x, upd_mask, orig_indices = self.add_token(
                     val_month_token.unsqueeze(1), x, upd_mask, orig_indices
@@ -545,8 +523,6 @@ class Encoder(nn.Module):
             # if it is None, we ignore it as a token but do add it to
             # the output embedding
             valid_month = torch.ones((x.shape[0],), device=device).long()
-            # valid_month = torch.ones((x.shape[0],), device=x.device).long()
-            # val_month_token = self.valid_month_encoding(valid_month).to(device)
             val_month_token = self.valid_month_encoding(valid_month.to(device))
 
         # apply Transformer blocks
