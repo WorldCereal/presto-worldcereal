@@ -22,4 +22,4 @@ scrap
 output/*
 imgs/*
 # don't track catboost training info
-*/catboost_info
+catboost_info
