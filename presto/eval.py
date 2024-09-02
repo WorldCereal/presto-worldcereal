@@ -106,12 +106,12 @@ class WorldCerealEval:
                     self.num_outputs = len(train_classes)
 
                 # use classes obtained from train to trim val and test classes
-                self.val_df.loc[
-                    ~self.val_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
-                self.test_df.loc[
-                    ~self.test_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
+                self.val_df.loc[~self.val_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
+                self.test_df.loc[~self.test_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
 
             # create one-hot representation from obtained labels
             # one-hot is needed for finetuning,
@@ -128,8 +128,10 @@ class WorldCerealEval:
             self.finetune_classes = finetune_classes
             self.downstream_classes = downstream_classes
         else:
-            logger.error("Unknown task type. Make sure that task type is one on the following: [cropland, croptype]")
-
+            logger.error(
+                "Unknown task type. \
+                Make sure that task type is one on the following: [cropland, croptype]"
+            )
 
         self.spatial_inference_savedir = spatial_inference_savedir
 
@@ -392,7 +394,10 @@ class WorldCerealEval:
                     preds = nn.functional.softmax(preds, dim=1).cpu().numpy()
                     probs = preds.copy()
                 else:
-                    logger.error("Unknown task type. Make sure that task type is one on the following: [cropland, croptype]")
+                    logger.error(
+                        "Unknown task type. \
+                            Make sure that task type is one on the following: [cropland, croptype]"
+                    )
             else:
                 cast(Presto, pretrained_model).eval()
                 encodings = cast(Presto, pretrained_model).encoder(**input_d).cpu().numpy()
@@ -408,7 +413,10 @@ class WorldCerealEval:
                     else:
                         probs = finetuned_model.predict_proba(encodings)
                 else:
-                    logger.error("Unknown task type. Make sure that task type is one on the following: [cropland, croptype]")
+                    logger.error(
+                        "Unknown task type. \
+                            Make sure that task type is one on the following: [cropland, croptype]"
+                    )
 
             test_preds.append(preds)
             test_probs.append(probs)
