@@ -124,6 +124,26 @@ class WorldCerealBase(Dataset):
     def __getitem__(self, idx):
         raise NotImplementedError
 
+    @staticmethod
+    def target_crop(
+        row_d: pd.Series,
+        task_type: str = "cropland",
+        croptype_list: List = [],
+        model_mode: str = "",
+    ) -> Union[int, np.ndarray, List]:
+
+        _target: Union[int, np.ndarray, List]
+        if task_type == "cropland":
+            _target = int(row_d["LANDCOVER_LABEL"] == 11)
+        if task_type == "croptype":
+            if model_mode == "Hierarchical CatBoostClassifier":
+                _target = [row_d["landcover_name"], row_d["downstream_class"]]
+            elif len(croptype_list) == 0:
+                _target = row_d["downstream_class"]
+            else:
+                _target = np.array(row_d[croptype_list].astype(int).values)
+        return _target
+    
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
         # TODO: this can be removed
@@ -423,26 +443,6 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 class_weight="balanced", classes=np.unique(ys), y=ys
             )
         return self._class_weights
-
-    @staticmethod
-    def target_crop(
-        row_d: pd.Series,
-        task_type: str = "cropland",
-        croptype_list: List = [],
-        model_mode: str = "",
-    ) -> Union[int, np.ndarray, List]:
-
-        _target: Union[int, np.ndarray, List]
-        if task_type == "cropland":
-            _target = int(row_d["LANDCOVER_LABEL"] == 11)
-        if task_type == "croptype":
-            if model_mode == "Hierarchical CatBoostClassifier":
-                _target = [row_d["landcover_name"], row_d["downstream_class"]]
-            elif len(croptype_list) == 0:
-                _target = row_d["downstream_class"]
-            else:
-                _target = np.array(row_d[croptype_list].astype(int).values)
-        return _target
 
 
 class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
