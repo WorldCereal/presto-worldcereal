@@ -11,12 +11,21 @@ import pandas as pd
 import requests
 import torch
 import xarray as xr
+
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
-from presto.utils import (DEFAULT_SEED, config_dir, data_dir,
-                          default_model_path, device, initialize_logging,
-                          plot_spatial, seed_everything, timestamp_dirname)
+from presto.utils import (
+    DEFAULT_SEED,
+    config_dir,
+    data_dir,
+    default_model_path,
+    device,
+    initialize_logging,
+    plot_spatial,
+    seed_everything,
+    timestamp_dirname,
+)
 
 logger = logging.getLogger("__main__")
 
