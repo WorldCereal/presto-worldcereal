@@ -143,7 +143,7 @@ class WorldCerealBase(Dataset):
             else:
                 _target = np.array(row_d[croptype_list].astype(int).values)
         return _target
-    
+
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
         # TODO: this can be removed
