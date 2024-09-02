@@ -14,8 +14,11 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from presto.dataops import BANDS_GROUPS_IDX
-from presto.dataset import WorldCerealMaskedDataset as WorldCerealDataset
-from presto.dataset import filter_remove_noncrops, target_maize
+from presto.dataset import (
+    WorldCerealBase,
+    WorldCerealMasked10DDataset,
+    WorldCerealMaskedDataset,
+)
 from presto.eval import WorldCerealEval
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
@@ -23,6 +26,7 @@ from presto.presto import (
     Presto,
     adjust_learning_rate,
     param_groups_weight_decay,
+    extend_to_dekadal,
 )
 from presto.utils import (
     DEFAULT_SEED,
@@ -31,8 +35,6 @@ from presto.utils import (
     default_model_path,
     device,
     initialize_logging,
-    load_world_df,
-    plot_results,
     plot_spatial,
     seed_everything,
     timestamp_dirname,
@@ -56,7 +58,7 @@ argparser.add_argument("--max_learning_rate", type=float, default=0.0001)
 argparser.add_argument("--min_learning_rate", type=float, default=0.0)
 argparser.add_argument("--warmup_epochs", type=int, default=2)
 argparser.add_argument("--weight_decay", type=float, default=0.05)
-argparser.add_argument("--batch_size", type=int, default=4096)
+argparser.add_argument("--batch_size", type=int, default=2048)
 argparser.add_argument("--val_per_n_steps", type=int, default=-1, help="If -1, val every epoch")
 argparser.add_argument(
     "--mask_strategies",
@@ -75,8 +77,10 @@ argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
 argparser.add_argument("--num_workers", type=int, default=4)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
+argparser.add_argument("--wandb_exp_name", type=str, default="presto_experiment")
 argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
-argparser.add_argument("--val_samples_file", type=str, default="VAL_samples.csv")
+argparser.add_argument("--val_samples_file", type=str, default="cropland_test_split_samples.csv")
+argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
@@ -89,6 +93,7 @@ path_to_config = args["path_to_config"]
 warm_start = args["warm_start"]
 wandb_enabled: bool = args["wandb"]
 wandb_org: str = args["wandb_org"]
+wandb_exp_name: str = args["wandb_exp_name"]
 
 seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
@@ -101,6 +106,7 @@ if wandb_enabled:
         entity=wandb_org,
         project="presto-worldcereal",
         dir=output_parent_dir,
+        name=wandb_exp_name,
     )
     run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
@@ -125,6 +131,11 @@ mask_ratio: float = args["mask_ratio"]
 
 parquet_file: str = args["parquet_file"]
 val_samples_file: str = args["val_samples_file"]
+train_only_samples_file: str = args["train_only_samples_file"]
+
+dekadal = False
+if "10d" in parquet_file:
+    dekadal = True
 
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
@@ -132,23 +143,22 @@ model_kwargs = json.load(Path(path_to_config).open("r"))
 logger.info("Setting up dataloaders")
 
 # Load the mask parameters
-mask_params = MaskParamsNoDw(mask_strategies, mask_ratio)
+mask_params = MaskParamsNoDw(mask_strategies, mask_ratio, num_timesteps=36 if dekadal else 12)
+masked_ds = WorldCerealMasked10DDataset if dekadal else WorldCerealMaskedDataset
 
 df = pd.read_parquet(data_dir / parquet_file)
-if (data_dir / val_samples_file).exists():
-    val_samples_df = pd.read_csv(data_dir / val_samples_file)
-    val_samples = val_samples_df.sample_id.tolist()
-    train_df, val_df = WorldCerealDataset.split_df(df, val_sample_ids=val_samples)
-else:
-    train_df, val_df = WorldCerealDataset.split_df(df)
+
+val_samples_df = pd.read_csv(data_dir / val_samples_file)
+train_df, val_df = masked_ds.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
+
 train_dataloader = DataLoader(
-    WorldCerealDataset(train_df, mask_params=mask_params),
+    masked_ds(train_df, mask_params=mask_params),
     batch_size=batch_size,
     shuffle=True,
     num_workers=num_workers,
 )
 val_dataloader = DataLoader(
-    WorldCerealDataset(val_df, mask_params=mask_params),
+    masked_ds(val_df, mask_params=mask_params),
     batch_size=batch_size,
     shuffle=False,
     num_workers=num_workers,
@@ -172,7 +182,12 @@ else:
     model_kwargs = json.load(Path(path_to_config).open("r"))
     model = Presto.construct(**model_kwargs)
     best_model_path = None
+
+if dekadal:
+    logger.info("extending model to dekadal architecture")
+    model = extend_to_dekadal(model)
 model.to(device)
+# print(f"model pos embed shape {model.encoder.pos_embed.shape}") # correctly reinitialized
 
 param_groups = param_groups_weight_decay(model, weight_decay)
 optimizer = optim.AdamW(param_groups, lr=max_learning_rate, betas=(0.9, 0.95))
@@ -206,7 +221,12 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
         train_size = 0
         model.train()
         for epoch_step, b in enumerate(tqdm(train_dataloader, desc="Train", leave=False)):
-            mask, x, y, start_month = b[0].to(device), b[2].to(device), b[3].to(device), b[6]
+            mask, x, y, start_month = (
+                b[0].to(device),
+                b[2].to(device),
+                b[3].to(device),
+                b[6].to(device),
+            )
             dw_mask, x_dw, y_dw = b[1].to(device), b[4].to(device).long(), b[5].to(device).long()
             latlons, real_mask = b[7].to(device), b[9].to(device)
             # zero the parameter gradients
@@ -252,7 +272,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                             b[0].to(device),
                             b[2].to(device),
                             b[3].to(device),
-                            b[6],
+                            b[6].to(device),
                             b[9].to(device),
                         )
                         dw_mask, x_dw = b[1].to(device), b[4].to(device).long()
@@ -322,6 +342,8 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
 
 logger.info(f"Trained for {num_epochs} epochs, best model at {best_model_path}")
 
+logger.info("Starting Evaluation tasks")
+
 if best_model_path is not None:
     logger.info("Loading best model: %s" % best_model_path)
     best_model = torch.load(best_model_path, map_location=device)
@@ -329,77 +351,50 @@ if best_model_path is not None:
 else:
     logger.info("Running eval with randomly init weights")
 
-
+# 1. Using the provided split
 model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
-full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
+full_eval = WorldCerealEval(
+    train_df, val_df, spatial_inference_savedir=model_logging_dir, dekadal=dekadal
+)
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
 
 model_path = model_logging_dir / Path("models")
 model_path.mkdir(exist_ok=True, parents=True)
-finetuned_model_path = model_path / "finetuned_model.pt"
+finetuned_model_path = model_path / "finetuned_model_stratified.pt"
 torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
-full_maize_eval = WorldCerealEval(
-    train_df,
-    val_df,
-    spatial_inference_savedir=model_logging_dir,
-    target_function=target_maize,
-    filter_function=filter_remove_noncrops,
-    name="WorldCerealMaize",
+train_only_samples = pd.read_csv(data_dir / train_only_samples_file).sample_id.tolist()
+
+# 2. Split according to the countries
+country_eval = WorldCerealEval(
+    *WorldCerealBase.split_df(
+        df,
+        val_countries_iso3=["ESP", "NGA", "LVA", "TZA", "ETH", "ARG"],
+        train_only_samples=train_only_samples,
+    ),
+    dekadal=dekadal,
 )
-maize_results, maize_finetuned_model = full_maize_eval.finetuning_results(
+country_results, country_finetuned_model = country_eval.finetuning_results(
     model, sklearn_model_modes=model_modes
 )
-logger.info(json.dumps(maize_results, indent=2))
-torch.save(maize_finetuned_model.state_dict(), model_path / "maize_finetuned_model.pt")
+logger.info(json.dumps(country_results, indent=2))
 
-# not saving plots to wandb
-plot_results(load_world_df(), results, model_logging_dir, show=True, to_wandb=False)
-plot_results(
-    load_world_df(), maize_results, model_logging_dir, show=True, to_wandb=False, prefix="maize_"
+finetuned_model_path_countries = model_path / "finetuned_model_countries.pt"
+torch.save(country_finetuned_model.state_dict(), finetuned_model_path_countries)
+
+# 3. Split by year
+year_eval = WorldCerealEval(
+    *WorldCerealBase.split_df(df, val_years=[2021], train_only_samples=train_only_samples),
+    dekadal=dekadal,
 )
-
-# this is a bit hacky, but it lets us simulate crop/non-crop finetuning -> maize prediction head
-full_maize_eval.name = "WorldCerealCropFinetuningMaizeHead"
-crop_to_maize_results = full_maize_eval.finetuning_results_sklearn(
-    sklearn_model_modes=model_modes, finetuned_model=finetuned_model
+year_results, year_finetuned_model = year_eval.finetuning_results(
+    model, sklearn_model_modes=model_modes
 )
-logger.info(json.dumps(crop_to_maize_results, indent=2))
-
-# missing data experiments
-country_results = []
-for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
-    for predict_maize in [True, False]:
-        kwargs = {
-            "train_data": train_df,
-            "test_data": val_df,
-            "countries_to_remove": [country],
-            "spatial_inference_savedir": model_logging_dir,
-        }
-        if predict_maize:
-            kwargs.update(
-                {
-                    "target_function": target_maize,
-                    "filter_function": filter_remove_noncrops,
-                    "name": "WorldCerealMaize",
-                }
-            )
-        eval_task = WorldCerealEval(**kwargs)
-        results, finetuned_model = eval_task.finetuning_results(
-            model, sklearn_model_modes=model_modes
-        )
-        logger.info(json.dumps(results, indent=2))
-        country_results.append(results)
-        prefix = "maize" if predict_maize else ""
-        finetuned_model_path = model_path / f"{prefix}_finetuned_{country}_removed_model.pt"
-        torch.save(finetuned_model.state_dict(), finetuned_model_path)
-
-missing_year = WorldCerealEval(
-    train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
-)
-year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))
+
+finetuned_model_path_year = model_path / "finetuned_model_year.pt"
+torch.save(year_finetuned_model.state_dict(), finetuned_model_path_year)
 
 all_spatial_preds = list(model_logging_dir.glob("*.nc"))
 for spatial_preds_path in all_spatial_preds:
@@ -409,13 +404,9 @@ for spatial_preds_path in all_spatial_preds:
 
 if wandb_enabled:
     wandb.log(results)
-    wandb.log(maize_results)
-    wandb.log(crop_to_maize_results)
-    for results in country_results:
-        wandb.log(results)
+    wandb.log(country_results)
     wandb.log(year_results)
 
 if wandb_enabled and run:
     run.finish()
-    logger.info(f"Wandb url: {run.url}")
     logger.info(f"Wandb url: {run.url}")

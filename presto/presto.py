@@ -882,3 +882,39 @@ def get_layer_id_for_rest_finetuning(name, num_layers):
         return int(name.split(".")[2]) + 1
     else:
         return num_layers
+
+
+def extend_to_dekadal(model):
+    # reinitialize positional embeddings for encoder to deal with decadal data
+    max_sequence_length = 72  # can this be 36?
+    old_pos_embed_device = model.encoder.pos_embed.device
+    model.encoder.pos_embed = nn.Parameter(
+        torch.zeros(
+            1,
+            max_sequence_length,
+            model.encoder.pos_embed.shape[-1],
+            device=old_pos_embed_device,
+        ),
+        requires_grad=False,
+    )
+    pos_embed = get_sinusoid_encoding_table(
+        model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
+    )
+    model.encoder.pos_embed.data.copy_(pos_embed.to(device=old_pos_embed_device))
+
+    # reinitialize positional embeddings for decoder to deal with decadal data
+    old_pos_embed_device = model.decoder.pos_embed.device
+    model.decoder.pos_embed = nn.Parameter(
+        torch.zeros(
+            1,
+            max_sequence_length,
+            model.decoder.pos_embed.shape[-1],
+            device=old_pos_embed_device,
+        ),
+        requires_grad=False,
+    )
+    pos_embed = get_sinusoid_encoding_table(
+        model.decoder.pos_embed.shape[1], model.decoder.pos_embed.shape[-1]
+    )
+    model.decoder.pos_embed.data.copy_(pos_embed.to(device=old_pos_embed_device))
+    return model

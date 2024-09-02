@@ -238,6 +238,26 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         )
 
 
+class WorldCerealMasked10DDataset(WorldCerealMaskedDataset):
+    NUM_TIMESTEPS = 36
+
+    @classmethod
+    def get_month_array(cls, row: pd.Series) -> np.ndarray:
+        start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
+            row.end_date, "%Y-%m-%d"
+        )
+
+        # Calculate the step size for 10-day intervals and create a list of dates
+        step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))
+        date_vector = [start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)]
+
+        # Ensure last date is not beyond the end date
+        if date_vector[-1] > end_date:
+            date_vector[-1] = end_date
+
+        return np.array([d.month - 1 for d in date_vector])
+
+
 def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
     crop_labels = [10, 11, 12, 13]
     df = df.loc[df.LANDCOVER_LABEL.isin(crop_labels)]
