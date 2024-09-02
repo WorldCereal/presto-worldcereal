@@ -83,7 +83,7 @@ class WorldCerealEval:
         if task_type == "cropland":
             self.num_outputs = 1
             self.croptype_list = []
-        if task_type == "croptype":
+        elif task_type == "croptype":
             # compress all classes in train that contain less than threshold samples into "other"
             classes_threshold = 3
             for class_column in ["finetune_class", "downstream_class"]:
@@ -127,6 +127,9 @@ class WorldCerealEval:
 
             self.finetune_classes = finetune_classes
             self.downstream_classes = downstream_classes
+        else:
+            logger.error("Unknown task type. Make sure that task type is one on the following: [cropland, croptype]")
+
 
         self.spatial_inference_savedir = spatial_inference_savedir
 
@@ -385,24 +388,27 @@ class WorldCerealEval:
                 if task_type == "cropland":
                     preds = torch.sigmoid(preds).cpu().numpy()
                     probs = preds.copy()
-                if task_type == "croptype":
+                elif task_type == "croptype":
                     preds = nn.functional.softmax(preds, dim=1).cpu().numpy()
                     probs = preds.copy()
+                else:
+                    logger.error("Unknown task type. Make sure that task type is one on the following: [cropland, croptype]")
             else:
                 cast(Presto, pretrained_model).eval()
                 encodings = cast(Presto, pretrained_model).encoder(**input_d).cpu().numpy()
                 if task_type == "cropland":
                     preds = finetuned_model.predict_proba(encodings)[:, 1]
                     probs = preds.copy()
-                if task_type == "croptype":
+                elif task_type == "croptype":
                     preds = finetuned_model.predict(encodings)
                     # for hierarchical classification, get predictions on the most granular level
-                    # if preds.ndim > 1:
                     if preds.ndim > 2:
                         preds = preds[:, -1]
                         probs = np.zeros_like(preds)
                     else:
                         probs = finetuned_model.predict_proba(encodings)
+                else:
+                    logger.error("Unknown task type. Make sure that task type is one on the following: [cropland, croptype]")
 
             test_preds.append(preds)
             test_probs.append(probs)
