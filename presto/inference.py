@@ -297,27 +297,6 @@ def get_presto_features(
 
 
 def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
-    # add dummy value + rename stuff for compatibility with existing functions
-    df["OPTICAL-B8A"] = 65535
-    df.rename(
-        columns={
-            "S1-SIGMA0-VV": "SAR-VV",
-            "S1-SIGMA0-VH": "SAR-VH",
-            "S2-L2A-B02": "OPTICAL-B02",
-            "S2-L2A-B03": "OPTICAL-B03",
-            "S2-L2A-B04": "OPTICAL-B04",
-            "S2-L2A-B05": "OPTICAL-B05",
-            "S2-L2A-B06": "OPTICAL-B06",
-            "S2-L2A-B07": "OPTICAL-B07",
-            "S2-L2A-B08": "OPTICAL-B08",
-            "S2-L2A-B11": "OPTICAL-B11",
-            "S2-L2A-B12": "OPTICAL-B12",
-            "AGERA5-precipitation-flux": "METEO-precipitation_flux",
-            "AGERA5-temperature-mean": "METEO-temperature_mean",
-        },
-        inplace=True,
-    )
-
     feature_columns = [
         "METEO-precipitation_flux",
         "METEO-temperature_mean",
@@ -350,6 +329,34 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         "valid_date",
     ]
 
+    # add dummy value + rename stuff for compatibility with existing functions
+    df["OPTICAL-B8A"] = 65535
+
+    rename_dict = {
+        "S1-SIGMA0-VV": "SAR-VV",
+        "S1-SIGMA0-VH": "SAR-VH",
+        "S2-L2A-B02": "OPTICAL-B02",
+        "S2-L2A-B03": "OPTICAL-B03",
+        "S2-L2A-B04": "OPTICAL-B04",
+        "S2-L2A-B05": "OPTICAL-B05",
+        "S2-L2A-B06": "OPTICAL-B06",
+        "S2-L2A-B07": "OPTICAL-B07",
+        "S2-L2A-B08": "OPTICAL-B08",
+        "S2-L2A-B11": "OPTICAL-B11",
+        "S2-L2A-B12": "OPTICAL-B12",
+        "AGERA5-precipitation-flux": "METEO-precipitation_flux",
+        "AGERA5-temperature-mean": "METEO-temperature_mean",
+    }
+
+    for name_old, name_new in rename_dict.items():
+        if name_old in df.columns:
+            df.rename(columns={name_old: name_new}, inplace=True)
+        elif name_new in df.columns:
+            logger.warning(f"Column {name_old} was expected, but found column {name_new}.")
+            continue
+        else:
+            logger.error(f"No matching column found for {name_old} / {name_new} in input data.")
+
     bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
     bands20m = [
         "SAR-VH",
@@ -370,11 +377,27 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     # For now, in absence of a relevant start_date, we get time difference with respect
     # to end_date so we can take 12 months counted back from end_date
     df["valid_date_ind"] = (
-        (((df["timestamp"] - df["end_date"]).dt.days + 365) / 30).round().astype(int)
+        (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month)
+        - (df["end_date"].dt.year * 12 + df["end_date"].dt.month)
+        + 12
     )
 
     # Now reassign start_date to the actual subset counted back from end_date
-    df["start_date"] = df["end_date"] - pd.DateOffset(years=1) + pd.DateOffset(days=1)
+    # ignoring mypy error here:
+    # error: No overload variant of "__sub__" of "Series" matches argument type "DateOffset"
+    df["start_date"] = (  # type: ignore
+        df["end_date"] - pd.DateOffset(years=1) + pd.DateOffset(days=1)  # type: ignore
+    )
+
+    # check for missing timestamps and
+    # create corresponding columns with NODATA
+    missing_timestamps = [xx for xx in range(12) if xx not in df["valid_date_ind"].unique()]
+    present_timestamps = [xx for xx in range(12) if xx not in missing_timestamps]
+    for missing_timestamp in missing_timestamps:
+        _dummy_df = df[df["valid_date_ind"] == np.random.choice(present_timestamps)].copy()
+        _dummy_df["valid_date_ind"] = missing_timestamp
+        _dummy_df[feature_columns] = 65535
+        df = pd.concat([df, _dummy_df], axis=0)
 
     df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
         index=index_columns, columns="valid_date_ind", values=feature_columns
