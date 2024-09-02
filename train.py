@@ -9,22 +9,14 @@ from typing import Optional, cast
 
 import pandas as pd
 import requests
+import torch
 import xarray as xr
-
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
-from presto.utils import (
-    DEFAULT_SEED,
-    config_dir,
-    data_dir,
-    default_model_path,
-    device,
-    initialize_logging,
-    plot_spatial,
-    seed_everything,
-    timestamp_dirname,
-)
+from presto.utils import (DEFAULT_SEED, config_dir, data_dir,
+                          default_model_path, device, initialize_logging,
+                          plot_spatial, seed_everything, timestamp_dirname)
 
 logger = logging.getLogger("__main__")
 
@@ -163,6 +155,8 @@ val_samples_df = pd.read_csv(data_dir / "test_splits" / val_samples_file)
 if task_type == "croptype":
     df = WorldCerealBase.map_croptypes(df, finetune_classes, downstream_classes)
     df = filter_remove_noncrops(df)
+if task_type == "cropland":
+    finetune_classes = "CROPLAND2"
 
 train_df, test_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
 
@@ -179,10 +173,12 @@ full_eval = WorldCerealEval(
 
 model_path = output_parent_dir / "data"
 model_path.mkdir(exist_ok=True, parents=True)
+
 experiment_prefix = f"""\
-{presto_model_description}-{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_balance={balance}\
-"""
-finetuned_model_path = model_path / f"{experiment_prefix}.pt"
+    {presto_model_description}_{task_type}_{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_balance={balance}\
+        """
+
+finetuned_model_path = model_path / f"{experiment_prefix}_upd.pt"
 results_path = model_logging_dir / f"{experiment_prefix}.csv"
 downstream_model_path = model_logging_dir / f"{experiment_prefix}_{downstream_classes}"
 
@@ -246,7 +242,7 @@ else:
     results_df_combined, finetuned_model, sklearn_models_trained = full_eval.finetuning_results(
         model, sklearn_model_modes=model_modes
     )
-    # torch.save(finetuned_model.state_dict(), finetuned_model_path)
+    torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 results_df_combined["presto_model_description"] = presto_model_description
 results_df_combined["compositing_window"] = compositing_window
