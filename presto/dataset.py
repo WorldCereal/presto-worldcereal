@@ -495,7 +495,9 @@ class WorldCerealInferenceDataset(Dataset):
         cls, filepath: Path
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         ds = xr.open_dataset(filepath)
-        epsg = CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg()  # type: ignore
+        epsg = CRS.from_wkt(
+            xr.open_dataset(filepath).crs.attrs["crs_wkt"]
+        ).to_epsg()  # type: ignore
         inarr = ds.drop("crs").to_array(dim="bands")
 
         eo_data, mask = cls._extract_eo_data(inarr)
