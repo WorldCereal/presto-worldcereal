@@ -80,7 +80,9 @@ class WorldCerealBase(Dataset):
         # have the same masking
         mask = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
         for df_val, presto_val in cls.BAND_MAPPING.items():
-            values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
+            values = np.array(
+                [float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)]
+            )
             # this occurs for the DEM values in one point in Fiji
             values = np.nan_to_num(values, nan=cls._NODATAVALUE)
             idx_valid = values != cls._NODATAVALUE
@@ -167,7 +169,9 @@ class WorldCerealBase(Dataset):
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         if val_size is not None:
             assert (
-                (val_countries_iso3 is None) and (val_years is None) and (val_sample_ids is None)
+                (val_countries_iso3 is None)
+                and (val_years is None)
+                and (val_sample_ids is None)
             )
             val, train = np.split(
                 df.sample(frac=1, random_state=DEFAULT_SEED), [int(val_size * len(df))]
@@ -186,7 +190,9 @@ class WorldCerealBase(Dataset):
                     country
                 ).any(), f"Tried removing {country} but it is not in the dataframe"
             if train_only_samples is not None:
-                is_val = df.iso3.isin(val_countries_iso3) & ~df.sample_id.isin(train_only_samples)
+                is_val = df.iso3.isin(val_countries_iso3) & ~df.sample_id.isin(
+                    train_only_samples
+                )
             else:
                 is_val = df.iso3.isin(val_countries_iso3)
             is_train = ~df.iso3.isin(val_countries_iso3)
@@ -200,7 +206,9 @@ class WorldCerealBase(Dataset):
                 is_val = df.end_date_ts.dt.year.isin(val_years)
             is_train = ~df.end_date_ts.dt.year.isin(val_years)
 
-        logger.info(f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples")
+        logger.info(
+            f"Using {len(is_val) - sum(is_val)} train and {sum(is_val)} val samples"
+        )
         train = df[is_train]
         val = df[is_val]
         return train, val
@@ -214,13 +222,17 @@ class WorldCerealMaskedDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(row, self.target_crop)
+        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(
+            row, self.target_crop
+        )
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
         )
         real_mask_per_variable = np.repeat(real_mask_per_token, BAND_EXPANSION, axis=1)
 
-        dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
+        dynamic_world = np.ones(self.NUM_TIMESTEPS) * (
+            DynamicWorld2020_2021.class_amount
+        )
         mask_dw = np.full(self.NUM_TIMESTEPS, True)
         y_dw = dynamic_world.copy()
         return MaskedExample(
@@ -272,7 +284,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         if years_to_remove is not None:
             dataframe["end_date"] = pd.to_datetime(dataframe.end_date)
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
-        self.target_function = target_function if target_function is not None else self.target_crop
+        self.target_function = (
+            target_function if target_function is not None else self.target_crop
+        )
         self._class_weights: Optional[np.ndarray] = None
 
         super().__init__(dataframe)
@@ -285,9 +299,13 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 else:
                     pos_indices.append(loc_idx)
             if len(pos_indices) > len(neg_indices):
-                self.indices = pos_indices + (len(pos_indices) // len(neg_indices)) * neg_indices
+                self.indices = (
+                    pos_indices + (len(pos_indices) // len(neg_indices)) * neg_indices
+                )
             elif len(neg_indices) > len(pos_indices):
-                self.indices = neg_indices + (len(neg_indices) // len(pos_indices)) * pos_indices
+                self.indices = (
+                    neg_indices + (len(neg_indices) // len(pos_indices)) * pos_indices
+                )
             else:
                 self.indices = neg_indices + pos_indices
         else:
@@ -306,7 +324,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function)
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(
+            row, self.target_function
+        )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -335,13 +355,15 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
 
     @classmethod
     def get_month_array(cls, row: pd.Series) -> np.ndarray:
-        start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
-            row.end_date, "%Y-%m-%d"
-        )
+        start_date, end_date = datetime.strptime(
+            row.start_date, "%Y-%m-%d"
+        ), datetime.strptime(row.end_date, "%Y-%m-%d")
 
         # Calculate the step size for 10-day intervals and create a list of dates
         step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))
-        date_vector = [start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)]
+        date_vector = [
+            start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)
+        ]
 
         # Ensure last date is not beyond the end date
         if date_vector[-1] > end_date:
@@ -353,7 +375,9 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_function)
+        eo, mask_per_token, latlon, _, target = self.row_to_arrays(
+            row, self.target_function
+        )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -395,7 +419,9 @@ class WorldCerealInferenceDataset(Dataset):
         start_time = valid_time - pd.DateOffset(months=6)
         inarr = inarr.sel(t=slice(start_time, end_time))
         num_timesteps = len(inarr.t)
-        assert num_timesteps == 12, "Expected 12 timesteps, only found {}".format(num_timesteps)
+        assert num_timesteps == 12, "Expected 12 timesteps, only found {}".format(
+            num_timesteps
+        )
 
         # Handle NaN values in Presto compatible way
         inarr = inarr.astype(np.float32)
@@ -447,7 +473,9 @@ class WorldCerealInferenceDataset(Dataset):
         return latlons
 
     @classmethod
-    def _preprocess_band_values(cls, values: np.ndarray, presto_band: str) -> np.ndarray:
+    def _preprocess_band_values(
+        cls, values: np.ndarray, presto_band: str
+    ) -> np.ndarray:
         """
         Preprocesses the band values based on the given presto_val.
 
@@ -485,7 +513,9 @@ class WorldCerealInferenceDataset(Dataset):
         """
         num_instances = len(inarr.x) * len(inarr.y)
 
-        start_month = (inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
+        start_month = (
+            inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1
+        ) - 1
 
         months = np.ones((num_instances)) * start_month
         return months
@@ -495,7 +525,7 @@ class WorldCerealInferenceDataset(Dataset):
         cls, filepath: Path
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         ds = xr.open_dataset(filepath)
-        epsg = int(CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg())
+        epsg = CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg()  # type: ignore
         inarr = ds.drop("crs").to_array(dim="bands")
 
         eo_data, mask = cls._extract_eo_data(inarr)
@@ -514,7 +544,9 @@ class WorldCerealInferenceDataset(Dataset):
         filepath = self.all_files[idx]
         eo, mask, latlons, months, y = self.nc_to_arrays(filepath)
 
-        dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
+        dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (
+            DynamicWorld2020_2021.class_amount
+        )
 
         return S1_S2_ERA5_SRTM.normalize(eo), dynamic_world, mask, latlons, months, y
 
