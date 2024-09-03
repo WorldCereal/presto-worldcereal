@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from math import modf
 from pathlib import Path
 from random import sample
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Callable, Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
