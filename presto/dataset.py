@@ -371,7 +371,11 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_function)
+        eo, real_mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_function)
+        if self.mask_ratio > 0:
+            mask_per_token, eo, _, _ = self.mask_params.mask_data(
+                self.normalize_and_mask(eo), real_mask_per_token
+            )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
