@@ -426,7 +426,7 @@ class WorldCerealInferenceDataset(Dataset):
         return eo_data, mask
 
     @staticmethod
-    def _extract_latlons(inarr: xr.DataArray, epsg: int) -> np.ndarray:  # type: ignore
+    def _extract_latlons(inarr: xr.DataArray, epsg: int) -> np.ndarray:
         """
         Extracts latitudes and longitudes from the input xarray.DataArray.
 
@@ -496,6 +496,9 @@ class WorldCerealInferenceDataset(Dataset):
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         ds = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg()
+
+        if epsg is None:
+            raise ValueError("EPSG code not found in the input file.")
         inarr = ds.drop("crs").to_array(dim="bands")
 
         eo_data, mask = cls._extract_eo_data(inarr)
