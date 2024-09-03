@@ -3,7 +3,6 @@ from pathlib import Path
 from unittest import TestCase
 
 import numpy as np
-import rioxarray
 import xarray as xr
 
 from presto.eval import WorldCerealEval
@@ -31,11 +30,9 @@ class TestEval(TestCase):
         model = Presto.load_pretrained()
 
         test_data = read_test_file()
-        spatial_data_prefix = "belgium_good_2020-12-01_2021-11-30"
-        spatial_data = rioxarray.open_rasterio(
-            data_dir / f"inference_areas/{spatial_data_prefix}.nc", decode_times=False
-        )
-        ground_truth_one_timestep = spatial_data.worldcereal_cropland.values[0, :, :]
+        spatial_data_prefix = "WORLDCEREAL-INPUTS-10m_belgium_good_32631_2020-08-30_2022-03-03"
+        spatial_data = xr.open_dataset(data_dir / f"inference_areas/{spatial_data_prefix}.nc")
+        ground_truth_one_timestep = spatial_data.WORLDCEREAL_TEMPORARYCROPS_2021.values
         with tempfile.TemporaryDirectory() as tmpdirname:
             eval_task = WorldCerealEval(
                 test_data, test_data, spatial_inference_savedir=Path(tmpdirname)
