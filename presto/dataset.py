@@ -278,12 +278,12 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         self._class_weights: Optional[np.ndarray] = None
         self.mask_ratio = mask_ratio
         self.mask_params = MaskParamsNoDw(
-            [
+            (
                 "group_bands",
                 "random_timesteps",
                 "chunk_timesteps",
                 "random_combinations",
-            ],
+            ),
             mask_ratio,
         )
 
