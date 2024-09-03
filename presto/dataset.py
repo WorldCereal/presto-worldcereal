@@ -495,11 +495,11 @@ class WorldCerealInferenceDataset(Dataset):
         cls, filepath: Path
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         ds = xr.open_dataset(filepath)
-        epsg_coords = CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg()
+        epsg = int(CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg())
         inarr = ds.drop("crs").to_array(dim="bands")
 
         eo_data, mask = cls._extract_eo_data(inarr)
-        latlons = cls._extract_latlons(inarr, epsg_coords)
+        latlons = cls._extract_latlons(inarr, epsg)
         months = cls._extract_months(inarr)
 
         if cls.Y not in ds:
