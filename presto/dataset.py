@@ -367,7 +367,7 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
 
 class WorldCerealInferenceDataset(Dataset):
     _NODATAVALUE = 65535
-    Y = "worldcereal_cropland"
+    Y = "WORLDCEREAL_TEMPORARYCROPS_2021"
 
     def __init__(self, path_to_files: Path = data_dir / "inference_areas"):
         self.path_to_files = path_to_files
@@ -388,14 +388,7 @@ class WorldCerealInferenceDataset(Dataset):
             Tuple[np.ndarray, np.ndarray]: Tuple containing EO data array and mask array.
         """
         num_pixels = len(inarr.x) * len(inarr.y)
-
-        # Use valid_time attribute to extract the right part of the time series
-        valid_time = pd.to_datetime(inarr.attrs["valid_time"]).replace(day=1)
-        end_time = valid_time + pd.DateOffset(months=5)
-        start_time = valid_time - pd.DateOffset(months=6)
-        inarr = inarr.sel(t=slice(start_time, end_time))
         num_timesteps = len(inarr.t)
-        assert num_timesteps == 12, "Expected 12 timesteps, only found {}".format(num_timesteps)
 
         # Handle NaN values in Presto compatible way
         inarr = inarr.astype(np.float32)
@@ -490,6 +483,28 @@ class WorldCerealInferenceDataset(Dataset):
         months = np.ones((num_instances)) * start_month
         return months
 
+    @staticmethod
+    def _subset_array_temporally(inarr: xr.DataArray) -> xr.DataArray:
+        """
+        Subset the input xarray.DataArray temporally based on `valid_time` attribute.
+
+        Args:
+            inarr (xr.DataArray): Input xarray.DataArray containing EO data.
+
+        Returns:
+            xr.DataArray: Temporally subsetted xarray.DataArray.
+        """
+
+        # Use valid_time attribute to extract the right part of the time series
+        valid_time = pd.to_datetime(inarr.attrs["valid_time"]).replace(day=1)
+        end_time = valid_time + pd.DateOffset(months=5)
+        start_time = valid_time - pd.DateOffset(months=6)
+        inarr = inarr.sel(t=slice(start_time, end_time))
+        num_timesteps = len(inarr.t)
+        assert num_timesteps == 12, "Expected 12 timesteps, only found {}".format(num_timesteps)
+
+        return inarr
+
     @classmethod
     def nc_to_arrays(
         cls, filepath: Path
@@ -501,6 +516,9 @@ class WorldCerealInferenceDataset(Dataset):
             raise ValueError("EPSG code not found in the input file.")
         inarr = ds.drop("crs").to_array(dim="bands")
 
+        # Temporal subsetting to 12 timesteps
+        inarr = cls._subset_array_temporally(inarr)
+
         eo_data, mask = cls._extract_eo_data(inarr)
         latlons = cls._extract_latlons(inarr, epsg)
         months = cls._extract_months(inarr)
@@ -508,8 +526,7 @@ class WorldCerealInferenceDataset(Dataset):
         if cls.Y not in ds:
             y = np.ones_like(months) * cls._NODATAVALUE
         else:
-            # TODO: needs to be checked once the labels are back
-            y = rearrange(inarr[cls.Y].values, "t x y -> (x y) t")
+            y = rearrange(inarr.sel(bands=cls.Y).values, "t x y -> (x y) t")
 
         return eo_data, np.repeat(mask, BAND_EXPANSION, axis=-1), latlons, months, y
 
