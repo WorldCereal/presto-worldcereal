@@ -37,7 +37,7 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
-    max_epochs: int = 100
+    max_epochs: int = 10
     batch_size: int = 256
     patience: int = 20
     num_workers: int = 8
@@ -235,7 +235,7 @@ class WorldCerealEval:
                     years_to_remove=self.years_to_remove,
                     task_type=self.task_type,
                     croptype_list=[],
-                    model_mode=model,
+                    return_hierarchical_labels="Hierarchical" in model,
                 ),
                 batch_size=2048,
                 shuffle=False,
@@ -248,7 +248,7 @@ class WorldCerealEval:
                     years_to_remove=self.years_to_remove,
                     task_type=self.task_type,
                     croptype_list=[],
-                    model_mode=model,
+                    return_hierarchical_labels="Hierarchical" in model,
                 ),
                 batch_size=2048,
                 shuffle=False,
@@ -282,7 +282,7 @@ class WorldCerealEval:
                     l2_leaf_reg = 30
 
                 downstream_model = CatBoostClassifier(
-                    iterations=8000,
+                    iterations=100,
                     depth=8,
                     learning_rate=learning_rate,
                     early_stopping_rounds=50,
@@ -524,18 +524,15 @@ class WorldCerealEval:
         croptype_list: List = [],
     ) -> pd.DataFrame:
 
-        if type(finetuned_model).__name__ in (
-            ["LocalClassifierPerParentNode", "LocalClassifierPerNode"]
-        ):
-            model_mode = "Hierarchical CatBoostClassifier"
-        else:
-            model_mode = ""
-
         test_ds = self.ds_class(
             self.test_df,
             task_type=self.task_type,
             croptype_list=croptype_list,
-            model_mode=model_mode,
+            return_hierarchical_labels=(type(finetuned_model).__name__ in [
+                "LocalClassifierPerParentNode",
+                "LocalClassifierPerNode"
+                ]
+            )
         )
 
         dl = DataLoader(

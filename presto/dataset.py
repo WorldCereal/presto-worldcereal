@@ -65,7 +65,6 @@ class WorldCerealBase(Dataset):
         row: pd.Series,
         task_type: str = "cropland",
         croptype_list: List = [],
-        model_mode: str = "",
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
@@ -242,19 +241,17 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         mask_params: MaskParamsNoDw,
         task_type: str = "cropland",
         croptype_list: List = [],
-        model_mode: str = "",
     ):
         super().__init__(dataframe)
         self.mask_params = mask_params
         self.task_type = task_type
         self.croptype_list = croptype_list
-        self.model_mode = model_mode
 
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(
-            row, self.task_type, self.croptype_list, self.model_mode
+            row, self.task_type, self.croptype_list
         )
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
@@ -314,11 +311,10 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         dataframe: pd.DataFrame,
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
-        # target_function: Optional[Callable] = None,
         balance: bool = False,
         task_type: str = "cropland",
         croptype_list: List = [],
-        model_mode: str = "",
+        return_hierarchical_labels: bool = False,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -336,7 +332,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         self._class_weights: Optional[np.ndarray] = None
         self.task_type = task_type
         self.croptype_list = croptype_list
-        self.model_mode = model_mode
+        self.return_hierarchical_labels = return_hierarchical_labels
 
         super().__init__(dataframe)
         if balance:
@@ -344,7 +340,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 neg_indices, pos_indices = [], []
                 for loc_idx, (_, row) in enumerate(self.df.iterrows()):
                     target = self.target_crop(
-                        row, self.task_type, self.croptype_list, self.model_mode
+                        row, self.task_type, self.croptype_list, return_hierarchical_labels
                     )
                     if target == 0:
                         neg_indices.append(loc_idx)
@@ -397,14 +393,14 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         row_d: pd.Series,
         task_type: str = "cropland",
         croptype_list: List = [],
-        model_mode: str = "",
+        return_hierarchical_labels: bool = False
     ) -> Union[int, np.ndarray, List]:
 
         _target: Union[int, np.ndarray, List]
         if task_type == "cropland":
             _target = int(row_d["LANDCOVER_LABEL"] == 11)
         if task_type == "croptype":
-            if model_mode == "Hierarchical CatBoostClassifier":
+            if return_hierarchical_labels:
                 _target = [row_d["landcover_name"], row_d["downstream_class"]]
             elif len(croptype_list) == 0:
                 _target = row_d["downstream_class"]
@@ -426,11 +422,11 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
         eo, mask_per_token, latlon, month, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list, self.model_mode
+            row, self.task_type, self.croptype_list
         )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
 
-        target = self.target_crop(row, self.task_type, self.croptype_list,  self.model_mode)
+        target = self.target_crop(row, self.task_type, self.croptype_list, self.return_hierarchical_labels)
 
         return (
             self.normalize_and_mask(eo),
@@ -449,7 +445,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             ys = []
             for _, row in self.df.iterrows():
                 ys.append(
-                    self.target_crop(row, self.task_type, self.croptype_list, self.model_mode)
+                    self.target_crop(row, self.task_type, self.croptype_list, self.return_hierarchical_labels)
                 )
             self._class_weights = compute_class_weight(
                 class_weight="balanced", classes=np.unique(ys), y=ys
@@ -482,9 +478,9 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
         eo, mask_per_token, latlon, _, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list, self.model_mode
+            row, self.task_type, self.croptype_list
         )
-        target = self.target_crop(row, self.task_type, self.croptype_list,  self.model_mode)
+        target = self.target_crop(row, self.task_type, self.croptype_list,  self.return_hierarchical_labels)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
