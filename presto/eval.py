@@ -18,21 +18,16 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    CLASS_MAPPINGS,
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
+from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
+                      WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (
-    Presto,
-    PrestoFineTuningModel,
-    get_sinusoid_encoding_table,
-    param_groups_lrd,
-)
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device, prep_dataframe
+
+MIN_SAMPLES_PER_CLASS = 3
 
 logger = logging.getLogger("__main__")
 
@@ -44,7 +39,7 @@ class Hyperparams:
     lr: float = 2e-5
     max_epochs: int = 100
     batch_size: int = 256
-    patience: int = 10
+    patience: int = 5
     num_workers: int = 8
 
 
@@ -76,6 +71,7 @@ class WorldCerealEval:
         self.name = f"WorldCereal{task_type.title()}"
 
         train_data, val_data = WorldCerealLabelledDataset.split_df(train_data, val_size=val_size)
+
         self.train_df = prep_dataframe(train_data, filter_function, dekadal=dekadal)
         self.val_df = prep_dataframe(val_data, filter_function, dekadal=dekadal)
         self.test_df = prep_dataframe(test_data, filter_function, dekadal=dekadal)
@@ -84,11 +80,10 @@ class WorldCerealEval:
             self.num_outputs = 1
             self.croptype_list = []
         elif task_type == "croptype":
-            # compress all classes in train that contain less than threshold samples into "other"
-            classes_threshold = 3
+            # compress all classes in train that contain less than MIN_SAMPLES_PER_CLASS samples into "other"
             for class_column in ["finetune_class", "downstream_class"]:
                 class_counts = self.train_df[class_column].value_counts()
-                small_classes = class_counts[class_counts < classes_threshold].index
+                small_classes = class_counts[class_counts < MIN_SAMPLES_PER_CLASS].index
                 # if no classes with n_samples < classes_threshold are present in train,
                 # force the "other" class using the class with minimal number of samples
                 # this is done so that the other class is always present,
@@ -175,7 +170,6 @@ class WorldCerealEval:
                 model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
             )
             model.encoder.pos_embed.data.copy_(pos_embed)
-            # model.to(device)
         model.to(device)
         return model
 
@@ -304,6 +298,7 @@ class WorldCerealEval:
                     clone(downstream_model).fit(
                         train_encodings,
                         train_targets,
+                        eval_set=Pool(val_encodings, val_targets),
                         sample_weight=sample_weights_trn,
                         eval_set=Pool(val_encodings, val_targets, weight=sample_weights_val),
                     )
@@ -583,12 +578,22 @@ class WorldCerealEval:
             test_preds_np,
             labels=_croptype_list,
             output_dict=True,
+            # zero_division=np.nan,
             zero_division=0,
         )
+
         _results_df = pd.DataFrame(_results).transpose().reset_index()
         _results_df.columns = pd.Index(["class", "precision", "recall", "f1-score", "support"])
         _results_df["year"] = "all"
         _results_df["country"] = "all"
+
+        # overwrite macro F1 so that it's not computed for classes that have 
+        # too few samples
+        corrected_macro_f1 = _results_df.loc[
+            (_results_df["support"] >= MIN_SAMPLES_PER_CLASS) & 
+            (~_results_df["class"].isin(["accuracy","macro avg","weighted avg"])),
+            "f1-score"].mean()
+        _results_df.loc[_results_df["class"]=="macro avg","f1-score"] = corrected_macro_f1
 
         _partitioned_results = self.partitioned_metrics(
             target_np, test_preds_np, test_ds.df, metrics_agg, _croptype_list
@@ -608,7 +613,6 @@ class WorldCerealEval:
         croptype_list: List = [],
     ) -> pd.DataFrame:
         partitioned_result_df = pd.DataFrame()
-        # years = test_df.end_date.apply(lambda date: date[:4])
         test_df = WorldCerealLabelledDataset.join_with_world_df(test_df)
         for prop_name in ["year", "name"]:
             prop_series = test_df[prop_name]
@@ -637,6 +641,13 @@ class WorldCerealEval:
                 if prop_name == "name":
                     _report_df["year"] = "all"
                     _report_df["country"] = prop
+
+                corrected_macro_f1 = _report_df.loc[
+                    (_report_df["support"] >= MIN_SAMPLES_PER_CLASS) & 
+                    (~_report_df["class"].isin(["accuracy","macro avg","weighted avg"])),
+                    "f1-score"].mean()
+                _report_df.loc[_report_df["class"]=="macro avg","f1-score"] = corrected_macro_f1
+
                 partitioned_result_df = pd.concat([partitioned_result_df, _report_df], axis=0)
 
         return partitioned_result_df
