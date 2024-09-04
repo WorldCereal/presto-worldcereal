@@ -3,16 +3,13 @@ from unittest import TestCase
 
 import numpy as np
 import torch
-
 from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
-from presto.dataset import (
-    WorldCerealInferenceDataset,
-    WorldCerealLabelledDataset,
-    WorldCerealMaskedDataset,
-)
+from presto.dataset import (WorldCerealInferenceDataset,
+                            WorldCerealLabelledDataset,
+                            WorldCerealMaskedDataset)
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
-from presto.utils import config_dir
+from presto.utils import config_dir, device
 from tests.utils import read_test_file
 
 
@@ -62,15 +59,16 @@ class TestDataset(TestCase):
             model_kwargs = json.load(file)
 
         model = Presto.construct(**model_kwargs)
+        model.to(device)
         eo, dw, mask, latlons, months, _, valid_months = ds[0]
 
         with torch.no_grad():
             _ = model(
-                x=torch.from_numpy(eo).float()[:num_vals],
-                dynamic_world=torch.from_numpy(dw).long()[:num_vals],
-                latlons=torch.from_numpy(latlons).float()[:num_vals],
-                mask=torch.from_numpy(mask).int()[:num_vals],
-                month=torch.from_numpy(months).long()[:num_vals],
+                x=torch.from_numpy(eo).float()[:num_vals].to(device),
+                dynamic_world=torch.from_numpy(dw).long()[:num_vals].to(device),
+                latlons=torch.from_numpy(latlons).float()[:num_vals].to(device),
+                mask=torch.from_numpy(mask).int()[:num_vals].to(device),
+                month=torch.from_numpy(months).long()[:num_vals].to(device),
             )
 
     def test_combine_predictions(self):

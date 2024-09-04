@@ -7,31 +7,26 @@ from unittest import TestCase
 import numpy as np
 import torch
 from einops import repeat
+from presto.dataops import (BANDS_GROUPS_IDX, NUM_BANDS, NUM_ORG_BANDS,
+                            NUM_TIMESTEPS, S1_S2_ERA5_SRTM, SRTM_INDEX,
+                            DynamicWorld2020_2021)
+from presto.presto import (Decoder, Encoder, Presto, month_to_tensor,
+                           param_groups_lrd)
+from presto.utils import config_dir, data_dir, default_model_path, device
 from torch import nn
 from torch.optim import AdamW
-
-from presto.dataops import (
-    BANDS_GROUPS_IDX,
-    NUM_BANDS,
-    NUM_ORG_BANDS,
-    NUM_TIMESTEPS,
-    S1_S2_ERA5_SRTM,
-    SRTM_INDEX,
-    DynamicWorld2020_2021,
-)
-from presto.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
-from presto.utils import config_dir, data_dir, default_model_path, device
 
 
 class TestPresto(TestCase):
     def test_encoder_init(self):
         batch_size = 3
-        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS)))
-        input_mask = torch.zeros_like(input)
-        dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long()
-        latlons = torch.rand((batch_size, 2))
-        valid_months = torch.from_numpy(np.array(batch_size * [5]))
+        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))).to(device)
+        input_mask = torch.zeros_like(input).to(device)
+        dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long().to(device)
+        latlons = torch.rand((batch_size, 2)).to(device)
+        valid_months = torch.from_numpy(np.array(batch_size * [5])).to(device)
         model = Encoder()
+        model.to(device)
 
         x, orig_indices, upd_mask = model(
             input,
@@ -78,12 +73,13 @@ class TestPresto(TestCase):
 
     def test_end_to_end(self):
         batch_size = 3
-        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS)))
-        input_mask = torch.zeros_like(input)
-        dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long()
-        latlons = torch.rand((batch_size, 2))
+        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))).to(device)
+        input_mask = torch.zeros_like(input).to(device)
+        dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long().to(device)
+        latlons = torch.rand((batch_size, 2)).to(device)
 
         model = Presto.construct()
+        model.to(device)
 
         # mask one group
         input_mask[:, :, 0] = 1
@@ -148,10 +144,10 @@ class TestPresto(TestCase):
             encoder_embed_dim=14,
             decoder_embed_dim=14,
             decoder_num_heads=2,
-        )
+        ).to(device)
         # the mask token is initialized to 0s
         orig_indices = torch.tensor([[0, 2, 3, 5, 1, 4], [0, 1, 3, 2, 4, 5]])
-        x_mask = torch.zeros((2, 4))
+        x_mask = torch.zeros((2, 4)).to(device)
 
         filled_tokens = decoder.add_masked_tokens(
             masked_x.to(device), orig_indices.to(device), x_mask.to(device)
@@ -173,7 +169,7 @@ class TestPresto(TestCase):
             encoder_embed_dim=14,
             decoder_embed_dim=14,
             decoder_num_heads=2,
-        )
+        ).to(device)
         # the mask token is initialized to 0s
         orig_indices = torch.tensor([[0, 2, 3, 5, 1, 4], [0, 1, 3, 2, 4, 5]])
         x_mask = torch.zeros((2, 4))
@@ -190,10 +186,10 @@ class TestPresto(TestCase):
     def test_encodings_correctly_added_in_decoder(self):
         # 1 batch, 3 timesteps, 13 dimensions (plus the latlon and srtm token)
         num_timesteps = 3
-        x = torch.zeros((1, (num_timesteps * len(BANDS_GROUPS_IDX)) + 2, 14))
+        x = torch.zeros((1, (num_timesteps * len(BANDS_GROUPS_IDX)) + 2, 14)).to(device)
 
         # increasing channel embedding
-        embedding = torch.arange(0, (len(BANDS_GROUPS_IDX) + 1)).float()
+        embedding = torch.arange(0, (len(BANDS_GROUPS_IDX) + 1)).float().to(device)
         channel_embedding = nn.Embedding.from_pretrained(repeat(embedding, "c -> c d", d=2))
 
         decoder = Decoder(
@@ -201,7 +197,7 @@ class TestPresto(TestCase):
             encoder_embed_dim=14,
             decoder_embed_dim=14,
             decoder_num_heads=2,
-        )
+        ).to(device)
 
         output = decoder.add_embeddings(x, month=1)
 
@@ -248,11 +244,11 @@ class TestPresto(TestCase):
         finetuning_model = seq2seq_model.construct_finetuning_model(num_outputs=1).to(device)
 
         batch_size = 3
-        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS)))
-        input_mask = torch.zeros_like(input)
-        dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long()
-        latlons = torch.rand((batch_size, 2))
-        valid_months = torch.from_numpy(np.array(batch_size * [5]))
+        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))).to(device)
+        input_mask = torch.zeros_like(input).to(device)
+        dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long().to(device)
+        latlons = torch.rand((batch_size, 2)).to(device)
+        valid_months = torch.from_numpy(np.array(batch_size * [5])).to(device)
 
         parameters = param_groups_lrd(finetuning_model)
         opt = AdamW(parameters, lr=0.1)
@@ -299,7 +295,7 @@ class TestPresto(TestCase):
             self.assertTrue(torch.equal(torch_loaded, config_loaded))
 
     def test_reconstruct_inputs(self):
-        model = Presto.construct().decoder
+        model = Presto.construct().decoder.to(device)
 
         class NoOp(nn.Module):
             def __init__(self, out_dim: int):
@@ -334,11 +330,11 @@ class TestPresto(TestCase):
         self.assertTrue(torch.all(dw == model.band_group_to_idx["dynamic_world"]))
 
     def test_grads(self):
-        encoder = Encoder()
-        input = torch.ones(3, 12, 18)
-        dw_input = torch.ones(3, 12).long()
-        latlons = torch.rand((3, 2))
-        output = encoder(input, dw_input, latlons).sum()
+        encoder = Encoder().to(device)
+        input = torch.ones(3, 12, 18).to(device)
+        dw_input = torch.ones(3, 12).long().to(device)
+        latlons = torch.rand((3, 2)).to(device)
+        output = encoder(input, dw_input, latlons).sum().to(device)
         output.backward()
 
         for name, param in encoder.named_parameters():
@@ -368,9 +364,9 @@ class TestPresto(TestCase):
             self.assertTrue(param.equal(seq2seq_model.encoder.state_dict()[name]))
 
         with torch.no_grad():
-            encoder_input = torch.zeros((batch_size, NUM_TIMESTEPS, NUM_BANDS))
-            dw_input = torch.zeros((batch_size, NUM_TIMESTEPS)).long()
-            encoder_latlons = torch.rand((batch_size, 2))
+            encoder_input = torch.zeros((batch_size, NUM_TIMESTEPS, NUM_BANDS)).to(device)
+            dw_input = torch.zeros((batch_size, NUM_TIMESTEPS)).long().to(device)
+            encoder_latlons = torch.rand((batch_size, 2)).to(device)
             seq2seq_encoder_output = seq2seq_model.encoder(
                 encoder_input, dw_input, encoder_latlons
             )
@@ -399,9 +395,9 @@ class TestPresto(TestCase):
 
         batch_size = 3
         with torch.no_grad():
-            encoder_input = torch.zeros((batch_size, NUM_TIMESTEPS, NUM_BANDS))
-            dw_input = torch.zeros((batch_size, NUM_TIMESTEPS)).long()
-            encoder_latlons = torch.rand((batch_size, 2))
+            encoder_input = torch.zeros((batch_size, NUM_TIMESTEPS, NUM_BANDS)).to(device)
+            dw_input = torch.zeros((batch_size, NUM_TIMESTEPS)).long().to(device)
+            encoder_latlons = torch.rand((batch_size, 2)).to(device)
             model_output = model.encoder(encoder_input, dw_input, encoder_latlons)
             model_2_output = model_2.encoder(encoder_input, dw_input, encoder_latlons)
         self.assertTrue(model_output.equal(model_2_output))
@@ -493,6 +489,7 @@ class TestPrestoEndToEnd(TestCase):
         def forward(x, dynamic_world, mask):
             # THIS CODE IS FROM WITHIN THE PRESTO FUNCTION, WITH SLIGHT MODIFICATIONS #
             # if the presto code changes this will need to as well #
+            self.model = self.model.to(device)
             x, orig_indices, upd_mask = self.forward_encoder(
                 x, dynamic_world, mask, eval_task=False
             )
