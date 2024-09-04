@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from math import modf
 from pathlib import Path
 from random import sample
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -508,13 +508,22 @@ class WorldCerealInferenceDataset(Dataset):
     @classmethod
     def nc_to_arrays(
         cls, filepath: Path
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+    ]:
         ds = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg()
 
         if epsg is None:
             raise ValueError("EPSG code not found in the input file.")
         inarr = ds.drop("crs").to_array(dim="bands")
+        lon, lat = inarr.y.values, inarr.x.values
 
         # Temporal subsetting to 12 timesteps
         inarr = cls._subset_array_temporally(inarr)
@@ -524,32 +533,64 @@ class WorldCerealInferenceDataset(Dataset):
         months = cls._extract_months(inarr)
 
         if cls.Y not in ds:
-            y = np.ones_like(months) * cls._NODATAVALUE
+            target = np.ones_like(months) * cls._NODATAVALUE
         else:
-            y = rearrange(inarr.sel(bands=cls.Y).values, "t x y -> (x y) t")
+            target = rearrange(inarr.sel(bands=cls.Y).values, "t x y -> (x y) t")
 
-        return eo_data, np.repeat(mask, BAND_EXPANSION, axis=-1), latlons, months, y
+        return (
+            eo_data,
+            np.repeat(mask, BAND_EXPANSION, axis=-1),
+            latlons,
+            months,
+            target,
+            lon,
+            lat,
+        )
 
     def __getitem__(self, idx):
         filepath = self.all_files[idx]
-        eo, mask, latlons, months, y = self.nc_to_arrays(filepath)
+        eo, mask, latlons, months, target, lon, lat = self.nc_to_arrays(filepath)
 
         dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
 
-        return S1_S2_ERA5_SRTM.normalize(eo), dynamic_world, mask, latlons, months, y
+        return (
+            S1_S2_ERA5_SRTM.normalize(eo),
+            dynamic_world,
+            mask,
+            latlons,
+            months,
+            target,
+            lon,
+            lat,
+        )
 
     @staticmethod
     def combine_predictions(
-        latlons: np.ndarray, all_preds: np.ndarray, gt: np.ndarray, ndvi: np.ndarray
-    ) -> pd.DataFrame:
-        flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
+        all_preds: np.ndarray,
+        gt: np.ndarray,
+        ndvi: np.ndarray,
+        lon: Union[xr.DataArray, np.ndarray, List[float]],
+        lat: Union[xr.DataArray, np.ndarray, List[float]],
+    ) -> xr.DataArray:
+
         if len(all_preds.shape) == 1:
             all_preds = np.expand_dims(all_preds, axis=-1)
 
-        data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
+        # Get band names
+        bands = [f"prediction_{i}" for i in range(all_preds.shape[1])] + [
+            "ground_truth",
+            "ndvi",
+        ]
+
+        # Initialize gridded data array
+        data = np.empty((len(bands), len(lon), len(lat)))
+
+        # Fill with gridded predictions
         for i in range(all_preds.shape[1]):
-            prediction_label = f"prediction_{i}"
-            data_dict[prediction_label] = all_preds[:, i]
-        data_dict["ground_truth"] = gt[:, 0]
-        data_dict["ndvi"] = ndvi
-        return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])
+            data[i, ...] = rearrange(all_preds[:, i], "(y x) -> 1 y x", y=len(lon), x=len(lat))
+
+        # Fill with ground truth and NDVI
+        data[-2, ...] = rearrange(gt[:, 0], "(y x) -> 1 y x", y=len(lon), x=len(lat))
+        data[-1, ...] = rearrange(ndvi, "(y x) -> 1 y x", y=len(lon), x=len(lat))
+
+        return xr.DataArray(coords=[bands, lon, lat], dims=["bands", "lon", "lat"], data=data)
