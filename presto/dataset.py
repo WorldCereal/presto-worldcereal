@@ -16,13 +16,8 @@ from rasterio import CRS
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
 
-from .dataops import (
-    BANDS,
-    BANDS_GROUPS_IDX,
-    NORMED_BANDS,
-    S1_S2_ERA5_SRTM,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, BANDS_GROUPS_IDX, NORMED_BANDS, S1_S2_ERA5_SRTM,
+                      DynamicWorld2020_2021)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, load_world_df
 
@@ -389,15 +384,30 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                     self.indices = neg_indices + pos_indices
             if self.task_type == "croptype":
                 classes_lst = self.df["balancing_class"].unique()
-                optimal_class_size = self.df["balancing_class"].value_counts().max()
+
+                # optimal_class_size = self.df["balancing_class"].value_counts().max()
+                optimal_class_size = 100
+                balancing_coeff = 1.5
+
                 balanced_inds = []
                 for tclass in classes_lst:
                     tclass_sample_ids = self.df[self.df["balancing_class"] == tclass].index
                     tclass_loc_idx = [self.df.index.get_loc(xx) for xx in tclass_sample_ids]
                     if len(tclass_loc_idx) < optimal_class_size:
-                        tclass_loc_idx = tclass_loc_idx * (
-                            optimal_class_size // len(tclass_loc_idx)
-                        )
+                        
+                        if balancing_coeff > 0:
+                            if (optimal_class_size / len(tclass_loc_idx)) > balancing_coeff:
+                                samples_to_add = np.random.choice(tclass_loc_idx, size=int(len(tclass_loc_idx)/balancing_coeff))
+                                tclass_loc_idx.extend(list(samples_to_add))
+                            else:
+                                tclass_loc_idx = tclass_loc_idx * (
+                                    optimal_class_size // len(tclass_loc_idx)
+                                )
+                        else:
+                            tclass_loc_idx = tclass_loc_idx * (
+                                optimal_class_size // len(tclass_loc_idx)
+                            )
+
                     balanced_inds.extend(tclass_loc_idx)
                 self.indices = balanced_inds
         else:
