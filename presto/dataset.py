@@ -66,7 +66,7 @@ class WorldCerealBase(Dataset):
         task_type: str = "cropland",
         croptype_list: List = [],
         model_mode: str = "",
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int, Union[int, str, np.ndarray, List]]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
@@ -112,32 +112,10 @@ class WorldCerealBase(Dataset):
             eo_data[:, BANDS.index(presto_val)] = values * idx_valid
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
-        _target = WorldCerealBase.target_crop(row, task_type, croptype_list, model_mode)
-
-        return (cls.check(eo_data), mask.astype(bool), latlon, month, valid_month, _target)
+        return (cls.check(eo_data), mask.astype(bool), latlon, month, valid_month)
 
     def __getitem__(self, idx):
         raise NotImplementedError
-
-    @staticmethod
-    def target_crop(
-        row_d: pd.Series,
-        task_type: str = "cropland",
-        croptype_list: List = [],
-        model_mode: str = "",
-    ) -> Union[int, np.ndarray, List]:
-
-        _target: Union[int, np.ndarray, List]
-        if task_type == "cropland":
-            _target = int(row_d["LANDCOVER_LABEL"] == 11)
-        if task_type == "croptype":
-            if model_mode == "Hierarchical CatBoostClassifier":
-                _target = [row_d["landcover_name"], row_d["downstream_class"]]
-            elif len(croptype_list) == 0:
-                _target = row_d["downstream_class"]
-            else:
-                _target = np.array(row_d[croptype_list].astype(int).values)
-        return _target
 
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
@@ -275,7 +253,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, real_mask_per_token, latlon, month, _, _ = self.row_to_arrays(
+        eo, real_mask_per_token, latlon, month, _ = self.row_to_arrays(
             row, self.task_type, self.croptype_list, self.model_mode
         )
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
@@ -413,6 +391,27 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         else:
             self.indices = [i for i in range(len(self.df))]
 
+
+    @staticmethod
+    def target_crop(
+        row_d: pd.Series,
+        task_type: str = "cropland",
+        croptype_list: List = [],
+        model_mode: str = "",
+    ) -> Union[int, np.ndarray, List]:
+
+        _target: Union[int, np.ndarray, List]
+        if task_type == "cropland":
+            _target = int(row_d["LANDCOVER_LABEL"] == 11)
+        if task_type == "croptype":
+            if model_mode == "Hierarchical CatBoostClassifier":
+                _target = [row_d["landcover_name"], row_d["downstream_class"]]
+            elif len(croptype_list) == 0:
+                _target = row_d["downstream_class"]
+            else:
+                _target = np.array(row_d[croptype_list].astype(int).values)
+        return _target
+    
     @staticmethod
     def multiply_list_length_by_float(input_list: List, multiplier: float) -> List:
         decimal_part, integer_part = modf(multiplier)
@@ -426,10 +425,13 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, month, valid_month, target = self.row_to_arrays(
+        eo, mask_per_token, latlon, month, valid_month = self.row_to_arrays(
             row, self.task_type, self.croptype_list, self.model_mode
         )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+
+        target = self.target_crop(row, self.task_type, self.croptype_list,  self.model_mode)
+
         return (
             self.normalize_and_mask(eo),
             target,
@@ -479,9 +481,10 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, _, valid_month, target = self.row_to_arrays(
+        eo, mask_per_token, latlon, _, valid_month = self.row_to_arrays(
             row, self.task_type, self.croptype_list, self.model_mode
         )
+        target = self.target_crop(row, self.task_type, self.croptype_list,  self.model_mode)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
