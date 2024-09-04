@@ -185,9 +185,9 @@ model_path.mkdir(exist_ok=True, parents=True)
 
 experiment_prefix = f"""\
     {presto_model_description}_{task_type}_{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_balance={balance}\
-        """
+"""
 
-finetuned_model_path = model_path / f"{experiment_prefix}_upd.pt"
+finetuned_model_path = model_path / f"{experiment_prefix}.pt"
 results_path = model_logging_dir / f"{experiment_prefix}.csv"
 downstream_model_path = model_logging_dir / f"{experiment_prefix}_{downstream_classes}"
 

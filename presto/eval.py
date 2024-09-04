@@ -18,13 +18,20 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
-                      WorldCerealInferenceDataset,
-                      WorldCerealLabelled10DDataset,
-                      WorldCerealLabelledDataset)
+from .dataset import (
+    CLASS_MAPPINGS,
+    NORMED_BANDS,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelled10DDataset,
+    WorldCerealLabelledDataset,
+)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (Presto, PrestoFineTuningModel,
-                     get_sinusoid_encoding_table, param_groups_lrd)
+from .presto import (
+    Presto,
+    PrestoFineTuningModel,
+    get_sinusoid_encoding_table,
+    param_groups_lrd,
+)
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 MIN_SAMPLES_PER_CLASS = 3
@@ -37,7 +44,7 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
-    max_epochs: int = 10
+    max_epochs: int = 100
     batch_size: int = 256
     patience: int = 20
     num_workers: int = 8
@@ -80,7 +87,8 @@ class WorldCerealEval:
             self.num_outputs = 1
             self.croptype_list = []
         elif task_type == "croptype":
-            # compress all classes in train that contain less than MIN_SAMPLES_PER_CLASS samples into "other"
+            # compress all classes in train that contain less
+            # than MIN_SAMPLES_PER_CLASS samples into "other"
             for class_column in ["finetune_class", "downstream_class"]:
                 class_counts = self.train_df[class_column].value_counts()
                 small_classes = class_counts[class_counts < MIN_SAMPLES_PER_CLASS].index
@@ -282,7 +290,7 @@ class WorldCerealEval:
                     l2_leaf_reg = 30
 
                 downstream_model = CatBoostClassifier(
-                    iterations=100,
+                    iterations=8000,
                     depth=8,
                     learning_rate=learning_rate,
                     early_stopping_rounds=50,
@@ -528,11 +536,10 @@ class WorldCerealEval:
             self.test_df,
             task_type=self.task_type,
             croptype_list=croptype_list,
-            return_hierarchical_labels=(type(finetuned_model).__name__ in [
-                "LocalClassifierPerParentNode",
-                "LocalClassifierPerNode"
-                ]
-            )
+            return_hierarchical_labels=(
+                type(finetuned_model).__name__
+                in ["LocalClassifierPerParentNode", "LocalClassifierPerNode"]
+            ),
         )
 
         dl = DataLoader(
@@ -583,14 +590,17 @@ class WorldCerealEval:
         _results_df["year"] = "all"
         _results_df["country"] = "all"
 
-        # overwrite macro F1 so that it's not computed for classes that have 
+        # overwrite macro F1 so that it's not computed for classes that have
         # too few samples
         corrected_macro_f1 = _results_df.loc[
-            (_results_df["support"] >= MIN_SAMPLES_PER_CLASS) & 
-            (~_results_df["class"].isin(["accuracy","macro avg","weighted avg"])),
-            "f1-score"].mean()
-        _results_df.loc[_results_df["class"]=="macro avg","f1-score"] = corrected_macro_f1
-        _results_df.loc[_results_df["class"]=="macro avg","f1-score"] = corrected_macro_f1 if not np.isnan(corrected_macro_f1) else 0
+            (_results_df["support"] >= MIN_SAMPLES_PER_CLASS)
+            & (~_results_df["class"].isin(["accuracy", "macro avg", "weighted avg"])),
+            "f1-score",
+        ].mean()
+        _results_df.loc[_results_df["class"] == "macro avg", "f1-score"] = corrected_macro_f1
+        _results_df.loc[_results_df["class"] == "macro avg", "f1-score"] = (
+            corrected_macro_f1 if not np.isnan(corrected_macro_f1) else 0
+        )
 
         _partitioned_results = self.partitioned_metrics(
             target_np, test_preds_np, test_ds.df, metrics_agg, _croptype_list
@@ -640,10 +650,13 @@ class WorldCerealEval:
                     _report_df["country"] = prop
 
                 corrected_macro_f1 = _report_df.loc[
-                    (_report_df["support"] >= MIN_SAMPLES_PER_CLASS) & 
-                    (~_report_df["class"].isin(["accuracy","macro avg","weighted avg"])),
-                    "f1-score"].mean()
-                _report_df.loc[_report_df["class"]=="macro avg","f1-score"] = corrected_macro_f1 if not np.isnan(corrected_macro_f1) else 0
+                    (_report_df["support"] >= MIN_SAMPLES_PER_CLASS)
+                    & (~_report_df["class"].isin(["accuracy", "macro avg", "weighted avg"])),
+                    "f1-score",
+                ].mean()
+                _report_df.loc[_report_df["class"] == "macro avg", "f1-score"] = (
+                    corrected_macro_f1 if not np.isnan(corrected_macro_f1) else 0
+                )
 
                 partitioned_result_df = pd.concat([partitioned_result_df, _report_df], axis=0)
 

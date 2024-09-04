@@ -5,6 +5,7 @@ from unittest import TestCase
 
 import numpy as np
 import xarray as xr
+
 from presto.dataset import filter_remove_noncrops
 from presto.eval import MIN_SAMPLES_PER_CLASS, WorldCerealEval
 from presto.presto import Presto
@@ -35,9 +36,9 @@ class TestEval(TestCase):
         self.assertTrue(
             ("crop" in output["class"].unique()) and ("not_crop" in output["class"].unique())
         )
-        self.assertEqual((
-            (output["support"]>=MIN_SAMPLES_PER_CLASS) & 
-            (output["f1-score"].isna())).sum(), 0)
+        self.assertEqual(
+            ((output["support"] >= MIN_SAMPLES_PER_CLASS) & (output["f1-score"].isna())).sum(), 0
+        )
 
     def test_eval_croptype(self):
         path_to_config = config_dir / "default.json"
@@ -70,9 +71,9 @@ class TestEval(TestCase):
             ].nunique()
             > 2
         )
-        self.assertEqual((
-            (output["support"]>=MIN_SAMPLES_PER_CLASS) & 
-            (output["f1-score"].isna())).sum(), 0)
+        self.assertEqual(
+            ((output["support"] >= MIN_SAMPLES_PER_CLASS) & (output["f1-score"].isna())).sum(), 0
+        )
 
     def test_spatial_inference_cropland(
         self,

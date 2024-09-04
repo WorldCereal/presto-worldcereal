@@ -16,8 +16,13 @@ from rasterio import CRS
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
 
-from .dataops import (BANDS, BANDS_GROUPS_IDX, NORMED_BANDS, S1_S2_ERA5_SRTM,
-                      DynamicWorld2020_2021)
+from .dataops import (
+    BANDS,
+    BANDS_GROUPS_IDX,
+    NORMED_BANDS,
+    S1_S2_ERA5_SRTM,
+    DynamicWorld2020_2021,
+)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, load_world_df
 
@@ -368,10 +373,12 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                     tclass_sample_ids = self.df[self.df["balancing_class"] == tclass].index
                     tclass_loc_idx = [self.df.index.get_loc(xx) for xx in tclass_sample_ids]
                     if len(tclass_loc_idx) < optimal_class_size:
-                        
+
                         if balancing_coeff > 0:
                             if (optimal_class_size / len(tclass_loc_idx)) > balancing_coeff:
-                                samples_to_add = np.random.choice(tclass_loc_idx, size=int(len(tclass_loc_idx)/balancing_coeff))
+                                samples_to_add = np.random.choice(
+                                    tclass_loc_idx, size=int(len(tclass_loc_idx) / balancing_coeff)
+                                )
                                 tclass_loc_idx.extend(list(samples_to_add))
                             else:
                                 tclass_loc_idx = tclass_loc_idx * (
@@ -387,13 +394,12 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         else:
             self.indices = [i for i in range(len(self.df))]
 
-
     @staticmethod
     def target_crop(
         row_d: pd.Series,
         task_type: str = "cropland",
         croptype_list: List = [],
-        return_hierarchical_labels: bool = False
+        return_hierarchical_labels: bool = False,
     ) -> Union[int, np.ndarray, List]:
 
         _target: Union[int, np.ndarray, List]
@@ -407,7 +413,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             else:
                 _target = np.array(row_d[croptype_list].astype(int).values)
         return _target
-    
+
     @staticmethod
     def multiply_list_length_by_float(input_list: List, multiplier: float) -> List:
         decimal_part, integer_part = modf(multiplier)
@@ -426,7 +432,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
 
-        target = self.target_crop(row, self.task_type, self.croptype_list, self.return_hierarchical_labels)
+        target = self.target_crop(
+            row, self.task_type, self.croptype_list, self.return_hierarchical_labels
+        )
 
         return (
             self.normalize_and_mask(eo),
@@ -445,7 +453,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             ys = []
             for _, row in self.df.iterrows():
                 ys.append(
-                    self.target_crop(row, self.task_type, self.croptype_list, self.return_hierarchical_labels)
+                    self.target_crop(
+                        row, self.task_type, self.croptype_list, self.return_hierarchical_labels
+                    )
                 )
             self._class_weights = compute_class_weight(
                 class_weight="balanced", classes=np.unique(ys), y=ys
@@ -480,7 +490,9 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         eo, mask_per_token, latlon, _, valid_month = self.row_to_arrays(
             row, self.task_type, self.croptype_list
         )
-        target = self.target_crop(row, self.task_type, self.croptype_list,  self.return_hierarchical_labels)
+        target = self.target_crop(
+            row, self.task_type, self.croptype_list, self.return_hierarchical_labels
+        )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),

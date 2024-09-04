@@ -510,7 +510,7 @@ class Encoder(nn.Module):
             val_month_token = self.valid_month_encoding(valid_month)
 
         # apply Transformer blocks
-        attn_mask = (~upd_mask.bool())
+        attn_mask = ~upd_mask.bool()
         for blk in self.blocks:
             x = blk(x, attn_mask=attn_mask)
 
@@ -548,9 +548,7 @@ class Decoder(nn.Module):
         }
         self.band_group_to_idx["dynamic_world"] = max(self.band_group_to_idx.values()) + 1
 
-        self.decoder_embed = nn.Linear(
-            encoder_embed_dim, decoder_embed_dim, bias=True
-        )
+        self.decoder_embed = nn.Linear(encoder_embed_dim, decoder_embed_dim, bias=True)
 
         self.mask_token = nn.Parameter(torch.zeros(decoder_embed_dim))
 
@@ -575,9 +573,7 @@ class Decoder(nn.Module):
                 for group_name, group in self.band_groups.items()
             }
         )
-        self.dw_decoder_pred = nn.Linear(
-            decoder_embed_dim, DynamicWorld2020_2021.class_amount
-        )
+        self.dw_decoder_pred = nn.Linear(decoder_embed_dim, DynamicWorld2020_2021.class_amount)
 
         self.channel_embeddings = channel_embeddings
         channel_embedding_dims = channel_embeddings.weight.shape[-1]

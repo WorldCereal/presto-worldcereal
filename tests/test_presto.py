@@ -7,20 +7,28 @@ from unittest import TestCase
 import numpy as np
 import torch
 from einops import repeat
-from presto.dataops import (BANDS_GROUPS_IDX, NUM_BANDS, NUM_ORG_BANDS,
-                            NUM_TIMESTEPS, S1_S2_ERA5_SRTM, SRTM_INDEX,
-                            DynamicWorld2020_2021)
-from presto.presto import (Decoder, Encoder, Presto, month_to_tensor,
-                           param_groups_lrd)
-from presto.utils import config_dir, data_dir, default_model_path, device
 from torch import nn
 from torch.optim import AdamW
+
+from presto.dataops import (
+    BANDS_GROUPS_IDX,
+    NUM_BANDS,
+    NUM_ORG_BANDS,
+    NUM_TIMESTEPS,
+    S1_S2_ERA5_SRTM,
+    SRTM_INDEX,
+    DynamicWorld2020_2021,
+)
+from presto.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
+from presto.utils import config_dir, data_dir, default_model_path, device
 
 
 class TestPresto(TestCase):
     def test_encoder_init(self):
         batch_size = 3
-        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))).to(device)
+        input = S1_S2_ERA5_SRTM.normalize(
+            torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))
+        ).to(device)
         input_mask = torch.zeros_like(input).to(device)
         dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long().to(device)
         latlons = torch.rand((batch_size, 2)).to(device)
@@ -73,7 +81,9 @@ class TestPresto(TestCase):
 
     def test_end_to_end(self):
         batch_size = 3
-        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))).to(device)
+        input = S1_S2_ERA5_SRTM.normalize(
+            torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))
+        ).to(device)
         input_mask = torch.zeros_like(input).to(device)
         dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long().to(device)
         latlons = torch.rand((batch_size, 2)).to(device)
@@ -244,7 +254,9 @@ class TestPresto(TestCase):
         finetuning_model = seq2seq_model.construct_finetuning_model(num_outputs=1).to(device)
 
         batch_size = 3
-        input = S1_S2_ERA5_SRTM.normalize(torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))).to(device)
+        input = S1_S2_ERA5_SRTM.normalize(
+            torch.zeros((batch_size, NUM_TIMESTEPS, NUM_ORG_BANDS))
+        ).to(device)
         input_mask = torch.zeros_like(input).to(device)
         dynamic_world = torch.ones((batch_size, NUM_TIMESTEPS)).long().to(device)
         latlons = torch.rand((batch_size, 2)).to(device)
