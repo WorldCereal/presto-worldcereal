@@ -11,7 +11,6 @@ import pandas as pd
 import xarray as xr
 from einops import rearrange
 from pyproj import CRS, Transformer
-from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset
 
 from .dataops import (
@@ -319,6 +318,8 @@ class WorldCerealLabelledDataset(WorldCerealBase):
 
     @property
     def class_weights(self) -> np.ndarray:
+        from sklearn.utils.class_weight import compute_class_weight
+
         if self._class_weights is None:
             ys = []
             for _, row in self.df.iterrows():
