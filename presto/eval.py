@@ -39,7 +39,7 @@ class Hyperparams:
     lr: float = 2e-5
     max_epochs: int = 100
     batch_size: int = 256
-    patience: int = 5
+    patience: int = 20
     num_workers: int = 8
 
 
@@ -298,7 +298,6 @@ class WorldCerealEval:
                     clone(downstream_model).fit(
                         train_encodings,
                         train_targets,
-                        eval_set=Pool(val_encodings, val_targets),
                         sample_weight=sample_weights_trn,
                         eval_set=Pool(val_encodings, val_targets, weight=sample_weights_val),
                     )
@@ -594,6 +593,7 @@ class WorldCerealEval:
             (~_results_df["class"].isin(["accuracy","macro avg","weighted avg"])),
             "f1-score"].mean()
         _results_df.loc[_results_df["class"]=="macro avg","f1-score"] = corrected_macro_f1
+        _results_df.loc[_results_df["class"]=="macro avg","f1-score"] = corrected_macro_f1 if not np.isnan(corrected_macro_f1) else 0
 
         _partitioned_results = self.partitioned_metrics(
             target_np, test_preds_np, test_ds.df, metrics_agg, _croptype_list
@@ -646,7 +646,7 @@ class WorldCerealEval:
                     (_report_df["support"] >= MIN_SAMPLES_PER_CLASS) & 
                     (~_report_df["class"].isin(["accuracy","macro avg","weighted avg"])),
                     "f1-score"].mean()
-                _report_df.loc[_report_df["class"]=="macro avg","f1-score"] = corrected_macro_f1
+                _report_df.loc[_report_df["class"]=="macro avg","f1-score"] = corrected_macro_f1 if not np.isnan(corrected_macro_f1) else 0
 
                 partitioned_result_df = pd.concat([partitioned_result_df, _report_df], axis=0)
 
