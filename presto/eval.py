@@ -249,10 +249,7 @@ class WorldCerealEval:
         assert self.spatial_inference_savedir is not None
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
-            eo, dynamic_world, mask, months, y, lons, lats = ds[i]
-
-            latlons = ds.to_flat_latlons(lons, lats)
-
+            eo, dynamic_world, mask, latlons, months, y, lon, lat = ds[i]
             dl = DataLoader(
                 TensorDataset(
                     torch.from_numpy(eo).float(),
@@ -270,7 +267,7 @@ class WorldCerealEval:
             # take the middle timestep's ndvi
             middle_timestep = eo.shape[1] // 2
             ndvi = eo[:, middle_timestep, NORMED_BANDS.index("NDVI")]
-            da = ds.combine_predictions(test_preds_np, y, ndvi, lons, lats)
+            da = ds.combine_predictions(test_preds_np, y, ndvi, lon, lat)
             prefix = f"{self.name}_{ds.all_files[i].stem}"
             if pretrained_model is None:
                 filename = f"{prefix}_finetuning.nc"
@@ -564,5 +561,4 @@ class WorldCerealEval:
         if self.spatial_inference_savedir is not None:
             self.spatial_inference(finetuned_model, None)
         results_dict.update(self.finetuning_results_sklearn(sklearn_model_modes, finetuned_model))
-        return results_dict, finetuned_model
         return results_dict, finetuned_model
