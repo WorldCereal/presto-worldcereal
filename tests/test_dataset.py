@@ -56,12 +56,12 @@ class TestDataset(TestCase):
         ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
         model = Presto.construct()
-        eo, dw, mask, latlons, months, _, _, _ = ds[0]
+        eo, dw, mask, flat_latlons, months, _, _, _ = ds[0]
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
                 dynamic_world=torch.from_numpy(dw).long()[:num_vals],
-                latlons=torch.from_numpy(latlons).float()[:num_vals],
+                latlons=torch.from_numpy(flat_latlons).float()[:num_vals],
                 mask=torch.from_numpy(mask).int()[:num_vals],
                 month=torch.from_numpy(months).long()[:num_vals],
             )
@@ -77,14 +77,14 @@ class TestDataset(TestCase):
             all_preds=batch_predictions,
             gt=worldcereal_labels,
             ndvi=ndvi,
-            lon=flat_lon,
-            lat=flat_lat,
+            x_coord=flat_lat,
+            y_coord=flat_lon,
         )
         df_predictions = da_predictions.to_dataset(dim="bands").to_dataframe()
 
         # Check size
-        self.assertEqual(df_predictions.index.levels[0].name, "lon")
-        self.assertEqual(df_predictions.index.levels[1].name, "lat")
+        self.assertEqual(df_predictions.index.levels[0].name, "y")
+        self.assertEqual(df_predictions.index.levels[1].name, "x")
         self.assertEqual(len(df_predictions.index.levels[0]), 2)
         self.assertEqual(len(df_predictions.index.levels[1]), 2)
 

@@ -432,13 +432,14 @@ class WorldCerealInferenceDataset(Dataset):
             np.ndarray: Array containing extracted latitudes and longitudes.
         """
         # EPSG:4326 is the supported crs for presto
-        lon, lat = np.meshgrid(inarr.x, inarr.y)
         transformer = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
-        lon, lat = transformer.transform(lon, lat)
-        latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
+        x, y = np.meshgrid(inarr.x, inarr.y)
+        lon, lat = transformer.transform(x, y)
 
-        #  2D array where each row represents a pair of latitude and longitude coordinates.
-        return latlons
+        flat_latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
+
+        # 2D array where each row represents a pair of latitude and longitude coordinates.
+        return flat_latlons
 
     @classmethod
     def _preprocess_band_values(cls, values: np.ndarray, presto_band: str) -> np.ndarray:
@@ -507,9 +508,7 @@ class WorldCerealInferenceDataset(Dataset):
         return inarr
 
     @classmethod
-    def nc_to_arrays(
-        cls, filepath: Path
-    ) -> Tuple[
+    def nc_to_arrays(cls, filepath: Path) -> Tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray,
@@ -524,13 +523,15 @@ class WorldCerealInferenceDataset(Dataset):
         if epsg is None:
             raise ValueError("EPSG code not found in the input file.")
         inarr = ds.drop("crs").to_array(dim="bands")
-        lon, lat = inarr.y.values, inarr.x.values
+
+        # Extract coordinates for reconstruction
+        x_coord, y_coord = inarr.x, inarr.y
 
         # Temporal subsetting to 12 timesteps
         inarr = cls._subset_array_temporally(inarr)
 
         eo_data, mask = cls._extract_eo_data(inarr)
-        latlons = cls._extract_latlons(inarr, epsg)
+        flat_latlons = cls._extract_latlons(inarr, epsg)
         months = cls._extract_months(inarr)
 
         if cls.Y not in ds:
@@ -541,16 +542,24 @@ class WorldCerealInferenceDataset(Dataset):
         return (
             eo_data,
             np.repeat(mask, BAND_EXPANSION, axis=-1),
-            latlons,
+            flat_latlons,
             months,
             target,
-            lon,
-            lat,
+            x_coord,
+            y_coord,
         )
 
     def __getitem__(self, idx):
         filepath = self.all_files[idx]
-        eo, mask, latlons, months, target, lon, lat = self.nc_to_arrays(filepath)
+        (
+            eo,
+            mask,
+            flat_latlons,
+            months,
+            target,
+            x_coord,
+            y_coord,
+        ) = self.nc_to_arrays(filepath)
 
         dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
 
@@ -558,11 +567,11 @@ class WorldCerealInferenceDataset(Dataset):
             S1_S2_ERA5_SRTM.normalize(eo),
             dynamic_world,
             mask,
-            latlons,
+            flat_latlons,
             months,
             target,
-            lon,
-            lat,
+            x_coord,
+            y_coord,
         )
 
     @staticmethod
@@ -570,8 +579,8 @@ class WorldCerealInferenceDataset(Dataset):
         all_preds: np.ndarray,
         gt: np.ndarray,
         ndvi: np.ndarray,
-        lon: Union[xr.DataArray, np.ndarray, List[float]],
-        lat: Union[xr.DataArray, np.ndarray, List[float]],
+        x_coord: Union[xr.DataArray, np.ndarray, List[float]],
+        y_coord: Union[xr.DataArray, np.ndarray, List[float]],
     ) -> xr.DataArray:
 
         if len(all_preds.shape) == 1:
@@ -584,14 +593,16 @@ class WorldCerealInferenceDataset(Dataset):
         ]
 
         # Initialize gridded data array
-        data = np.empty((len(bands), len(lon), len(lat)))
+        data = np.empty((len(bands), len(y_coord), len(x_coord)))
 
         # Fill with gridded predictions
         for i in range(all_preds.shape[1]):
-            data[i, ...] = rearrange(all_preds[:, i], "(y x) -> 1 y x", y=len(lon), x=len(lat))
+            data[i, ...] = rearrange(
+                all_preds[:, i], "(y x) -> 1 y x", y=len(y_coord), x=len(x_coord)
+            )
 
         # Fill with ground truth and NDVI
-        data[-2, ...] = rearrange(gt[:, 0], "(y x) -> 1 y x", y=len(lon), x=len(lat))
-        data[-1, ...] = rearrange(ndvi, "(y x) -> 1 y x", y=len(lon), x=len(lat))
+        data[-2, ...] = rearrange(gt[:, 0], "(y x) -> 1 y x", y=len(y_coord), x=len(x_coord))
+        data[-1, ...] = rearrange(ndvi, "(y x) -> 1 y x", y=len(y_coord), x=len(x_coord))
 
-        return xr.DataArray(coords=[bands, lon, lat], dims=["bands", "lon", "lat"], data=data)
+        return xr.DataArray(coords=[bands, y_coord, x_coord], dims=["bands", "y", "x"], data=data)
