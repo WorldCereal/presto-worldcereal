@@ -507,7 +507,9 @@ class WorldCerealInferenceDataset(Dataset):
         return inarr
 
     @classmethod
-    def nc_to_arrays(cls, filepath: Path) -> Tuple[
+    def nc_to_arrays(
+        cls, filepath: Path
+    ) -> Tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray,
