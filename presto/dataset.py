@@ -410,7 +410,7 @@ class WorldCerealInferenceDataset(Dataset):
                 eo_data[:, :, BANDS.index(presto_band)] = values * idx_valid
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
             elif presto_band == "NDVI":
-                # Band NDVI will be computed by Presto
+                # # NDVI will be computed by the normalize function
                 continue
             else:
                 logger.warning(f"Band {presto_band} not found in input data.")
@@ -507,9 +507,7 @@ class WorldCerealInferenceDataset(Dataset):
         return inarr
 
     @classmethod
-    def nc_to_arrays(
-        cls, filepath: Path
-    ) -> Tuple[
+    def nc_to_arrays(cls, filepath: Path) -> Tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray,
