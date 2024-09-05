@@ -420,7 +420,7 @@ class WorldCerealInferenceDataset(Dataset):
         return eo_data, mask
 
     @staticmethod
-    def _extract_latlons(inarr: xr.DataArray, epsg: int) -> np.ndarray:
+    def _extract_latlons(inarr: xr.DataArray, epsg: int) -> Tuple[np.ndarray, np.ndarray]:
         """
         Extracts latitudes and longitudes from the input xarray.DataArray.
 
@@ -429,15 +429,19 @@ class WorldCerealInferenceDataset(Dataset):
             epsg (int): EPSG code for coordinate reference system.
 
         Returns:
-            np.ndarray: Array containing extracted latitudes and longitudes.
+            Tuple[np.ndarray, np.ndarray]: Arrays containing extracted longitudes and latitudes.
         """
         # EPSG:4326 is the supported crs for presto
-        lon, lat = np.meshgrid(inarr.x, inarr.y)
+        lon, lat = inarr.y, inarr.x
         transformer = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
         lon, lat = transformer.transform(lon, lat)
-        latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
 
-        #  2D array where each row represents a pair of latitude and longitude coordinates.
+        return lon, lat
+
+    @staticmethod
+    def to_flat_latlons(lon, lat):
+        lon, lat = np.meshgrid(lon, lat)
+        latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
         return latlons
 
     @classmethod
@@ -509,28 +513,19 @@ class WorldCerealInferenceDataset(Dataset):
     @classmethod
     def nc_to_arrays(
         cls, filepath: Path
-    ) -> Tuple[
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-    ]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,]:
         ds = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg()
 
         if epsg is None:
             raise ValueError("EPSG code not found in the input file.")
         inarr = ds.drop("crs").to_array(dim="bands")
-        lon, lat = inarr.y.values, inarr.x.values
 
         # Temporal subsetting to 12 timesteps
         inarr = cls._subset_array_temporally(inarr)
 
         eo_data, mask = cls._extract_eo_data(inarr)
-        latlons = cls._extract_latlons(inarr, epsg)
+        lons, lats = cls._extract_latlons(inarr, epsg)
         months = cls._extract_months(inarr)
 
         if cls.Y not in ds:
@@ -541,16 +536,15 @@ class WorldCerealInferenceDataset(Dataset):
         return (
             eo_data,
             np.repeat(mask, BAND_EXPANSION, axis=-1),
-            latlons,
             months,
             target,
-            lon,
-            lat,
+            lons,
+            lats,
         )
 
     def __getitem__(self, idx):
         filepath = self.all_files[idx]
-        eo, mask, latlons, months, target, lon, lat = self.nc_to_arrays(filepath)
+        eo, mask, months, target, lons, lats = self.nc_to_arrays(filepath)
 
         dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
 
@@ -558,11 +552,10 @@ class WorldCerealInferenceDataset(Dataset):
             S1_S2_ERA5_SRTM.normalize(eo),
             dynamic_world,
             mask,
-            latlons,
             months,
             target,
-            lon,
-            lat,
+            lons,
+            lats,
         )
 
     @staticmethod

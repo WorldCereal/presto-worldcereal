@@ -56,7 +56,8 @@ class TestDataset(TestCase):
         ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
         model = Presto.construct()
-        eo, dw, mask, latlons, months, _, _, _ = ds[0]
+        eo, dw, mask, months, _, lons, lats = ds[0]
+        latlons = ds.to_flat_latlons(lons, lats)
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
