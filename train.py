@@ -54,6 +54,7 @@ argparser.add_argument(
 argparser.add_argument("--n_epochs", type=int, default=20)
 argparser.add_argument("--max_learning_rate", type=float, default=0.0001)
 argparser.add_argument("--min_learning_rate", type=float, default=0.0)
+argparser.add_argument("--finetune_train_masking", type=float, default=0.0)
 argparser.add_argument("--warmup_epochs", type=int, default=2)
 argparser.add_argument("--weight_decay", type=float, default=0.05)
 argparser.add_argument("--batch_size", type=int, default=4096)
@@ -331,7 +332,12 @@ else:
 
 
 model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
-full_eval = WorldCerealEval(train_df, val_df, spatial_inference_savedir=model_logging_dir)
+full_eval = WorldCerealEval(
+    train_df,
+    val_df,
+    spatial_inference_savedir=model_logging_dir,
+    train_masking=args["finetune_train_masking"],
+)
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
 
@@ -347,6 +353,7 @@ full_maize_eval = WorldCerealEval(
     target_function=target_maize,
     filter_function=filter_remove_noncrops,
     name="WorldCerealMaize",
+    train_masking=args["finetune_train_masking"],
 )
 maize_results, maize_finetuned_model = full_maize_eval.finetuning_results(
     model, sklearn_model_modes=model_modes
@@ -396,7 +403,11 @@ for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
         torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 missing_year = WorldCerealEval(
-    train_df, val_df, years_to_remove=[2021], spatial_inference_savedir=model_logging_dir
+    train_df,
+    val_df,
+    years_to_remove=[2021],
+    spatial_inference_savedir=model_logging_dir,
+    train_masking=args["finetune_train_masking"],
 )
 year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(year_results, indent=2))

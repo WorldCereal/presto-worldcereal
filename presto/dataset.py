@@ -260,6 +260,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         years_to_remove: Optional[List[int]] = None,
         target_function: Optional[Callable[[Dict], int]] = None,
         balance: bool = False,
+        mask_ratio: float = 0.0,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -275,6 +276,16 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         self.target_function = target_function if target_function is not None else self.target_crop
         self._class_weights: Optional[np.ndarray] = None
+        self.mask_ratio = mask_ratio
+        self.mask_params = MaskParamsNoDw(
+            (
+                "group_bands",
+                "random_timesteps",
+                "chunk_timesteps",
+                "random_combinations",
+            ),
+            mask_ratio,
+        )
 
         super().__init__(dataframe)
         if balance:
@@ -308,6 +319,8 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
         eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function)
+        if self.mask_ratio > 0:
+            mask_per_token, eo, _, _ = self.mask_params.mask_data(eo, mask_per_token)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -355,6 +368,8 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
         eo, mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_function)
+        if self.mask_ratio > 0:
+            mask_per_token, eo, _, _ = self.mask_params.mask_data(eo, mask_per_token)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),

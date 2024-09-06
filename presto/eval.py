@@ -65,6 +65,7 @@ class WorldCerealEval:
         name: Optional[str] = None,
         val_size: float = 0.2,
         dekadal: bool = False,
+        train_masking: float = 0.0,
     ):
         self.seed = seed
 
@@ -89,6 +90,7 @@ class WorldCerealEval:
 
         self.dekadal = dekadal
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
+        self.train_masking = train_masking
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model: PrestoFineTuningModel = cast(Callable, pretrained_model.construct_finetuning_model)(
@@ -387,6 +389,7 @@ class WorldCerealEval:
             years_to_remove=self.years_to_remove,
             target_function=self.target_function,
             balance=True,
+            mask_ratio=self.train_masking,
         )
 
         # should the val set be balanced too?
@@ -395,6 +398,7 @@ class WorldCerealEval:
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
             target_function=self.target_function,
+            mask_ratio=0.0,  # https://github.com/WorldCereal/presto-worldcereal/pull/102
         )
 
         loss_fn = nn.BCEWithLogitsLoss()
@@ -511,6 +515,7 @@ class WorldCerealEval:
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                     target_function=self.target_function,
+                    mask_ratio=self.train_masking,
                 ),
                 batch_size=2048,
                 shuffle=False,
@@ -522,6 +527,7 @@ class WorldCerealEval:
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                     target_function=self.target_function,
+                    mask_ratio=0.0,  # https://github.com/WorldCereal/presto-worldcereal/pull/102
                 ),
                 batch_size=2048,
                 shuffle=False,
