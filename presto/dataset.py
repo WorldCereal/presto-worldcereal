@@ -3,16 +3,14 @@ from datetime import datetime, timedelta
 from math import modf
 from pathlib import Path
 from random import sample
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import rioxarray
 import xarray as xr
-from einops import rearrange, repeat
-from pyproj import Transformer
-from sklearn.utils.class_weight import compute_class_weight
+from einops import rearrange
+from pyproj import CRS, Transformer
 from torch.utils.data import Dataset
 
 from .dataops import (
@@ -333,6 +331,8 @@ class WorldCerealLabelledDataset(WorldCerealBase):
 
     @property
     def class_weights(self) -> np.ndarray:
+        from sklearn.utils.class_weight import compute_class_weight
+
         if self._class_weights is None:
             ys = []
             for _, row in self.df.iterrows():
@@ -383,23 +383,7 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
 
 class WorldCerealInferenceDataset(Dataset):
     _NODATAVALUE = 65535
-    Y = "worldcereal_cropland"
-    BAND_MAPPING = {
-        "B02": "B2",
-        "B03": "B3",
-        "B04": "B4",
-        "B05": "B5",
-        "B06": "B6",
-        "B07": "B7",
-        "B08": "B8",
-        # B8A is missing
-        "B11": "B11",
-        "B12": "B12",
-        "VH": "VH",
-        "VV": "VV",
-        "precipitation-flux": "total_precipitation",
-        "temperature-mean": "temperature_2m",
-    }
+    Y = "WORLDCEREAL_TEMPORARYCROPS_2021"
 
     def __init__(self, path_to_files: Path = data_dir / "inference_areas"):
         self.path_to_files = path_to_files
@@ -409,72 +393,233 @@ class WorldCerealInferenceDataset(Dataset):
         return len(self.all_files)
 
     @classmethod
+    def _extract_eo_data(cls, inarr: xr.DataArray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Extracts EO data and mask arrays from the input xarray.DataArray.
+
+        Args:
+            inarr (xr.DataArray): Input xarray.DataArray containing EO data.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Tuple containing EO data array and mask array.
+        """
+        num_pixels = len(inarr.x) * len(inarr.y)
+        num_timesteps = len(inarr.t)
+
+        # Handle NaN values in Presto compatible way
+        inarr = inarr.astype(np.float32)
+        inarr = inarr.fillna(65535)
+
+        eo_data = np.zeros((num_pixels, num_timesteps, len(BANDS)))
+        mask = np.zeros((num_pixels, num_timesteps, len(BANDS_GROUPS_IDX)))
+
+        for presto_band in NORMED_BANDS:
+            if presto_band in inarr.coords["bands"]:
+                values = np.swapaxes(
+                    inarr.sel(bands=presto_band).values.reshape((num_timesteps, -1)),
+                    0,
+                    1,
+                )
+                idx_valid = values != cls._NODATAVALUE
+                values = cls._preprocess_band_values(values, presto_band)
+                eo_data[:, :, BANDS.index(presto_band)] = values * idx_valid
+                mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
+            elif presto_band == "NDVI":
+                # # NDVI will be computed by the normalize function
+                continue
+            else:
+                logger.warning(f"Band {presto_band} not found in input data.")
+                eo_data[:, :, BANDS.index(presto_band)] = 0
+                mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] = 1
+
+        return eo_data, mask
+
+    @staticmethod
+    def _extract_latlons(inarr: xr.DataArray, epsg: int) -> np.ndarray:
+        """
+        Extracts latitudes and longitudes from the input xarray.DataArray.
+
+        Args:
+            inarr (xr.DataArray): Input xarray.DataArray containing spatial coordinates.
+            epsg (int): EPSG code for coordinate reference system.
+
+        Returns:
+            np.ndarray: Array containing extracted latitudes and longitudes.
+        """
+        # EPSG:4326 is the supported crs for presto
+        transformer = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
+        x, y = np.meshgrid(inarr.x, inarr.y)
+        lon, lat = transformer.transform(x, y)
+
+        flat_latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
+
+        # 2D array where each row represents a pair of latitude and longitude coordinates.
+        return flat_latlons
+
+    @classmethod
+    def _preprocess_band_values(cls, values: np.ndarray, presto_band: str) -> np.ndarray:
+        """
+        Preprocesses the band values based on the given presto_val.
+
+        Args:
+            values (np.ndarray): Array of band values to preprocess.
+            presto_val (str): Name of the band for preprocessing.
+
+        Returns:
+            np.ndarray: Preprocessed array of band values.
+        """
+        if presto_band in ["VV", "VH"]:
+            # Convert to dB
+            values = 20 * np.log10(values) - 83
+        elif presto_band == "total_precipitation":
+            # Scale precipitation and convert mm to m
+            values = values / (100 * 1000.0)
+        elif presto_band == "temperature_2m":
+            # Remove scaling
+            values = values / 100
+        return values
+
+    @staticmethod
+    def _extract_months(inarr: xr.DataArray) -> np.ndarray:
+        """
+        Calculate the start month based on the first timestamp in the input array,
+        and create an array of the same length filled with that start month value.
+
+        Parameters:
+        - inarr: xarray.DataArray or numpy.ndarray
+            Input array containing timestamps.
+
+        Returns:
+        - months: numpy.ndarray
+            Array of start month values, with the same length as the input array.
+        """
+        num_instances = len(inarr.x) * len(inarr.y)
+
+        start_month = (inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
+
+        months = np.ones((num_instances)) * start_month
+        return months
+
+    @staticmethod
+    def _subset_array_temporally(inarr: xr.DataArray) -> xr.DataArray:
+        """
+        Subset the input xarray.DataArray temporally based on `valid_time` attribute.
+
+        Args:
+            inarr (xr.DataArray): Input xarray.DataArray containing EO data.
+
+        Returns:
+            xr.DataArray: Temporally subsetted xarray.DataArray.
+        """
+
+        # Use valid_time attribute to extract the right part of the time series
+        valid_time = pd.to_datetime(inarr.attrs["valid_time"]).replace(day=1)
+        end_time = valid_time + pd.DateOffset(months=5)
+        start_time = valid_time - pd.DateOffset(months=6)
+        inarr = inarr.sel(t=slice(start_time, end_time))
+        num_timesteps = len(inarr.t)
+        assert num_timesteps == 12, "Expected 12 timesteps, only found {}".format(num_timesteps)
+
+        return inarr
+
+    @classmethod
     def nc_to_arrays(
         cls, filepath: Path
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        ds = cast(xr.Dataset, rioxarray.open_rasterio(filepath, decode_times=False))
-        epsg_coords = ds.rio.crs.to_epsg()
+    ) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+    ]:
+        ds = xr.open_dataset(filepath)
+        epsg = CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg()
 
-        num_instances = len(ds.x) * len(ds.y)
-        num_timesteps = len(ds.t)
-        eo_data = np.zeros((num_instances, num_timesteps, len(BANDS)))
-        mask = np.zeros((num_instances, num_timesteps, len(BANDS_GROUPS_IDX)))
-        # for now, B8A is missing
-        mask[:, :, IDX_TO_BAND_GROUPS["B8A"]] = 1
+        if epsg is None:
+            raise ValueError("EPSG code not found in the input file.")
+        inarr = ds.drop("crs").to_array(dim="bands")
 
-        for org_band, presto_val in cls.BAND_MAPPING.items():
-            # flatten the values
-            values = np.swapaxes(ds[org_band].values.reshape((num_timesteps, -1)), 0, 1)
-            idx_valid = values != cls._NODATAVALUE
+        # Extract coordinates for reconstruction
+        x_coord, y_coord = inarr.x, inarr.y
 
-            if presto_val in ["VV", "VH"]:
-                # convert to dB
-                values = 20 * np.log10(values) - 83
-            elif presto_val == "total_precipitation":
-                # scaling, and AgERA5 is in mm, Presto expects m
-                values = values / (100 * 1000.0)
-            elif presto_val == "temperature_2m":
-                # remove scaling
-                values = values / 100
+        # Temporal subsetting to 12 timesteps
+        inarr = cls._subset_array_temporally(inarr)
 
-            eo_data[:, :, BANDS.index(presto_val)] = values
-            mask[:, :, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
+        eo_data, mask = cls._extract_eo_data(inarr)
+        flat_latlons = cls._extract_latlons(inarr, epsg)
+        months = cls._extract_months(inarr)
 
-        y = rearrange(ds[cls.Y].values, "t x y -> (x y) t")
-        # -1 because we index from 0
-        start_month = (ds.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
-        months = np.ones((num_instances)) * start_month
+        if cls.Y not in ds:
+            target = np.ones_like(months) * cls._NODATAVALUE
+        else:
+            target = rearrange(inarr.sel(bands=cls.Y).values, "t x y -> (x y) t")
 
-        transformer = Transformer.from_crs(f"EPSG:{epsg_coords}", "EPSG:4326", always_xy=True)
-        lon, lat = transformer.transform(ds.x, ds.y)
-
-        latlons = np.stack(
-            [np.repeat(lat, repeats=len(lon)), repeat(lon, "c -> (h c)", h=len(lat))],
-            axis=-1,
+        return (
+            eo_data,
+            np.repeat(mask, BAND_EXPANSION, axis=-1),
+            flat_latlons,
+            months,
+            target,
+            x_coord,
+            y_coord,
         )
-
-        return eo_data, np.repeat(mask, BAND_EXPANSION, axis=-1), latlons, months, y
 
     def __getitem__(self, idx):
         filepath = self.all_files[idx]
-        eo, mask, latlons, months, y = self.nc_to_arrays(filepath)
+        (
+            eo,
+            mask,
+            flat_latlons,
+            months,
+            target,
+            x_coord,
+            y_coord,
+        ) = self.nc_to_arrays(filepath)
 
         dynamic_world = np.ones((eo.shape[0], eo.shape[1])) * (DynamicWorld2020_2021.class_amount)
 
-        return S1_S2_ERA5_SRTM.normalize(eo), dynamic_world, mask, latlons, months, y
+        return (
+            S1_S2_ERA5_SRTM.normalize(eo),
+            dynamic_world,
+            mask,
+            flat_latlons,
+            months,
+            target,
+            x_coord,
+            y_coord,
+        )
 
     @staticmethod
     def combine_predictions(
-        latlons: np.ndarray, all_preds: np.ndarray, gt: np.ndarray, ndvi: np.ndarray
-    ) -> pd.DataFrame:
-        flat_lat, flat_lon = latlons[:, 0], latlons[:, 1]
+        all_preds: np.ndarray,
+        gt: np.ndarray,
+        ndvi: np.ndarray,
+        x_coord: Union[xr.DataArray, np.ndarray, List[float]],
+        y_coord: Union[xr.DataArray, np.ndarray, List[float]],
+    ) -> xr.DataArray:
+
         if len(all_preds.shape) == 1:
             all_preds = np.expand_dims(all_preds, axis=-1)
 
-        data_dict: Dict[str, np.ndarray] = {"lat": flat_lat, "lon": flat_lon}
+        # Get band names
+        bands = [f"prediction_{i}" for i in range(all_preds.shape[1])] + [
+            "ground_truth",
+            "ndvi",
+        ]
+
+        # Initialize gridded data array
+        data = np.empty((len(bands), len(y_coord), len(x_coord)))
+
+        # Fill with gridded predictions
         for i in range(all_preds.shape[1]):
-            prediction_label = f"prediction_{i}"
-            data_dict[prediction_label] = all_preds[:, i]
-        data_dict["ground_truth"] = gt[:, 0]
-        data_dict["ndvi"] = ndvi
-        return pd.DataFrame(data=data_dict).set_index(["lat", "lon"])
+            data[i, ...] = rearrange(
+                all_preds[:, i], "(y x) -> 1 y x", y=len(y_coord), x=len(x_coord)
+            )
+
+        # Fill with ground truth and NDVI
+        data[-2, ...] = rearrange(gt[:, 0], "(y x) -> 1 y x", y=len(y_coord), x=len(x_coord))
+        data[-1, ...] = rearrange(ndvi, "(y x) -> 1 y x", y=len(y_coord), x=len(x_coord))
+
+        return xr.DataArray(coords=[bands, y_coord, x_coord], dims=["bands", "y", "x"], data=data)

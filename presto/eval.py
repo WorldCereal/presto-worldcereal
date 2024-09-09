@@ -127,7 +127,9 @@ class WorldCerealEval:
             assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
         pretrained_model.eval()
 
-        def dataloader_to_encodings_and_targets(dl: DataLoader) -> Tuple[np.ndarray, np.ndarray]:
+        def dataloader_to_encodings_and_targets(
+            dl: DataLoader,
+        ) -> Tuple[np.ndarray, np.ndarray]:
             encoding_list, target_list = [], []
             for x, y, dw, latlons, month, variable_mask in dl:
                 x_f, dw_f, latlons_f, month_f, variable_mask_f = [
@@ -186,7 +188,9 @@ class WorldCerealEval:
             if model == "CatBoostClassifier":
                 fit_models.append(
                     clone(model_dict[model]).fit(
-                        train_encodings, train_targets, eval_set=Pool(val_encodings, val_targets)
+                        train_encodings,
+                        train_targets,
+                        eval_set=Pool(val_encodings, val_targets),
                     )
                 )
             else:
@@ -247,13 +251,22 @@ class WorldCerealEval:
         assert self.spatial_inference_savedir is not None
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
-            eo, dynamic_world, mask, latlons, months, y = ds[i]
+            (
+                eo,
+                dynamic_world,
+                mask,
+                flat_latlons,
+                months,
+                y,
+                x_coord,
+                y_coord,
+            ) = ds[i]
             dl = DataLoader(
                 TensorDataset(
                     torch.from_numpy(eo).float(),
                     torch.from_numpy(y.astype(np.int16)),
                     torch.from_numpy(dynamic_world).long(),
-                    torch.from_numpy(latlons).float(),
+                    torch.from_numpy(flat_latlons).float(),
                     torch.from_numpy(months).long(),
                     torch.from_numpy(mask).float(),
                 ),
@@ -265,13 +278,13 @@ class WorldCerealEval:
             # take the middle timestep's ndvi
             middle_timestep = eo.shape[1] // 2
             ndvi = eo[:, middle_timestep, NORMED_BANDS.index("NDVI")]
-            df = ds.combine_predictions(latlons, test_preds_np, y, ndvi)
+            da = ds.combine_predictions(test_preds_np, y, ndvi, x_coord, y_coord)
             prefix = f"{self.name}_{ds.all_files[i].stem}"
             if pretrained_model is None:
                 filename = f"{prefix}_finetuning.nc"
             else:
                 filename = f"{prefix}_{finetuned_model.__class__.__name__}.nc"
-            df.to_xarray().to_netcdf(self.spatial_inference_savedir / filename)
+            da.to_netcdf(self.spatial_inference_savedir / filename)
 
     @torch.no_grad()
     def evaluate(
