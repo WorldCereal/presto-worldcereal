@@ -7,18 +7,16 @@ import pandas as pd
 import torch
 import xarray as xr
 from einops import rearrange
-from pyproj import Transformer
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from .dataops import (
-    BANDS,
     BANDS_GROUPS_IDX,
     NORMED_BANDS,
     S1_S2_ERA5_SRTM,
     DynamicWorld2020_2021,
 )
-from .dataset import WorldCerealBase
+from .dataset import WorldCerealBase, WorldCerealInferenceDataset
 from .masking import BAND_EXPANSION
 from .presto import Presto
 from .utils import device, prep_dataframe
@@ -46,109 +44,7 @@ class PrestoFeatureExtractor:
         self.batch_size = batch_size
 
     _NODATAVALUE = 65535
-
-    @classmethod
-    def _preprocess_band_values(cls, values: np.ndarray, presto_band: str) -> np.ndarray:
-        """
-        Preprocesses the band values based on the given presto_val.
-
-        Args:
-            values (np.ndarray): Array of band values to preprocess.
-            presto_val (str): Name of the band for preprocessing.
-
-        Returns:
-            np.ndarray: Preprocessed array of band values.
-        """
-        if presto_band in ["VV", "VH"]:
-            # Convert to dB
-            values = 20 * np.log10(values) - 83
-        elif presto_band == "total_precipitation":
-            # Scale precipitation and convert mm to m
-            values = values / (100 * 1000.0)
-        elif presto_band == "temperature_2m":
-            # Remove scaling
-            values = values / 100
-        return values
-
-    @classmethod
-    def _extract_eo_data(cls, inarr: xr.DataArray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Extracts EO data and mask arrays from the input xarray.DataArray.
-
-        Args:
-            inarr (xr.DataArray): Input xarray.DataArray containing EO data.
-
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: Tuple containing EO data array and mask array.
-        """
-        num_pixels = len(inarr.x) * len(inarr.y)
-        num_timesteps = len(inarr.t)
-
-        eo_data = np.zeros((num_pixels, num_timesteps, len(BANDS)))
-        mask = np.zeros((num_pixels, num_timesteps, len(BANDS_GROUPS_IDX)))
-
-        for presto_band in NORMED_BANDS:
-            if presto_band in inarr.coords["bands"]:
-                values = np.swapaxes(
-                    inarr.sel(bands=presto_band).values.reshape((num_timesteps, -1)),
-                    0,
-                    1,
-                )
-                idx_valid = values != cls._NODATAVALUE
-                values = cls._preprocess_band_values(values, presto_band)
-                eo_data[:, :, BANDS.index(presto_band)] = values * idx_valid
-                mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
-            elif presto_band == "NDVI":
-                # NDVI will be computed by the normalize function
-                continue
-            else:
-                logger.warning(f"Band {presto_band} not found in input data.")
-                eo_data[:, :, BANDS.index(presto_band)] = 0
-                mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] = 1
-
-        return eo_data, mask
-
-    @staticmethod
-    def _extract_latlons(inarr: xr.DataArray, epsg: int) -> np.ndarray:
-        """
-        Extracts latitudes and longitudes from the input xarray.DataArray.
-
-        Args:
-            inarr (xr.DataArray): Input xarray.DataArray containing spatial coordinates.
-            epsg (int): EPSG code for coordinate reference system.
-
-        Returns:
-            np.ndarray: Array containing extracted latitudes and longitudes.
-        """
-        # EPSG:4326 is the supported crs for presto
-        lon, lat = np.meshgrid(inarr.x, inarr.y)
-        transformer = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
-        lon, lat = transformer.transform(lon, lat)
-        latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
-
-        #  2D array where each row represents a pair of latitude and longitude coordinates.
-        return latlons
-
-    @staticmethod
-    def _extract_months(inarr: xr.DataArray) -> np.ndarray:
-        """
-        Calculate the start month based on the first timestamp in the input array,
-        and create an array of the same length filled with that start month value.
-
-        Parameters:
-        - inarr: xarray.DataArray or numpy.ndarray
-            Input array containing timestamps.
-
-        Returns:
-        - months: numpy.ndarray
-            Array of start month values, with the same length as the input array.
-        """
-        num_instances = len(inarr.x) * len(inarr.y)
-
-        start_month = (inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
-
-        months = np.ones((num_instances)) * start_month
-        return months
+    _ds = WorldCerealInferenceDataset
 
     def _create_dataloader(
         self,
@@ -189,9 +85,9 @@ class PrestoFeatureExtractor:
     def _create_presto_input(
         self, inarr: xr.DataArray, epsg: int = 4326
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        eo_data, mask = self._extract_eo_data(inarr)
-        latlons = self._extract_latlons(inarr, epsg)
-        months = self._extract_months(inarr)
+        eo_data, mask = self._ds._extract_eo_data(inarr)
+        flat_latlons = self._ds._extract_latlons(inarr, epsg)
+        months = self._ds._extract_months(inarr)
         dynamic_world = np.ones((eo_data.shape[0], eo_data.shape[1])) * (
             DynamicWorld2020_2021.class_amount
         )
@@ -200,7 +96,7 @@ class PrestoFeatureExtractor:
             S1_S2_ERA5_SRTM.normalize(eo_data),
             dynamic_world,
             months,
-            latlons,
+            flat_latlons,
             np.repeat(mask, BAND_EXPANSION, axis=-1),
         )
 
