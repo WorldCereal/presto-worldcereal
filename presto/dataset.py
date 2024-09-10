@@ -23,7 +23,7 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import DEFAULT_SEED, data_dir, load_world_df
+from .utils import DEFAULT_SEED, MIN_EDGE_BUFFER, data_dir, load_world_df
 
 logger = logging.getLogger("__main__")
 
@@ -66,22 +66,72 @@ class WorldCerealBase(Dataset):
         return int(row_d["LANDCOVER_LABEL"] == 11)
 
     @classmethod
+    def get_timestep_positions(cls, row_d: Dict, augment: bool = False) -> List[int]:
+        available_timesteps = int(row_d["available_timesteps"])
+        valid_position = int(row_d["valid_position"])
+
+        # force moving the center point if it is too close to the edges
+        if (valid_position < cls.NUM_TIMESTEPS // 2) or (
+            valid_position > (available_timesteps - cls.NUM_TIMESTEPS // 2)
+        ):
+            augment = True
+
+        if not augment:
+            # Center the timesteps around the valid position
+            center_point = valid_position
+        else:
+            # Shift the center point but make sure the resulting range
+            # well includes the valid position
+
+            min_center_point = max(
+                cls.NUM_TIMESTEPS // 2, valid_position + MIN_EDGE_BUFFER - cls.NUM_TIMESTEPS // 2
+            )
+            max_center_point = min(
+                available_timesteps - cls.NUM_TIMESTEPS // 2,
+                valid_position - MIN_EDGE_BUFFER + cls.NUM_TIMESTEPS // 2,
+            )
+
+            center_point = np.random.randint(
+                min_center_point, max_center_point + 1
+            )  # max_center_point included
+
+        last_timestep = min(available_timesteps, center_point + cls.NUM_TIMESTEPS // 2)
+        first_timestep = max(0, last_timestep - cls.NUM_TIMESTEPS)
+        timestep_positions = list(range(first_timestep, last_timestep))
+
+        if len(timestep_positions) != cls.NUM_TIMESTEPS:
+            raise ValueError(
+                f"Acquired timestep positions do not have correct length: \
+required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
+            )
+        assert (
+            valid_position in timestep_positions
+        ), f"Valid position {valid_position} not in timestep positions {timestep_positions}"
+        return timestep_positions
+
+    @classmethod
     def row_to_arrays(
-        cls, row: pd.Series, target_function: Callable[[Dict], int]
+        cls, row: pd.Series, target_function: Callable[[Dict], int], augment: bool = False
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
-        month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
+
+        timestep_positions = cls.get_timestep_positions(row_d, augment=augment)
+        # make sure that month for encoding gets shifted according to
+        # the selected timestep positions
+        month = (
+            pd.to_datetime(row_d["start_date"]) + pd.DateOffset(months=timestep_positions[0])
+        ).month - 1
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
         # an assumption we make here is that all timesteps for a token
         # have the same masking
         mask = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
         for df_val, presto_val in cls.BAND_MAPPING.items():
-            values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
+            values = np.array([float(row_d[df_val.format(t)]) for t in timestep_positions])
             # this occurs for the DEM values in one point in Fiji
             values = np.nan_to_num(values, nan=cls._NODATAVALUE)
             idx_valid = values != cls._NODATAVALUE
@@ -260,6 +310,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         years_to_remove: Optional[List[int]] = None,
         target_function: Optional[Callable[[Dict], int]] = None,
         balance: bool = False,
+        augment: bool = False,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
 
@@ -275,6 +326,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         self.target_function = target_function if target_function is not None else self.target_crop
         self._class_weights: Optional[np.ndarray] = None
+        self.augment = augment
 
         super().__init__(dataframe)
         if balance:
@@ -307,7 +359,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row, self.target_function)
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(
+            row, self.target_function, self.augment
+        )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -354,7 +408,9 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_function)
+        eo, mask_per_token, latlon, _, target = self.row_to_arrays(
+            row, self.target_function, self.augment
+        )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
