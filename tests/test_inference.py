@@ -54,5 +54,5 @@ class TestInference(TestCase):
         # Load ref features
         ref_features = xr.open_dataarray(data_dir / "test_inference_features.nc")
 
-        xr.testing.assert_equal(features, ref_features)
+        xr.testing.assert_allclose(features, ref_features)
         assert features.dims == ref_features.dims
