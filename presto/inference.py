@@ -21,7 +21,7 @@ from .dataops import (
 from .dataset import WorldCerealBase
 from .masking import BAND_EXPANSION
 from .presto import Presto
-from .utils import device, prep_dataframe
+from .utils import device, process_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -305,117 +305,117 @@ def get_presto_features(
         raise ValueError("Input data must be either xr.DataArray or pd.DataFrame")
 
 
-def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
-    # add dummy value + rename stuff for compatibility with existing functions
-    df["OPTICAL-B8A"] = 65535
-    df.rename(
-        columns={
-            "S1-SIGMA0-VV": "SAR-VV",
-            "S1-SIGMA0-VH": "SAR-VH",
-            "S2-L2A-B02": "OPTICAL-B02",
-            "S2-L2A-B03": "OPTICAL-B03",
-            "S2-L2A-B04": "OPTICAL-B04",
-            "S2-L2A-B05": "OPTICAL-B05",
-            "S2-L2A-B06": "OPTICAL-B06",
-            "S2-L2A-B07": "OPTICAL-B07",
-            "S2-L2A-B08": "OPTICAL-B08",
-            "S2-L2A-B11": "OPTICAL-B11",
-            "S2-L2A-B12": "OPTICAL-B12",
-            "AGERA5-precipitation-flux": "METEO-precipitation_flux",
-            "AGERA5-temperature-mean": "METEO-temperature_mean",
-        },
-        inplace=True,
-    )
+# def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
+#     # add dummy value + rename stuff for compatibility with existing functions
+#     df["OPTICAL-B8A"] = 65535
+#     df.rename(
+#         columns={
+#             "S1-SIGMA0-VV": "SAR-VV",
+#             "S1-SIGMA0-VH": "SAR-VH",
+#             "S2-L2A-B02": "OPTICAL-B02",
+#             "S2-L2A-B03": "OPTICAL-B03",
+#             "S2-L2A-B04": "OPTICAL-B04",
+#             "S2-L2A-B05": "OPTICAL-B05",
+#             "S2-L2A-B06": "OPTICAL-B06",
+#             "S2-L2A-B07": "OPTICAL-B07",
+#             "S2-L2A-B08": "OPTICAL-B08",
+#             "S2-L2A-B11": "OPTICAL-B11",
+#             "S2-L2A-B12": "OPTICAL-B12",
+#             "AGERA5-precipitation-flux": "METEO-precipitation_flux",
+#             "AGERA5-temperature-mean": "METEO-temperature_mean",
+#         },
+#         inplace=True,
+#     )
 
-    feature_columns = [
-        "METEO-precipitation_flux",
-        "METEO-temperature_mean",
-        "SAR-VH",
-        "SAR-VV",
-        "OPTICAL-B02",
-        "OPTICAL-B03",
-        "OPTICAL-B04",
-        "OPTICAL-B08",
-        "OPTICAL-B8A",
-        "OPTICAL-B05",
-        "OPTICAL-B06",
-        "OPTICAL-B07",
-        "OPTICAL-B11",
-        "OPTICAL-B12",
-    ]
-    index_columns = [
-        "CROPTYPE_LABEL",
-        "DEM-alt-20m",
-        "DEM-slo-20m",
-        "LANDCOVER_LABEL",
-        "POTAPOV-LABEL-10m",
-        "WORLDCOVER-LABEL-10m",
-        "aez_zoneid",
-        "end_date",
-        "lat",
-        "lon",
-        "start_date",
-        "sample_id",
-        "valid_date",
-    ]
+#     feature_columns = [
+#         "METEO-precipitation_flux",
+#         "METEO-temperature_mean",
+#         "SAR-VH",
+#         "SAR-VV",
+#         "OPTICAL-B02",
+#         "OPTICAL-B03",
+#         "OPTICAL-B04",
+#         "OPTICAL-B08",
+#         "OPTICAL-B8A",
+#         "OPTICAL-B05",
+#         "OPTICAL-B06",
+#         "OPTICAL-B07",
+#         "OPTICAL-B11",
+#         "OPTICAL-B12",
+#     ]
+#     index_columns = [
+#         "CROPTYPE_LABEL",
+#         "DEM-alt-20m",
+#         "DEM-slo-20m",
+#         "LANDCOVER_LABEL",
+#         "POTAPOV-LABEL-10m",
+#         "WORLDCOVER-LABEL-10m",
+#         "aez_zoneid",
+#         "end_date",
+#         "lat",
+#         "lon",
+#         "start_date",
+#         "sample_id",
+#         "valid_date",
+#     ]
 
-    bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
-    bands20m = [
-        "SAR-VH",
-        "SAR-VV",
-        "OPTICAL-B05",
-        "OPTICAL-B06",
-        "OPTICAL-B07",
-        "OPTICAL-B11",
-        "OPTICAL-B12",
-        "OPTICAL-B8A",
-    ]
-    bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
+#     bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
+#     bands20m = [
+#         "SAR-VH",
+#         "SAR-VV",
+#         "OPTICAL-B05",
+#         "OPTICAL-B06",
+#         "OPTICAL-B07",
+#         "OPTICAL-B11",
+#         "OPTICAL-B12",
+#         "OPTICAL-B8A",
+#     ]
+#     bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
 
-    # ----------------------------------------------------------------------------
-    # PLACEHOLDER for substituting start_date with one derived from crop calendars
-    # df['start_date'] = seasons.get_season_start(df[['lat','lon']])
+#     # ----------------------------------------------------------------------------
+#     # PLACEHOLDER for substituting start_date with one derived from crop calendars
+#     # df['start_date'] = seasons.get_season_start(df[['lat','lon']])
 
-    # For now, in absence of a relevant start_date, we get time difference with respect
-    # to end_date so we can take 12 months counted back from end_date
-    df["valid_date_ind"] = (
-        (((df["timestamp"] - df["end_date"]).dt.days + 365) / 30).round().astype(int)
-    )
+#     # For now, in absence of a relevant start_date, we get time difference with respect
+#     # to end_date so we can take 12 months counted back from end_date
+#     df["valid_date_ind"] = (
+#         (((df["timestamp"] - df["end_date"]).dt.days + 365) / 30).round().astype(int)
+#     )
 
-    # Now reassign start_date to the actual subset counted back from end_date
-    df["start_date"] = df["end_date"] - pd.DateOffset(years=1) + pd.DateOffset(days=1)
+#     # Now reassign start_date to the actual subset counted back from end_date
+#     df["start_date"] = df["end_date"] - pd.DateOffset(years=1) + pd.DateOffset(days=1)
 
-    df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
-        index=index_columns, columns="valid_date_ind", values=feature_columns
-    )
+#     df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
+#         index=index_columns, columns="valid_date_ind", values=feature_columns
+#     )
 
-    # ----------------------------------------------------------------------------
+#     # ----------------------------------------------------------------------------
 
-    if df_pivot.empty:
-        raise ValueError("Left with an empty DataFrame!")
+#     if df_pivot.empty:
+#         raise ValueError("Left with an empty DataFrame!")
 
-    df_pivot.reset_index(inplace=True)
-    df_pivot.columns = [
-        f"{xx[0]}-ts{xx[1]}" if isinstance(xx[1], int) else xx[0]
-        for xx in df_pivot.columns.to_flat_index()
-    ]
-    df_pivot.columns = [
-        f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns
-    ]
-    df_pivot.columns = [
-        f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns
-    ]
-    df_pivot.columns = [
-        f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
-    ]
+#     df_pivot.reset_index(inplace=True)
+#     df_pivot.columns = [
+#         f"{xx[0]}-ts{xx[1]}" if isinstance(xx[1], int) else xx[0]
+#         for xx in df_pivot.columns.to_flat_index()
+#     ]
+#     df_pivot.columns = [
+#         f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns
+#     ]
+#     df_pivot.columns = [
+#         f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns
+#     ]
+#     df_pivot.columns = [
+#         f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
+#     ]
 
-    df_pivot["start_date"] = df_pivot["start_date"].dt.date.astype(str)
-    df_pivot["end_date"] = df_pivot["end_date"].dt.date.astype(str)
-    df_pivot["valid_date"] = df_pivot["valid_date"].dt.date.astype(str)
+#     df_pivot["start_date"] = df_pivot["start_date"].dt.date.astype(str)
+#     df_pivot["end_date"] = df_pivot["end_date"].dt.date.astype(str)
+#     df_pivot["valid_date"] = df_pivot["valid_date"].dt.date.astype(str)
 
-    df_pivot = prep_dataframe(df_pivot)
+#     df_pivot = prep_dataframe(df_pivot)
 
-    return df_pivot
+#     return df_pivot
 
 
 @functools.lru_cache(maxsize=6)
