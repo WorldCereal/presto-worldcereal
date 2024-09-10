@@ -65,6 +65,7 @@ class WorldCerealEval:
         name: Optional[str] = None,
         val_size: float = 0.2,
         dekadal: bool = False,
+        augment: bool = False,
     ):
         self.seed = seed
 
@@ -89,6 +90,8 @@ class WorldCerealEval:
 
         self.dekadal = dekadal
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
+
+        self.augment = augment
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model: PrestoFineTuningModel = cast(Callable, pretrained_model.construct_finetuning_model)(
@@ -278,7 +281,7 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Dict:
 
-        test_ds = self.ds_class(self.test_df, target_function=self.target_function)
+        test_ds = self.ds_class(self.test_df, target_function=self.target_function, augment=False)
         dl = DataLoader(
             test_ds,
             batch_size=512,
@@ -387,6 +390,7 @@ class WorldCerealEval:
             years_to_remove=self.years_to_remove,
             target_function=self.target_function,
             balance=True,
+            augment=self.augment,
         )
 
         # should the val set be balanced too?
@@ -395,6 +399,7 @@ class WorldCerealEval:
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
             target_function=self.target_function,
+            augment=False,  # don't augment the validation set
         )
 
         loss_fn = nn.BCEWithLogitsLoss()
@@ -511,6 +516,7 @@ class WorldCerealEval:
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                     target_function=self.target_function,
+                    augment=self.augment,
                 ),
                 batch_size=2048,
                 shuffle=False,
@@ -522,6 +528,7 @@ class WorldCerealEval:
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                     target_function=self.target_function,
+                    augment=False,  # don't augment the validation set
                 ),
                 batch_size=2048,
                 shuffle=False,
