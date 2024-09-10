@@ -7,12 +7,10 @@ import pandas as pd
 import torch
 import xarray as xr
 from einops import rearrange
-from pyproj import Transformer
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from .dataops import (
-    BANDS,
     BANDS_GROUPS_IDX,
     NORMED_BANDS,
     S1_S2_ERA5_SRTM,
