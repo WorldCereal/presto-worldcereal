@@ -281,7 +281,7 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ) -> Dict:
 
-        test_ds = self.ds_class(self.test_df, target_function=self.target_function, augment=False)
+        test_ds = self.ds_class(self.test_df, target_function=self.target_function)
         dl = DataLoader(
             test_ds,
             batch_size=512,
