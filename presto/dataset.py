@@ -18,15 +18,14 @@ from torch.utils.data import Dataset
 from .dataops import (
     BANDS,
     BANDS_GROUPS_IDX,
+    MIN_EDGE_BUFFER,
+    NODATAVALUE,
     NORMED_BANDS,
     S1_S2_ERA5_SRTM,
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, load_world_df
-
-NODATAVALUE: int = 65535
-MIN_EDGE_BUFFER: int = 2  # Min amount of timesteps to include before/after the valid position
 
 logger = logging.getLogger("__main__")
 

@@ -77,6 +77,8 @@ DIVIDE_BY = (
 NUM_TIMESTEPS = 12
 NUM_ORG_BANDS = len(BANDS)
 TIMESTEPS_IDX = list(range(NUM_TIMESTEPS))
+NODATAVALUE = 65535
+MIN_EDGE_BUFFER = 2  # Min amount of timesteps to include before/after the valid position
 
 NORMED_BANDS = [x for x in BANDS if x != "B9"]
 NUM_BANDS = len(NORMED_BANDS)

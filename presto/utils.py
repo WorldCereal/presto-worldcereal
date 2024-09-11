@@ -15,6 +15,8 @@ import xarray as xr
 from .dataops import (
     BANDS,
     ERA5_BANDS,
+    MIN_EDGE_BUFFER,
+    NODATAVALUE,
     NORMED_BANDS,
     REMOVED_BANDS,
     S1_BANDS,
@@ -23,7 +25,6 @@ from .dataops import (
     SRTM_BANDS,
     DynamicWorld2020_2021,
 )
-from .dataset import MIN_EDGE_BUFFER, NODATAVALUE
 
 plt = None
 
