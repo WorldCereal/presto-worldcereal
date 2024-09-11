@@ -73,15 +73,16 @@ class WorldCerealBase(Dataset):
         available_timesteps = int(row_d["available_timesteps"])
         valid_position = int(row_d["valid_position"])
 
-        # force moving the center point if it is too close to the edges
-        if (valid_position < cls.NUM_TIMESTEPS // 2) or (
-            valid_position > (available_timesteps - cls.NUM_TIMESTEPS // 2)
-        ):
-            augment = True
-
         if not augment:
-            # Center the timesteps around the valid position
-            center_point = valid_position
+            #  check if the valid position is too close to the start_date and force shifting it
+            if valid_position < cls.NUM_TIMESTEPS // 2:
+                center_point = cls.NUM_TIMESTEPS // 2
+            #  or too close to the end_date
+            elif valid_position > (available_timesteps - cls.NUM_TIMESTEPS // 2):
+                center_point = available_timesteps - cls.NUM_TIMESTEPS // 2
+            else:
+                # Center the timesteps around the valid position
+                center_point = valid_position
         else:
             # Shift the center point but make sure the resulting range
             # well includes the valid position
