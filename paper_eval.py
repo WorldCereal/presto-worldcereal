@@ -10,6 +10,8 @@ from typing import Optional, cast
 import pandas as pd
 import torch
 import xarray as xr
+from tqdm.auto import tqdm
+
 from presto.dataset import WorldCerealBase
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
@@ -26,7 +28,6 @@ from presto.utils import (
     seed_everything,
     timestamp_dirname,
 )
-from tqdm.auto import tqdm
 
 logger = logging.getLogger("__main__")
 
@@ -100,9 +101,6 @@ if "10d" in parquet_file:
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
 
-logger.info("Setting up dataloaders")
-
-
 logger.info("Reading dataset")
 files = sorted(glob(f"{parquet_file}/**/*.parquet"))[:10]
 df_list = []
@@ -111,8 +109,6 @@ for f in tqdm(files):
     _data_pivot = process_parquet(_data)
     _data_pivot.reset_index(inplace=True)
     df_list.append(_data_pivot)
-    del _data, _data_pivot
-    gc.collect()
 df = pd.concat(df_list)
 df = df.fillna(NODATAVALUE)
 del df_list
@@ -138,7 +134,11 @@ model_modes = ["CatBoostClassifier"]
 val_samples_df = pd.read_csv(data_dir / val_samples_file)
 train_df, test_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
 full_eval = WorldCerealEval(
-    train_df, test_df, spatial_inference_savedir=model_logging_dir, dekadal=dekadal, augment=False
+    train_df,
+    test_df,
+    spatial_inference_savedir=model_logging_dir,
+    dekadal=dekadal,
+    augment=augment,
 )
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))
