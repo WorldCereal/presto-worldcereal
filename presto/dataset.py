@@ -123,11 +123,30 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
 
         timestep_positions = cls.get_timestep_positions(row_d, augment=augment)
+
+        if cls.NUM_TIMESTEPS == 12:
+            initial_start_date_position = pd.to_datetime(row_d["start_date"]).month
+        elif cls.NUM_TIMESTEPS > 12:
+            # get the correct index of the start_date based on NUM_TIMESTEPS`
+            # e.g. if NUM_TIMESTEPS is 36 (dekadal setup), we should take the correct
+            # 10-day interval that the start_date falls into
+            # TODO: 1) this needs to go into a separate function
+            # 2) definition of valid_position and timestep_ind
+            #  should also be changed accordingly
+            year = pd.to_datetime(row_d["start_date"]).year
+            year_dates = pd.date_range(start=f"{year}-01-01", end=f"{year}-12-31")
+            bins = pd.cut(year_dates, bins=cls.NUM_TIMESTEPS, labels=False)
+            initial_start_date_position = bins[
+                np.where(year_dates == pd.to_datetime(row_d["start_date"]))[0][0]
+            ]
+        else:
+            raise ValueError(
+                f"NUM_TIMESTEPS must be at least 12. Currently it is {cls.NUM_TIMESTEPS}"
+            )
+
         # make sure that month for encoding gets shifted according to
-        # the selected timestep positions
-        month = (
-            pd.to_datetime(row_d["start_date"]) + pd.DateOffset(months=timestep_positions[0])
-        ).month - 1
+        # the selected timestep positions. Also ensure circular indexing
+        month = (initial_start_date_position - 1 + timestep_positions[0]) % cls.NUM_TIMESTEPS
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
         # an assumption we make here is that all timesteps for a token
