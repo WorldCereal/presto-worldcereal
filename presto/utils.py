@@ -23,6 +23,7 @@ from .dataops import (
     SRTM_BANDS,
     DynamicWorld2020_2021,
 )
+from .dataset import MIN_EDGE_BUFFER, NODATAVALUE
 
 plt = None
 
@@ -33,9 +34,6 @@ config_dir = Path(__file__).parent.parent / "config"
 default_model_path = data_dir / "default_model.pt"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DEFAULT_SEED: int = 42
-
-NODATAVALUE: int = 65535
-MIN_EDGE_BUFFER: int = 2  # Min amount of timesteps to include before/after the valid position
 
 
 # From https://gist.github.com/ihoromi4/b681a9088f348942b01711f251e5f964

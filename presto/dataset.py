@@ -23,7 +23,10 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import DEFAULT_SEED, MIN_EDGE_BUFFER, data_dir, load_world_df
+from .utils import DEFAULT_SEED, data_dir, load_world_df
+
+NODATAVALUE: int = 65535
+MIN_EDGE_BUFFER: int = 2  # Min amount of timesteps to include before/after the valid position
 
 logger = logging.getLogger("__main__")
 
@@ -34,7 +37,7 @@ for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
 
 
 class WorldCerealBase(Dataset):
-    _NODATAVALUE = 65535
+    # _NODATAVALUE = 65535
     NUM_TIMESTEPS = 12
     BAND_MAPPING = {
         "OPTICAL-B02-ts{}-10m": "B2",
@@ -133,8 +136,8 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
         for df_val, presto_val in cls.BAND_MAPPING.items():
             values = np.array([float(row_d[df_val.format(t)]) for t in timestep_positions])
             # this occurs for the DEM values in one point in Fiji
-            values = np.nan_to_num(values, nan=cls._NODATAVALUE)
-            idx_valid = values != cls._NODATAVALUE
+            values = np.nan_to_num(values, nan=NODATAVALUE)
+            idx_valid = values != NODATAVALUE
             if presto_val in ["VV", "VH"]:
                 # convert to dB
                 idx_valid = idx_valid & (values > 0)
@@ -149,8 +152,8 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
             eo_data[:, BANDS.index(presto_val)] = values * idx_valid
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             # this occurs for the DEM values in one point in Fiji
-            values = np.nan_to_num(row_d[df_val], nan=cls._NODATAVALUE)
-            idx_valid = values != cls._NODATAVALUE
+            values = np.nan_to_num(row_d[df_val], nan=NODATAVALUE)
+            idx_valid = values != NODATAVALUE
             eo_data[:, BANDS.index(presto_val)] = values * idx_valid
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
@@ -181,7 +184,7 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
         keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
         normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
         # TODO: fix this. For now, we replicate the previous behaviour
-        normed_eo = np.where(eo[:, keep_indices] != cls._NODATAVALUE, normed_eo, 0)
+        normed_eo = np.where(eo[:, keep_indices] != NODATAVALUE, normed_eo, 0)
         return normed_eo
 
     @staticmethod
@@ -423,7 +426,7 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
 
 
 class WorldCerealInferenceDataset(Dataset):
-    _NODATAVALUE = 65535
+    # _NODATAVALUE = 65535
     Y = "worldcereal_cropland"
     BAND_MAPPING = {
         "B02": "B2",
@@ -466,7 +469,7 @@ class WorldCerealInferenceDataset(Dataset):
         for org_band, presto_val in cls.BAND_MAPPING.items():
             # flatten the values
             values = np.swapaxes(ds[org_band].values.reshape((num_timesteps, -1)), 0, 1)
-            idx_valid = values != cls._NODATAVALUE
+            idx_valid = values != NODATAVALUE
 
             if presto_val in ["VV", "VH"]:
                 # convert to dB
