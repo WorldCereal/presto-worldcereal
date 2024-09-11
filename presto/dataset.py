@@ -330,6 +330,8 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         self.target_function = target_function if target_function is not None else self.target_crop
         self._class_weights: Optional[np.ndarray] = None
         self.augment = augment
+        if augment:
+            logger.info("Augmentation is enabled. The valid_date position will be shifted.")
 
         super().__init__(dataframe)
         if balance:
