@@ -72,6 +72,7 @@ class WorldCerealEval:
         finetune_classes: str = "CROPTYPE0",
         downstream_classes: str = "CROPTYPE9",
         balance: bool = False,
+        train_masking: float = 0.0,
     ):
         self.seed = seed
         self.task_type = task_type
@@ -149,6 +150,7 @@ class WorldCerealEval:
         self.dekadal = dekadal
         self.balance = balance
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
+        self.train_masking = train_masking
 
     @staticmethod
     def convert_to_onehot(
@@ -438,13 +440,23 @@ class WorldCerealEval:
         assert self.spatial_inference_savedir is not None
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
-            eo, dynamic_world, mask, latlons, months, y, valid_months = ds[i]
+            (
+                eo,
+                dynamic_world,
+                mask,
+                flat_latlons,
+                months,
+                y,
+                valid_months,
+                x_coord,
+                y_coord,
+            ) = ds[i]
             dl = DataLoader(
                 TensorDataset(
                     torch.from_numpy(eo).float(),
                     torch.from_numpy(y.astype(np.int16)),
                     torch.from_numpy(dynamic_world).long(),
-                    torch.from_numpy(latlons).float(),
+                    torch.from_numpy(flat_latlons).float(),
                     torch.from_numpy(months).long(),
                     torch.from_numpy(valid_months).long(),
                     torch.from_numpy(mask).float(),
@@ -494,8 +506,7 @@ class WorldCerealEval:
             b4 = eo[:, middle_timestep, NORMED_BANDS.index("B4")]
 
             if self.task_type == "cropland":
-                df = ds.combine_predictions(
-                    latlons,
+                da = ds.combine_predictions(
                     test_preds_np,
                     test_preds_np,
                     test_preds_np,
@@ -504,10 +515,13 @@ class WorldCerealEval:
                     b2,
                     b3,
                     b4,
+                    x_coord,
+                    y_coord,
                 )
             if self.task_type == "croptype":
-                df = ds.combine_predictions(
-                    latlons,
+                da = ds.combine_predictions(
+                    x_coord,
+                    y_coord,
                     test_preds_np,
                     test_preds_ewoc_code,
                     test_probs_np,
@@ -517,12 +531,13 @@ class WorldCerealEval:
                     b3,
                     b4,
                 )
+
             prefix = f"{self.name}_{ds.all_files[i].stem}"
             if pretrained_model is None:
                 filename = f"{prefix}_finetuning_{self.task_type}.nc"
             else:
                 filename = f"{prefix}_{finetuned_model.__class__.__name__}_{self.task_type}.nc"
-            df.to_xarray().to_netcdf(self.spatial_inference_savedir / filename)
+            da.to_netcdf(self.spatial_inference_savedir / filename)
 
     @torch.no_grad()
     def evaluate(
@@ -679,11 +694,12 @@ class WorldCerealEval:
 
         train_ds = self.ds_class(
             self.train_df,
-            countries_to_remove=self.countries_to_remove,
-            years_to_remove=self.years_to_remove,
+            # countries_to_remove=self.countries_to_remove,
+            # years_to_remove=self.years_to_remove,
             balance=self.balance,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
+            mask_ratio=self.train_masking,
         )
 
         # should the val set be balanced too?
@@ -693,6 +709,7 @@ class WorldCerealEval:
             years_to_remove=self.years_to_remove,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
+            mask_ratio=0.0,  # https://github.com/WorldCereal/presto-worldcereal/pull/102
         )
 
         loss_fn: nn.Module
@@ -738,6 +755,8 @@ class WorldCerealEval:
             for x, y, dw, latlons, month, valid_month, variable_mask in tqdm(
                 train_dl, desc="Training", leave=False
             ):
+                # print(f"month shape during trn: {month.shape}")
+                # print(f"valid_month shape during trn: {valid_month.shape}")
                 x, y, dw, latlons, month, valid_month, variable_mask = [
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]

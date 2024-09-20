@@ -1,3 +1,4 @@
+import functools
 import io
 import math
 from copy import deepcopy
@@ -880,13 +881,20 @@ class Presto(nn.Module):
         # currently, cannot correctly construct the finetuned head and populate it with weights 😥
 
         if from_url:
-            response = requests.get(str(model_path))
-            presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
+            presto_model_layers = cls.load_layers_from_url(str(model_path))
             model.load_state_dict(presto_model_layers, strict=strict)
         else:
             model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
 
         return model
+
+    @classmethod
+    @functools.lru_cache(maxsize=6)
+    def load_layers_from_url(cls, presto_url: str):
+        response = requests.get(presto_url)
+        presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
+
+        return presto_model_layers
 
 
 def param_groups_lrd(

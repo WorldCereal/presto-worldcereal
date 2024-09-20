@@ -50,6 +50,14 @@ argparser.add_argument(
     default="rawts-monthly_calval.parquet",
     choices=["rawts-monthly_calval.parquet", "rawts-10d_calval.parquet"],
 )
+argparser.add_argument("--n_epochs", type=int, default=20)
+argparser.add_argument("--max_learning_rate", type=float, default=0.0001)
+argparser.add_argument("--min_learning_rate", type=float, default=0.0)
+argparser.add_argument("--finetune_train_masking", type=float, default=0.0)
+argparser.add_argument("--warmup_epochs", type=int, default=2)
+argparser.add_argument("--weight_decay", type=float, default=0.05)
+argparser.add_argument("--batch_size", type=int, default=4096)
+argparser.add_argument("--val_per_n_steps", type=int, default=-1, help="If -1, val every epoch")
 argparser.add_argument(
     "--presto_model_description",
     type=str,
@@ -178,13 +186,15 @@ full_eval = WorldCerealEval(
     dekadal=dekadal,
     balance=balance,
     spatial_inference_savedir=model_logging_dir,
+    train_masking=args["finetune_train_masking"],
 )
 
 model_path = output_parent_dir / "data"
 model_path.mkdir(exist_ok=True, parents=True)
 
 experiment_prefix = f"""\
-    {presto_model_description}_{task_type}_{finetune_classes}_{compositing_window}_{test_type}_time-token={time_token}_balance={balance}\
+{presto_model_description}_{task_type}_{finetune_classes}_\
+{compositing_window}_{test_type}_time-token={time_token}_balance={balance}\
 """
 
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"

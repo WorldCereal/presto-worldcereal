@@ -1,28 +1,27 @@
+import functools
 import logging
-from typing import Tuple, Union
+from typing import Any, Callable, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
 from einops import rearrange
-from pyproj import Transformer
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from .dataops import (
-    BANDS,
     BANDS_GROUPS_IDX,
     NORMED_BANDS,
     S1_S2_ERA5_SRTM,
     DynamicWorld2020_2021,
 )
-from .dataset import WorldCerealBase
+from .dataset import WorldCerealBase, WorldCerealInferenceDataset
 from .masking import BAND_EXPANSION
 from .presto import Presto
 from .utils import device, prep_dataframe
 
 logger = logging.getLogger(__name__)
-
 
 # Index to band groups mapping
 IDX_TO_BAND_GROUPS = {
@@ -45,109 +44,7 @@ class PrestoFeatureExtractor:
         self.batch_size = batch_size
 
     _NODATAVALUE = 65535
-
-    @classmethod
-    def _preprocess_band_values(cls, values: np.ndarray, presto_band: str) -> np.ndarray:
-        """
-        Preprocesses the band values based on the given presto_val.
-
-        Args:
-            values (np.ndarray): Array of band values to preprocess.
-            presto_val (str): Name of the band for preprocessing.
-
-        Returns:
-            np.ndarray: Preprocessed array of band values.
-        """
-        if presto_band in ["VV", "VH"]:
-            # Convert to dB
-            values = 20 * np.log10(values) - 83
-        elif presto_band == "total_precipitation":
-            # Scale precipitation and convert mm to m
-            values = values / (100 * 1000.0)
-        elif presto_band == "temperature_2m":
-            # Remove scaling
-            values = values / 100
-        return values
-
-    @classmethod
-    def _extract_eo_data(cls, inarr: xr.DataArray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Extracts EO data and mask arrays from the input xarray.DataArray.
-
-        Args:
-            inarr (xr.DataArray): Input xarray.DataArray containing EO data.
-
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: Tuple containing EO data array and mask array.
-        """
-        num_pixels = len(inarr.x) * len(inarr.y)
-        num_timesteps = len(inarr.t)
-
-        eo_data = np.zeros((num_pixels, num_timesteps, len(BANDS)))
-        mask = np.zeros((num_pixels, num_timesteps, len(BANDS_GROUPS_IDX)))
-
-        for presto_band in NORMED_BANDS:
-            if presto_band in inarr.coords["bands"]:
-                values = np.swapaxes(
-                    inarr.sel(bands=presto_band).values.reshape((num_timesteps, -1)),
-                    0,
-                    1,
-                )
-                idx_valid = values != cls._NODATAVALUE
-                values = cls._preprocess_band_values(values, presto_band)
-                eo_data[:, :, BANDS.index(presto_band)] = values * idx_valid
-                mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
-            elif presto_band == "NDVI":
-                # Band NDVI will be computed by Presto
-                continue
-            else:
-                logger.warning(f"Band {presto_band} not found in input data.")
-                eo_data[:, :, BANDS.index(presto_band)] = 0
-                mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] = 1
-
-        return eo_data, mask
-
-    @staticmethod
-    def _extract_latlons(inarr: xr.DataArray, epsg: int) -> np.ndarray:
-        """
-        Extracts latitudes and longitudes from the input xarray.DataArray.
-
-        Args:
-            inarr (xr.DataArray): Input xarray.DataArray containing spatial coordinates.
-            epsg (int): EPSG code for coordinate reference system.
-
-        Returns:
-            np.ndarray: Array containing extracted latitudes and longitudes.
-        """
-        # EPSG:4326 is the supported crs for presto
-        lon, lat = np.meshgrid(inarr.x, inarr.y)
-        transformer = Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4326", always_xy=True)
-        lon, lat = transformer.transform(lon, lat)
-        latlons = rearrange(np.stack([lat, lon]), "c x y -> (x y) c")
-
-        #  2D array where each row represents a pair of latitude and longitude coordinates.
-        return latlons
-
-    @staticmethod
-    def _extract_months(inarr: xr.DataArray) -> np.ndarray:
-        """
-        Calculate the start month based on the first timestamp in the input array,
-        and create an array of the same length filled with that start month value.
-
-        Parameters:
-        - inarr: xarray.DataArray or numpy.ndarray
-            Input array containing timestamps.
-
-        Returns:
-        - months: numpy.ndarray
-            Array of start month values, with the same length as the input array.
-        """
-        num_instances = len(inarr.x) * len(inarr.y)
-
-        start_month = (inarr.t.values[0].astype("datetime64[M]").astype(int) % 12 + 1) - 1
-
-        months = np.ones((num_instances)) * start_month
-        return months
+    _ds = WorldCerealInferenceDataset
 
     def _create_dataloader(
         self,
@@ -156,6 +53,7 @@ class PrestoFeatureExtractor:
         months: np.ndarray,
         latlons: np.ndarray,
         mask: np.ndarray,
+        valid_months: np.ndarray,
     ) -> DataLoader:
         """
         Create a PyTorch DataLoader for encoding features.
@@ -166,6 +64,8 @@ class PrestoFeatureExtractor:
             latlons (np.ndarray): Array containing latitude and longitude coordinates.
             inarr (xr.DataArray): Input xarray.DataArray.
             mask (np.ndarray): Array containing masking data.
+            months (np.ndarray): Array containing month data.
+            valid_months (np.ndarray): Array containing valid month data.
 
         Returns:
             DataLoader: PyTorch DataLoader for encoding features.
@@ -177,6 +77,7 @@ class PrestoFeatureExtractor:
                 torch.from_numpy(dynamic_world).long(),
                 torch.from_numpy(latlons).float(),
                 torch.from_numpy(months).long(),
+                torch.from_numpy(valid_months).long(),
                 torch.from_numpy(mask).float(),
             ),
             batch_size=self.batch_size,
@@ -187,10 +88,13 @@ class PrestoFeatureExtractor:
 
     def _create_presto_input(
         self, inarr: xr.DataArray, epsg: int = 4326
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        eo_data, mask = self._extract_eo_data(inarr)
-        latlons = self._extract_latlons(inarr, epsg)
-        months = self._extract_months(inarr)
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        eo_data, mask = self._ds._extract_eo_data(inarr)
+        flat_latlons = self._ds._extract_latlons(inarr, epsg)
+        months = self._ds._extract_months(inarr)
+
+        valid_month = pd.to_datetime(inarr.attrs["valid_date"]).month - 1
+        valid_months = np.full_like(months, valid_month)
         dynamic_world = np.ones((eo_data.shape[0], eo_data.shape[1])) * (
             DynamicWorld2020_2021.class_amount
         )
@@ -199,8 +103,9 @@ class PrestoFeatureExtractor:
             S1_S2_ERA5_SRTM.normalize(eo_data),
             dynamic_world,
             months,
-            latlons,
+            flat_latlons,
             np.repeat(mask, BAND_EXPANSION, axis=-1),
+            valid_months,
         )
 
     def _get_encodings(self, dl: DataLoader) -> np.ndarray:
@@ -221,9 +126,9 @@ class PrestoFeatureExtractor:
 
         with torch.no_grad():
 
-            for i, (x, dw, latlons, month, variable_mask) in enumerate(dl):
-                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            for i, (x, dw, latlons, month, valid_month, variable_mask) in enumerate(dl):
+                x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
                 ]
 
                 encodings[i * self.batch_size : i * self.batch_size + self.batch_size, :] = (
@@ -233,6 +138,7 @@ class PrestoFeatureExtractor:
                         mask=variable_mask_f,
                         latlons=latlons_f,
                         month=month_f,
+                        valid_month=valid_month_f,
                     )
                     .cpu()
                     .numpy()
@@ -242,8 +148,10 @@ class PrestoFeatureExtractor:
 
     def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
 
-        eo, dynamic_world, months, latlons, mask = self._create_presto_input(inarr, epsg)
-        dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask)
+        eo, dynamic_world, months, latlons, mask, valid_months = self._create_presto_input(
+            inarr, epsg
+        )
+        dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask, valid_months)
 
         features = self._get_encodings(dl)
         features = rearrange(features, "(x y) c -> x y c", x=len(inarr.x), y=len(inarr.y))
@@ -262,6 +170,7 @@ def get_presto_features(
     presto_url: str,
     epsg: int = 4326,
     batch_size: int = 8192,
+    compile: bool = False,
 ) -> Union[np.ndarray, xr.DataArray]:
     """
     Extracts features from input data using Presto.
@@ -271,6 +180,7 @@ def get_presto_features(
         presto_url (str): URL to the pretrained Presto model.
         epsg (int) : EPSG code describing the coordinates.
         batch_size (int): Batch size to be used for Presto inference.
+        compile (bool): Whether to compile the model before extracting features.
 
     Returns:
         xr.DataArray or np.ndarray: Extracted features as xarray DataArray or numpy ndarray.
@@ -280,12 +190,16 @@ def get_presto_features(
     from_url = presto_url.startswith("http")
     presto_model = Presto.load_pretrained(model_path=presto_url, from_url=from_url, strict=False)
 
+    # Compile for optimized inference. Note that warmup takes some time
+    # so this is only recommended for larger inference jobs
+    if compile:
+        presto_model.encoder = compile_encoder(presto_model.encoder)
+
     presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
 
     if isinstance(inarr, pd.DataFrame):
         processed_df = process_parquet(inarr)
         test_ds = WorldCerealBase(processed_df)
-        # test_ds = WorldCerealLabelledDataset(processed_df)
         dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
         return presto_extractor._get_encodings(dl)
 
@@ -432,3 +346,33 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     df_pivot = prep_dataframe(df_pivot)
 
     return df_pivot
+
+
+@functools.lru_cache(maxsize=6)
+def compile_encoder(presto_encoder: nn.Module) -> Callable[..., Any]:
+    """Helper function that compiles the encoder of a Presto model
+    and performs a warm-up on dummy data. The lru_cache decorator
+    ensures caching on compute nodes to be able to actually benefit
+    from the compilation process.
+
+    Parameters
+    ----------
+    presto_encoder : nn.Module
+        Encoder part of Presto model to compile
+
+    """
+
+    logger.info("Compiling Presto encoder ...")
+    presto_encoder = torch.compile(presto_encoder)  # type: ignore
+
+    logger.info("Warming-up ...")
+    for _ in range(3):
+        presto_encoder(
+            torch.rand((1, 12, 17)).to(device),
+            torch.ones((1, 12)).to(device).long(),
+            torch.rand(1, 2).to(device),
+        )
+
+    logger.info("Compilation done.")
+
+    return presto_encoder

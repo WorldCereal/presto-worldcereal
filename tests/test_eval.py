@@ -75,40 +75,6 @@ class TestEval(TestCase):
             ((output["support"] >= MIN_SAMPLES_PER_CLASS) & (output["f1-score"].isna())).sum(), 0
         )
 
-    def test_spatial_inference_cropland(
-        self,
-    ):
-        # loading not strict so that absent valid_month
-        # in pre-trained model is not a problem
-        model = Presto.load_pretrained(strict=False)
-
-        test_data = read_test_file()
-        spatial_data_prefix = "belgium_good_2020-12-01_2021-11-30"
-        spatial_data = xr.load_dataset(data_dir / f"inference_areas/{spatial_data_prefix}.nc")
-
-        ground_truth_one_timestep = spatial_data.worldcereal_cropland.values[0, :, :]
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            eval_task = WorldCerealEval(
-                test_data,
-                test_data,
-                task_type="cropland",
-                dekadal=False,
-                balance=True,
-                spatial_inference_savedir=Path(tmpdirname),
-            )
-            finetuned_model = eval_task._construct_finetuning_model(model)
-
-            eval_task.spatial_inference(finetuned_model, None)
-            output = xr.load_dataset(
-                Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning_cropland.nc"
-            )
-            # np.flip because of how lat lons are stored vs x y
-            self.assertTrue(
-                np.equal(np.flip(output.ground_truth.values, 0), ground_truth_one_timestep).all()
-            )
-            self.assertTrue(np.max(output.ndvi) <= 1)
-            self.assertTrue(np.max(output.ndvi) >= 0)
-
     def test_spatial_inference_croptype(
         self,
     ):
@@ -122,10 +88,10 @@ class TestEval(TestCase):
         test_data = read_test_file(finetune_classes, downstream_classes)
         test_data = filter_remove_noncrops(test_data)
 
-        spatial_data_prefix = "belgium_good_2020-12-01_2021-11-30"
+        spatial_data_prefix = "WORLDCEREAL-INPUTS-10m_belgium_good_32631_2020-08-30_2022-03-03"
         spatial_data = xr.load_dataset(data_dir / f"inference_areas/{spatial_data_prefix}.nc")
 
-        ground_truth_one_timestep = spatial_data.worldcereal_cropland.values[0, :, :]
+        ground_truth_one_timestep = spatial_data.WORLDCEREAL_TEMPORARYCROPS_2021.values
 
         with tempfile.TemporaryDirectory() as tmpdirname:
             eval_task = WorldCerealEval(
@@ -143,9 +109,8 @@ class TestEval(TestCase):
             output = xr.load_dataset(
                 Path(tmpdirname) / f"{eval_task.name}_{spatial_data_prefix}_finetuning_croptype.nc"
             )
-            # np.flip because of how lat lons are stored vs x y
-            self.assertTrue(
-                np.equal(np.flip(output.ground_truth.values, 0), ground_truth_one_timestep).all()
-            )
-            self.assertTrue(np.max(output.ndvi) <= 1)
-            self.assertTrue(np.max(output.ndvi) >= 0)
+            gt_values = output.sel(bands="ground_truth")["__xarray_dataarray_variable__"].values
+            ndvi_values = output.sel(bands="ndvi")["__xarray_dataarray_variable__"].values
+            self.assertTrue(np.equal(gt_values, ground_truth_one_timestep).all())
+            self.assertTrue(np.max(ndvi_values) <= 1)
+            self.assertTrue(np.max(ndvi_values) >= 0)

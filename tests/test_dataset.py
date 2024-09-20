@@ -63,34 +63,35 @@ class TestDataset(TestCase):
 
         model = Presto.construct(**model_kwargs)
         model.to(device)
-        eo, dw, mask, latlons, months, _, valid_months = ds[0]
+        eo, dw, mask, latlons, months, _, valid_months, _, _ = ds[0]
 
         with torch.no_grad():
             _ = model(
-                x=torch.from_numpy(eo).float()[:num_vals].to(device),
-                dynamic_world=torch.from_numpy(dw).long()[:num_vals].to(device),
-                latlons=torch.from_numpy(latlons).float()[:num_vals].to(device),
-                mask=torch.from_numpy(mask).int()[:num_vals].to(device),
-                month=torch.from_numpy(months).long()[:num_vals].to(device),
+                x=torch.from_numpy(eo).float()[:num_vals],
+                dynamic_world=torch.from_numpy(dw).long()[:num_vals],
+                latlons=torch.from_numpy(latlons).float()[:num_vals],
+                mask=torch.from_numpy(mask).int()[:num_vals],
+                month=torch.from_numpy(months).long()[:num_vals],
+                # valid_month=torch.from_numpy(valid_months).long()[:num_vals],
             )
 
     def test_combine_predictions(self):
         # copied from https://github.com/nasaharvest/openmapflow/blob/main/tests/test_inference.py
-        flat_lat = np.array([14.95313164, 14.95313164, 14.95313164, 14.95313164, 14.95313164])
-        flat_lon = np.array([-86.25070894, -86.25061911, -86.25052928, -86.25043945, -86.25034962])
-        batch_predictions = np.array(
-            [[0.43200156], [0.55286014], [0.5265], [0.5236109], [0.4110847]]
+        x_coord = np.array([14.95313164, 14.95323164, 14.95333164, 14.95343164, 14.95353164])
+        y_coord = np.array([-86.25070894, -86.25061911, -86.25052928, -86.25043945, -86.25034962])
+
+        b2 = np.random.rand(len(y_coord) * len(x_coord))
+        b3 = np.random.rand(len(y_coord) * len(x_coord))
+        b4 = np.random.rand(len(y_coord) * len(x_coord))
+        ndvi = np.random.rand(len(y_coord) * len(x_coord))
+
+        worldcereal_labels = np.random.randint(
+            low=0, high=2, size=(len(y_coord) * len(x_coord)), dtype=int
         )
-        ndvi = np.array([0.43200156, 0.55286014, 0.5265, 0.5236109, 0.4110847])
-        b2 = np.array([0.0209, 0.0216, 0.0199, 0.0204, 0.0211])
-        b3 = np.array([0.0584, 0.0556, 0.0518, 0.058, 0.0556])
-        b4 = np.array([0.0254, 0.0271, 0.0204, 0.0219, 0.0228])
+        batch_predictions = np.random.rand(len(y_coord) * len(x_coord))
+        all_preds_ewoc_code = np.full_like(batch_predictions, 110000000)
 
-        worldcereal_labels = np.array([[1, 1], [0, 0], [1, 1], [0, 0], [1, 1]])
-        all_preds_ewoc_code = np.array([0, 110000000, 110000000, 110000000, 0])
-
-        df_predictions = WorldCerealInferenceDataset.combine_predictions(
-            latlons=np.stack([flat_lat, flat_lon], axis=-1),
+        da_predictions = WorldCerealInferenceDataset.combine_predictions(
             all_preds=batch_predictions,
             gt=worldcereal_labels,
             ndvi=ndvi,
@@ -99,17 +100,21 @@ class TestDataset(TestCase):
             b2=b2,
             b3=b3,
             b4=b4,
+            x_coord=x_coord,
+            y_coord=y_coord,
         )
 
+        df_predictions = da_predictions.to_dataset(dim="bands").to_dataframe()
+
         # Check size
-        self.assertEqual(df_predictions.index.levels[0].name, "lat")
-        self.assertEqual(df_predictions.index.levels[1].name, "lon")
-        self.assertEqual(len(df_predictions.index.levels[0]), 1)
-        self.assertEqual(len(df_predictions.index.levels[1]), 5)
+        self.assertEqual(df_predictions.index.levels[0].name, "y")
+        self.assertEqual(df_predictions.index.levels[1].name, "x")
+        self.assertEqual(len(df_predictions.index.levels[0]), len(y_coord))
+        self.assertEqual(len(df_predictions.index.levels[1]), len(x_coord))
 
         # Check coords
-        self.assertTrue((df_predictions.index.levels[0].values == flat_lat[0:1]).all())
-        self.assertTrue((df_predictions.index.levels[1].values == flat_lon).all())
+        self.assertTrue((df_predictions.index.levels[0].values == y_coord).all())
+        self.assertTrue((df_predictions.index.levels[1].values == x_coord).all())
 
         # Check all predictions between 0 and 1
         self.assertTrue(df_predictions["prediction_0"].min() >= 0)
