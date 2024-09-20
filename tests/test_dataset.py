@@ -56,41 +56,41 @@ class TestDataset(TestCase):
         ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
         model = Presto.construct()
-        eo, dw, mask, latlons, months, _ = ds[0]
+        eo, dw, mask, flat_latlons, months, _, _, _ = ds[0]
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
                 dynamic_world=torch.from_numpy(dw).long()[:num_vals],
-                latlons=torch.from_numpy(latlons).float()[:num_vals],
+                latlons=torch.from_numpy(flat_latlons).float()[:num_vals],
                 mask=torch.from_numpy(mask).int()[:num_vals],
                 month=torch.from_numpy(months).long()[:num_vals],
             )
 
     def test_combine_predictions(self):
-        # copied from https://github.com/nasaharvest/openmapflow/blob/main/tests/test_inference.py
-        flat_lat = np.array([14.95313164, 14.95313164, 14.95313164, 14.95313164, 14.95313164])
-        flat_lon = np.array([-86.25070894, -86.25061911, -86.25052928, -86.25043945, -86.25034962])
-        batch_predictions = np.array(
-            [[0.43200156], [0.55286014], [0.5265], [0.5236109], [0.4110847]]
-        )
-        ndvi = np.array([0.43200156, 0.55286014, 0.5265, 0.5236109, 0.4110847])
-        worldcereal_labels = np.array([[1, 1], [0, 0], [1, 1], [0, 0], [1, 1]])
-        df_predictions = WorldCerealInferenceDataset.combine_predictions(
-            latlons=np.stack([flat_lat, flat_lon], axis=-1),
+        # adapted from https://github.com/nasaharvest/openmapflow/blob/main/tests/test_inference.py
+        flat_lat = np.array([14.95313164, 14.95313165])
+        flat_lon = np.array([-86.25070894, -86.25061911])
+        batch_predictions = np.array([[0.43200156], [0.55286014], [0.5265], [0.5236109]])
+        ndvi = np.array([0.43200156, 0.55286014, 0.5265, 0.5236109])
+        worldcereal_labels = np.array([[1, 1], [0, 0], [1, 1], [0, 0]])
+        da_predictions = WorldCerealInferenceDataset.combine_predictions(
             all_preds=batch_predictions,
             gt=worldcereal_labels,
             ndvi=ndvi,
+            x_coord=flat_lat,
+            y_coord=flat_lon,
         )
+        df_predictions = da_predictions.to_dataset(dim="bands").to_dataframe()
 
         # Check size
-        self.assertEqual(df_predictions.index.levels[0].name, "lat")
-        self.assertEqual(df_predictions.index.levels[1].name, "lon")
-        self.assertEqual(len(df_predictions.index.levels[0]), 1)
-        self.assertEqual(len(df_predictions.index.levels[1]), 5)
+        self.assertEqual(df_predictions.index.levels[0].name, "y")
+        self.assertEqual(df_predictions.index.levels[1].name, "x")
+        self.assertEqual(len(df_predictions.index.levels[0]), 2)
+        self.assertEqual(len(df_predictions.index.levels[1]), 2)
 
         # Check coords
-        self.assertTrue((df_predictions.index.levels[0].values == flat_lat[0:1]).all())
-        self.assertTrue((df_predictions.index.levels[1].values == flat_lon).all())
+        self.assertTrue((df_predictions.index.levels[0].values == flat_lon).all())
+        self.assertTrue((df_predictions.index.levels[1].values == flat_lat).all())
 
         # Check all predictions between 0 and 1
         self.assertTrue(df_predictions["prediction_0"].min() >= 0)
