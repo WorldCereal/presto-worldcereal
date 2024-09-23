@@ -4,16 +4,16 @@ from unittest import TestCase
 
 import numpy as np
 import xarray as xr
-from presto.eval import MIN_SAMPLES_PER_CLASS, WorldCerealEval
+
+from presto.eval import WorldCerealEval
 from presto.presto import Presto
 from presto.utils import data_dir, device
-
 from tests.utils import read_test_file
 
 
 class TestEval(TestCase):
     def test_eval(self):
-       # loading not strict so that absent valid_month
+        # loading not strict so that absent valid_month
         # in pre-trained model is not a problem
         model = Presto.load_pretrained(strict=False)
         model.to(device)
@@ -34,6 +34,7 @@ class TestEval(TestCase):
         # self.assertEqual(
         #     ((output["support"] >= MIN_SAMPLES_PER_CLASS) & (output["f1-score"].isna())).sum(), 0
         # )
+
 
 def test_spatial_inference(
     self,
