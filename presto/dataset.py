@@ -85,7 +85,8 @@ class WorldCerealBase(Dataset):
             # well includes the valid position
 
             min_center_point = max(
-                cls.NUM_TIMESTEPS // 2, valid_position + MIN_EDGE_BUFFER - cls.NUM_TIMESTEPS // 2
+                cls.NUM_TIMESTEPS // 2,
+                valid_position + MIN_EDGE_BUFFER - cls.NUM_TIMESTEPS // 2,
             )
             max_center_point = min(
                 available_timesteps - cls.NUM_TIMESTEPS // 2,
@@ -618,7 +619,9 @@ class WorldCerealInferenceDataset(Dataset):
         return inarr
 
     @classmethod
-    def nc_to_arrays(cls, filepath: Path) -> Tuple[
+    def nc_to_arrays(
+        cls, filepath: Path
+    ) -> Tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray,

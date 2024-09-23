@@ -25,7 +25,9 @@ class TestProcessParquet(TestCase):
         sample_1_data = {
             "sample_id": ["sample_1"] * n_months,
             "timestamp": pd.date_range(
-                start=start_date, end=start_date + pd.DateOffset(months=n_months), freq="m"
+                start=start_date,
+                end=start_date + pd.DateOffset(months=n_months),
+                freq="m",
             ),
             "start_date": [start_date] * n_months,
             "valid_date": [start_date + pd.DateOffset(months=9)] * n_months,
@@ -48,7 +50,9 @@ class TestProcessParquet(TestCase):
         sample_2_data = {
             "sample_id": ["sample_2"] * n_months,
             "timestamp": pd.date_range(
-                start=start_date, end=start_date + pd.DateOffset(months=n_months), freq="m"
+                start=start_date,
+                end=start_date + pd.DateOffset(months=n_months),
+                freq="m",
             ),
             "start_date": [start_date] * n_months,
             "valid_date": [start_date + pd.DateOffset(months=1)] * n_months,
@@ -71,7 +75,9 @@ class TestProcessParquet(TestCase):
         sample_3_data = {
             "sample_id": ["sample_3"] * n_months,
             "timestamp": pd.date_range(
-                start=start_date, end=start_date + pd.DateOffset(months=n_months), freq="m"
+                start=start_date,
+                end=start_date + pd.DateOffset(months=n_months),
+                freq="m",
             ),
             "start_date": [start_date] * n_months,
             "valid_date": [start_date + pd.DateOffset(months=18)] * n_months,
@@ -94,7 +100,9 @@ class TestProcessParquet(TestCase):
         sample_4_data = {
             "sample_id": ["sample_4"] * n_months,
             "timestamp": pd.date_range(
-                start=start_date, end=start_date + pd.DateOffset(months=n_months), freq="m"
+                start=start_date,
+                end=start_date + pd.DateOffset(months=n_months),
+                freq="m",
             ),
             "start_date": [start_date] * n_months,
             "valid_date": [start_date + pd.DateOffset(months=24)] * n_months,
