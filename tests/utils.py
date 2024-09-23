@@ -1,8 +1,5 @@
-from glob import glob
-
 import numpy as np
 import pandas as pd
-
 from presto.utils import process_parquet
 
 # we will have a different number of maize labels for easier testing
@@ -11,11 +8,8 @@ NUM_MAIZE_POINTS = 20
 
 
 def read_test_file() -> pd.DataFrame:
-    parquet_file = "/vitodata/worldcereal/features/preprocessedinputs-monthly-nointerp/\
-worldcereal_training_data.parquet"
-    files = sorted(glob(f"{parquet_file}/**/*.parquet"))
-    f = files[7]
-    test_df_long = pd.read_parquet(f, engine="fastparquet")
+    test_parquet_fpath = "./data/test_long_parquet_2017_CAN_AAFC-ACIGTD.parquet"
+    test_df_long = pd.read_parquet(test_parquet_fpath, engine="fastparquet")
     test_df = process_parquet(test_df_long)
     test_df.reset_index(inplace=True)
 
