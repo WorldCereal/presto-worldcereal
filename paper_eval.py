@@ -1,25 +1,30 @@
 # presto_pretrain_finetune, but in a notebook
 import argparse
+import gc
 import json
 import logging
+from glob import glob
 from pathlib import Path
 from typing import Optional, cast
 
 import pandas as pd
 import torch
 import xarray as xr
+from tqdm.auto import tqdm
 
 from presto.dataset import WorldCerealBase
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
 from presto.utils import (
     DEFAULT_SEED,
+    NODATAVALUE,
     config_dir,
     data_dir,
     default_model_path,
     device,
     initialize_logging,
     plot_spatial,
+    process_parquet,
     seed_everything,
     timestamp_dirname,
 )
@@ -41,12 +46,20 @@ argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
 argparser.add_argument("--num_workers", type=int, default=4)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
-argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
+# argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
+argparser.add_argument(
+    "--parquet_file",
+    type=str,
+    default="/vitodata/worldcereal/features/preprocessedinputs-monthly-nointerp/\
+worldcereal_training_data.parquet",
+)
 argparser.add_argument("--val_samples_file", type=str, default="cropland_test_split_samples.csv")
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
+argparser.add_argument("--augment", dest="augment", action="store_true")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
+argparser.set_defaults(augment=False)
 args = argparser.parse_args().__dict__
 
 model_name = args["model_name"]
@@ -79,6 +92,7 @@ logger.info("Using output dir: %s" % model_logging_dir)
 parquet_file: str = args["parquet_file"]
 val_samples_file: str = args["val_samples_file"]
 train_only_samples_file: str = args["train_only_samples_file"]
+augment: bool = args["augment"]
 
 dekadal = False
 if "10d" in parquet_file:
@@ -87,9 +101,18 @@ if "10d" in parquet_file:
 path_to_config = config_dir / "default.json"
 model_kwargs = json.load(Path(path_to_config).open("r"))
 
-logger.info("Setting up dataloaders")
-
-df = pd.read_parquet(data_dir / parquet_file)
+logger.info("Reading dataset")
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))[:10]
+df_list = []
+for f in tqdm(files):
+    _data = pd.read_parquet(f, engine="fastparquet")
+    _data_pivot = process_parquet(_data)
+    _data_pivot.reset_index(inplace=True)
+    df_list.append(_data_pivot)
+df = pd.concat(df_list)
+df = df.fillna(NODATAVALUE)
+del df_list
+gc.collect()
 
 logger.info("Setting up model")
 if warm_start:
@@ -104,13 +127,18 @@ else:
     best_model_path = None
 model.to(device)
 
-model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
+# model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
+model_modes = ["CatBoostClassifier"]
 
 # 1. Using the provided split
 val_samples_df = pd.read_csv(data_dir / val_samples_file)
 train_df, test_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
 full_eval = WorldCerealEval(
-    train_df, test_df, spatial_inference_savedir=model_logging_dir, dekadal=dekadal
+    train_df,
+    test_df,
+    spatial_inference_savedir=model_logging_dir,
+    dekadal=dekadal,
+    augment=augment,
 )
 results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
 logger.info(json.dumps(results, indent=2))

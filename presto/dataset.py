@@ -16,6 +16,8 @@ from torch.utils.data import Dataset
 from .dataops import (
     BANDS,
     BANDS_GROUPS_IDX,
+    MIN_EDGE_BUFFER,
+    NODATAVALUE,
     NORMED_BANDS,
     S1_S2_ERA5_SRTM,
     DynamicWorld2020_2021,
@@ -32,7 +34,7 @@ for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
 
 
 class WorldCerealBase(Dataset):
-    _NODATAVALUE = 65535
+    # _NODATAVALUE = 65535
     NUM_TIMESTEPS = 12
     BAND_MAPPING = {
         "OPTICAL-B02-ts{}-10m": "B2",
@@ -64,25 +66,96 @@ class WorldCerealBase(Dataset):
         return int(row_d["LANDCOVER_LABEL"] == 11)
 
     @classmethod
+    def get_timestep_positions(cls, row_d: Dict, augment: bool = False) -> List[int]:
+        available_timesteps = int(row_d["available_timesteps"])
+        valid_position = int(row_d["valid_position"])
+
+        if not augment:
+            #  check if the valid position is too close to the start_date and force shifting it
+            if valid_position < cls.NUM_TIMESTEPS // 2:
+                center_point = cls.NUM_TIMESTEPS // 2
+            #  or too close to the end_date
+            elif valid_position > (available_timesteps - cls.NUM_TIMESTEPS // 2):
+                center_point = available_timesteps - cls.NUM_TIMESTEPS // 2
+            else:
+                # Center the timesteps around the valid position
+                center_point = valid_position
+        else:
+            # Shift the center point but make sure the resulting range
+            # well includes the valid position
+
+            min_center_point = max(
+                cls.NUM_TIMESTEPS // 2,
+                valid_position + MIN_EDGE_BUFFER - cls.NUM_TIMESTEPS // 2,
+            )
+            max_center_point = min(
+                available_timesteps - cls.NUM_TIMESTEPS // 2,
+                valid_position - MIN_EDGE_BUFFER + cls.NUM_TIMESTEPS // 2,
+            )
+
+            center_point = np.random.randint(
+                min_center_point, max_center_point + 1
+            )  # max_center_point included
+
+        last_timestep = min(available_timesteps, center_point + cls.NUM_TIMESTEPS // 2)
+        first_timestep = max(0, last_timestep - cls.NUM_TIMESTEPS)
+        timestep_positions = list(range(first_timestep, last_timestep))
+
+        if len(timestep_positions) != cls.NUM_TIMESTEPS:
+            raise ValueError(
+                f"Acquired timestep positions do not have correct length: \
+required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
+            )
+        assert (
+            valid_position in timestep_positions
+        ), f"Valid position {valid_position} not in timestep positions {timestep_positions}"
+        return timestep_positions
+
+    @classmethod
     def row_to_arrays(
-        cls, row: pd.Series, target_function: Callable[[Dict], int]
+        cls, row: pd.Series, target_function: Callable[[Dict], int], augment: bool = False
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
-        month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
+
+        timestep_positions = cls.get_timestep_positions(row_d, augment=augment)
+
+        if cls.NUM_TIMESTEPS == 12:
+            initial_start_date_position = pd.to_datetime(row_d["start_date"]).month
+        elif cls.NUM_TIMESTEPS > 12:
+            # get the correct index of the start_date based on NUM_TIMESTEPS`
+            # e.g. if NUM_TIMESTEPS is 36 (dekadal setup), we should take the correct
+            # 10-day interval that the start_date falls into
+            # TODO: 1) this needs to go into a separate function
+            # 2) definition of valid_position and timestep_ind
+            #  should also be changed accordingly
+            year = pd.to_datetime(row_d["start_date"]).year
+            year_dates = pd.date_range(start=f"{year}-01-01", end=f"{year}-12-31")
+            bins = pd.cut(year_dates, bins=cls.NUM_TIMESTEPS, labels=False)
+            initial_start_date_position = bins[
+                np.where(year_dates == pd.to_datetime(row_d["start_date"]))[0][0]
+            ]
+        else:
+            raise ValueError(
+                f"NUM_TIMESTEPS must be at least 12. Currently it is {cls.NUM_TIMESTEPS}"
+            )
+
+        # make sure that month for encoding gets shifted according to
+        # the selected timestep positions. Also ensure circular indexing
+        month = (initial_start_date_position - 1 + timestep_positions[0]) % cls.NUM_TIMESTEPS
 
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
         # an assumption we make here is that all timesteps for a token
         # have the same masking
         mask = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
         for df_val, presto_val in cls.BAND_MAPPING.items():
-            values = np.array([float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)])
+            values = np.array([float(row_d[df_val.format(t)]) for t in timestep_positions])
             # this occurs for the DEM values in one point in Fiji
-            values = np.nan_to_num(values, nan=cls._NODATAVALUE)
-            idx_valid = values != cls._NODATAVALUE
+            values = np.nan_to_num(values, nan=NODATAVALUE)
+            idx_valid = values != NODATAVALUE
             if presto_val in ["VV", "VH"]:
                 # convert to dB
                 idx_valid = idx_valid & (values > 0)
@@ -97,8 +170,8 @@ class WorldCerealBase(Dataset):
             eo_data[:, BANDS.index(presto_val)] = values * idx_valid
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             # this occurs for the DEM values in one point in Fiji
-            values = np.nan_to_num(row_d[df_val], nan=cls._NODATAVALUE)
-            idx_valid = values != cls._NODATAVALUE
+            values = np.nan_to_num(row_d[df_val], nan=NODATAVALUE)
+            idx_valid = values != NODATAVALUE
             eo_data[:, BANDS.index(presto_val)] = values * idx_valid
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
@@ -129,7 +202,7 @@ class WorldCerealBase(Dataset):
         keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
         normed_eo = S1_S2_ERA5_SRTM.normalize(eo)
         # TODO: fix this. For now, we replicate the previous behaviour
-        normed_eo = np.where(eo[:, keep_indices] != cls._NODATAVALUE, normed_eo, 0)
+        normed_eo = np.where(eo[:, keep_indices] != NODATAVALUE, normed_eo, 0)
         return normed_eo
 
     @staticmethod
@@ -258,6 +331,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         years_to_remove: Optional[List[int]] = None,
         target_function: Optional[Callable[[Dict], int]] = None,
         balance: bool = False,
+        augment: bool = False,
         mask_ratio: float = 0.0,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
@@ -274,6 +348,9 @@ class WorldCerealLabelledDataset(WorldCerealBase):
             dataframe = dataframe[(~dataframe.end_date.dt.year.isin(years_to_remove))]
         self.target_function = target_function if target_function is not None else self.target_crop
         self._class_weights: Optional[np.ndarray] = None
+        self.augment = augment
+        if augment:
+            logger.info("Augmentation is enabled. The valid_date position will be shifted.")
         self.mask_ratio = mask_ratio
         self.mask_params = MaskParamsNoDw(
             (
@@ -367,7 +444,9 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
         # Get the sample
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, _, target = self.row_to_arrays(row, self.target_function)
+        eo, mask_per_token, latlon, _, target = self.row_to_arrays(
+            row, self.target_function, self.augment
+        )
         if self.mask_ratio > 0:
             mask_per_token, eo, _, _ = self.mask_params.mask_data(eo, mask_per_token)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
@@ -382,7 +461,24 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
 
 
 class WorldCerealInferenceDataset(Dataset):
-    _NODATAVALUE = 65535
+    # _NODATAVALUE = 65535
+    Y = "worldcereal_cropland"
+    BAND_MAPPING = {
+        "B02": "B2",
+        "B03": "B3",
+        "B04": "B4",
+        "B05": "B5",
+        "B06": "B6",
+        "B07": "B7",
+        "B08": "B8",
+        # B8A is missing
+        "B11": "B11",
+        "B12": "B12",
+        "VH": "VH",
+        "VV": "VV",
+        "precipitation-flux": "total_precipitation",
+        "temperature-mean": "temperature_2m",
+    }
     Y = "WORLDCEREAL_TEMPORARYCROPS_2021"
 
     def __init__(self, path_to_files: Path = data_dir / "inference_areas"):
@@ -408,7 +504,7 @@ class WorldCerealInferenceDataset(Dataset):
 
         # Handle NaN values in Presto compatible way
         inarr = inarr.astype(np.float32)
-        inarr = inarr.fillna(65535)
+        inarr = inarr.fillna(NODATAVALUE)
 
         eo_data = np.zeros((num_pixels, num_timesteps, len(BANDS)))
         mask = np.zeros((num_pixels, num_timesteps, len(BANDS_GROUPS_IDX)))
@@ -420,7 +516,7 @@ class WorldCerealInferenceDataset(Dataset):
                     0,
                     1,
                 )
-                idx_valid = values != cls._NODATAVALUE
+                idx_valid = values != NODATAVALUE
                 values = cls._preprocess_band_values(values, presto_band)
                 eo_data[:, :, BANDS.index(presto_band)] = values * idx_valid
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] += ~idx_valid
@@ -552,7 +648,7 @@ class WorldCerealInferenceDataset(Dataset):
         months = cls._extract_months(inarr)
 
         if cls.Y not in ds:
-            target = np.ones_like(months) * cls._NODATAVALUE
+            target = np.ones_like(months) * NODATAVALUE
         else:
             target = rearrange(inarr.sel(bands=cls.Y).values, "t x y -> (x y) t")
 

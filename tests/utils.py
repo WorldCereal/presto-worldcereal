@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from presto.utils import data_dir
+from presto.utils import process_parquet
 
 # we will have a different number of maize labels for easier testing
 NUM_CROP_POINTS = 10
@@ -9,11 +9,13 @@ NUM_MAIZE_POINTS = 20
 
 
 def read_test_file() -> pd.DataFrame:
-    test_df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
-    # this is to align the parquet file with the new parquet files
-    # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
+    test_parquet_fpath = "./data/test_long_parquet_2017_CAN_AAFC-ACIGTD.parquet"
+    test_df_long = pd.read_parquet(test_parquet_fpath, engine="fastparquet")
+    test_df = process_parquet(test_df_long)
+    test_df.reset_index(inplace=True)
+
     test_df.rename(
-        {"catboost_prediction": "worldcereal_prediction"},
+        {"WORLDCOVER-LABEL-10m": "worldcereal_prediction"},
         axis=1,
         inplace=True,
     )

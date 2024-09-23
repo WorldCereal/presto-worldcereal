@@ -32,6 +32,8 @@ from .presto import (
 )
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
+MIN_SAMPLES_PER_CLASS = 3
+
 logger = logging.getLogger("__main__")
 
 SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
@@ -65,6 +67,7 @@ class WorldCerealEval:
         name: Optional[str] = None,
         val_size: float = 0.2,
         dekadal: bool = False,
+        augment: bool = False,
         train_masking: float = 0.0,
     ):
         self.seed = seed
@@ -91,6 +94,8 @@ class WorldCerealEval:
         self.dekadal = dekadal
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
         self.train_masking = train_masking
+
+        self.augment = augment
 
     def _construct_finetuning_model(self, pretrained_model: Presto) -> PrestoFineTuningModel:
         model: PrestoFineTuningModel = cast(Callable, pretrained_model.construct_finetuning_model)(
@@ -306,7 +311,7 @@ class WorldCerealEval:
         test_preds_np = test_preds_np >= self.threshold
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
-        catboost_preds = test_ds.df.worldcereal_prediction
+        catboost_preds = test_ds.df.worldcereal_prediction == 11
 
         def format_partitioned(results):
             return {
@@ -364,7 +369,7 @@ class WorldCerealEval:
         preds: np.ndarray,
         test_df: pd.DataFrame,
     ) -> Dict[str, Union[np.float32, np.int32]]:
-        catboost_preds = test_df.worldcereal_prediction
+        catboost_preds = test_df.worldcereal_prediction == 11
         years = test_df.end_date.apply(lambda date: date[:4])
 
         if "continent" not in test_df.columns:
@@ -389,8 +394,9 @@ class WorldCerealEval:
             **metrics("CatBoost_region", world_attrs.region, catboost_preds),
         }
 
-    def finetune(self, pretrained_model) -> PrestoFineTuningModel:
-        hyperparams = Hyperparams()
+    def finetune(
+        self, pretrained_model, hyperparams: Hyperparams = Hyperparams()
+    ) -> PrestoFineTuningModel:
         model = self._construct_finetuning_model(pretrained_model)
 
         parameters = param_groups_lrd(model)
@@ -402,6 +408,7 @@ class WorldCerealEval:
             years_to_remove=self.years_to_remove,
             target_function=self.target_function,
             balance=True,
+            augment=self.augment,
             mask_ratio=self.train_masking,
         )
 
@@ -411,6 +418,7 @@ class WorldCerealEval:
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
             target_function=self.target_function,
+            augment=False,  # don't augment the validation set
             mask_ratio=0.0,  # https://github.com/WorldCereal/presto-worldcereal/pull/102
         )
 
@@ -528,6 +536,7 @@ class WorldCerealEval:
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                     target_function=self.target_function,
+                    augment=self.augment,
                     mask_ratio=self.train_masking,
                 ),
                 batch_size=2048,
@@ -540,6 +549,7 @@ class WorldCerealEval:
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                     target_function=self.target_function,
+                    augment=False,  # don't augment the validation set
                     mask_ratio=0.0,  # https://github.com/WorldCereal/presto-worldcereal/pull/102
                 ),
                 batch_size=2048,
@@ -563,6 +573,7 @@ class WorldCerealEval:
         self,
         pretrained_model,
         sklearn_model_modes: List[str],
+        hyperparams: Hyperparams = Hyperparams(),
     ) -> Tuple[Dict, PrestoFineTuningModel]:
         for model_mode in sklearn_model_modes:
             assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
@@ -571,7 +582,7 @@ class WorldCerealEval:
         # we want to always finetune the model, since the sklearn models
         # will use the finetuned model as a base. This better reflects
         # the deployment scenario for WorldCereal
-        finetuned_model = self.finetune(pretrained_model)
+        finetuned_model = self.finetune(pretrained_model, hyperparams=hyperparams)
         results_dict.update(self.evaluate(finetuned_model, None))
         if self.spatial_inference_savedir is not None:
             self.spatial_inference(finetuned_model, None)
