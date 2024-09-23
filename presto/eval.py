@@ -394,8 +394,9 @@ class WorldCerealEval:
             **metrics("CatBoost_region", world_attrs.region, catboost_preds),
         }
 
-    def finetune(self, pretrained_model) -> PrestoFineTuningModel:
-        hyperparams = Hyperparams()
+    def finetune(
+        self, pretrained_model, hyperparams: Hyperparams = Hyperparams()
+    ) -> PrestoFineTuningModel:
         model = self._construct_finetuning_model(pretrained_model)
 
         parameters = param_groups_lrd(model)
@@ -572,6 +573,7 @@ class WorldCerealEval:
         self,
         pretrained_model,
         sklearn_model_modes: List[str],
+        hyperparams: Hyperparams = Hyperparams(),
     ) -> Tuple[Dict, PrestoFineTuningModel]:
         for model_mode in sklearn_model_modes:
             assert model_mode in ["Regression", "Random Forest", "CatBoostClassifier"]
@@ -580,7 +582,7 @@ class WorldCerealEval:
         # we want to always finetune the model, since the sklearn models
         # will use the finetuned model as a base. This better reflects
         # the deployment scenario for WorldCereal
-        finetuned_model = self.finetune(pretrained_model)
+        finetuned_model = self.finetune(pretrained_model, hyperparams=hyperparams)
         results_dict.update(self.evaluate(finetuned_model, None))
         if self.spatial_inference_savedir is not None:
             self.spatial_inference(finetuned_model, None)

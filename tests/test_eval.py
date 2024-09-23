@@ -5,7 +5,7 @@ from unittest import TestCase
 import numpy as np
 import xarray as xr
 
-from presto.eval import WorldCerealEval
+from presto.eval import Hyperparams, WorldCerealEval
 from presto.presto import Presto
 from presto.utils import data_dir, device
 from tests.utils import read_test_file
@@ -25,7 +25,12 @@ class TestEval(TestCase):
             dekadal=False,
         )
 
-        output, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
+        hyperparams = Hyperparams()
+        hyperparams.max_epochs = 1
+
+        output, _ = eval_task.finetuning_results(
+            model, ["CatBoostClassifier"], hyperparams=hyperparams
+        )
         # self.assertTrue("PrestoFineTuningModel" in output["downstream_model_type"].unique())
         # self.assertTrue("CatBoostClassifier" in output["downstream_model_type"].unique())
         # self.assertTrue(
