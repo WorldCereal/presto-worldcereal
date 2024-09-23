@@ -311,7 +311,7 @@ class WorldCerealEval:
         test_preds_np = test_preds_np >= self.threshold
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
 
-        catboost_preds = test_ds.df.worldcereal_prediction
+        catboost_preds = test_ds.df.worldcereal_prediction == 11
 
         def format_partitioned(results):
             return {
@@ -369,7 +369,7 @@ class WorldCerealEval:
         preds: np.ndarray,
         test_df: pd.DataFrame,
     ) -> Dict[str, Union[np.float32, np.int32]]:
-        catboost_preds = test_df.worldcereal_prediction
+        catboost_preds = test_df.worldcereal_prediction == 11
         years = test_df.end_date.apply(lambda date: date[:4])
 
         if "continent" not in test_df.columns:
