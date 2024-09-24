@@ -537,21 +537,28 @@ def plot_spatial(
     croptype_map = CLASS_MAPPINGS["CROPTYPE0"]
     colors_map = CLASS_MAPPINGS["CROPTYPE0_COLORS"]
 
+    b2 = spatial_preds.sel(bands="b2")["__xarray_dataarray_variable__"].values
+    b3 = spatial_preds.sel(bands="b3")["__xarray_dataarray_variable__"].values
+    b4 = spatial_preds.sel(bands="b4")["__xarray_dataarray_variable__"].values
+    ground_truth = spatial_preds.sel(bands="ground_truth")["__xarray_dataarray_variable__"].values
+    ndvi = spatial_preds.sel(bands="ndvi")["__xarray_dataarray_variable__"].values
+    pred0_ewoc = spatial_preds.sel(bands="pred0_ewoc")["__xarray_dataarray_variable__"].values
+    prediction_0 = spatial_preds.sel(bands="prediction_0")["__xarray_dataarray_variable__"].values
+    prob_0 = spatial_preds.sel(bands="prob_0")["__xarray_dataarray_variable__"].values
+    prob_1 = spatial_preds.sel(bands="prob_1")["__xarray_dataarray_variable__"].values
+
     rgb_ts6 = np.dstack(
         (
-            (spatial_preds.b4.values - spatial_preds.b4.values.min())
-            / (spatial_preds.b4.values.max() - spatial_preds.b4.values.min()),
-            (spatial_preds.b3.values - spatial_preds.b3.values.min())
-            / (spatial_preds.b3.values.max() - spatial_preds.b3.values.min()),
-            (spatial_preds.b2.values - spatial_preds.b2.values.min())
-            / (spatial_preds.b2.values.max() - spatial_preds.b2.values.min()),
+            (b4 - b4.min()) / (b4.max() - b4.min()),
+            (b3 - b3.min()) / (b3.max() - b3.min()),
+            (b2 - b2.min()) / (b2.max() - b2.min()),
         )
     )
 
-    fig = plt.figure(figsize=(20, 12))
+    fig = plt.figure(figsize=(40, 25))
 
     fig.add_subplot(2, 3, 1)
-    plt.imshow(spatial_preds.ground_truth)
+    plt.imshow(ground_truth)
     plt.axis("off")
     plt.title("Phase I WorldCereal Mask")
 
@@ -561,15 +568,23 @@ def plot_spatial(
     plt.title("RGB TS6")
 
     fig.add_subplot(2, 3, 3)
-    plt.imshow(spatial_preds.ndvi)
+    plt.imshow(ndvi)
     plt.axis("off")
     plt.title("NDVI TS6")
 
     if task_type == "croptype":
         fig.add_subplot(2, 3, 4)
-        values = [croptype_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
-        colors = [colors_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
+        
+        pred0_ewoc_int = [int(xx) if not np.isnan(xx) else 1000000000 for xx in np.unique(pred0_ewoc)]
+        values = [croptype_map[str(xx)] for xx in pred0_ewoc_int]
+        colors = [colors_map[str(xx)] for xx in pred0_ewoc_int]
+
+        # values = [croptype_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
+        # colors = [colors_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
+
         cmap = mcolors.ListedColormap(colors)
+        cmap.set_bad(color='whitesmoke')
+
         plt.imshow(spatial_preds.prediction_0, cmap=cmap)
         patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
         plt.legend(
@@ -584,19 +599,19 @@ def plot_spatial(
 
     if task_type == "cropland":
         fig.add_subplot(2, 3, 4)
-        plt.imshow(spatial_preds.prob_0 > 0.5)
+        plt.imshow(prob_0 > 0.5)
         plt.axis("off")
         plt.title("Cropland predictions")
 
     fig.add_subplot(2, 3, 5)
-    plt.imshow(spatial_preds.prob_0, cmap="Greens", vmin=0, vmax=1)
+    plt.imshow(prob_0, cmap="Greens", vmin=0, vmax=1)
     plt.colorbar()
     plt.axis("off")
     plt.title("Top1 class prob")
 
     if task_type == "croptype":
         fig.add_subplot(2, 3, 6)
-        plt.imshow(spatial_preds.prob_1, cmap="Greens", vmin=0, vmax=1)
+        plt.imshow(prob_1, cmap="Greens", vmin=0, vmax=1)
         plt.colorbar()
         plt.axis("off")
         plt.title("Top2 class prob")
