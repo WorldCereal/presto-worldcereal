@@ -611,7 +611,7 @@ class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
 
 class WorldCerealInferenceDataset(Dataset):
     # _NODATAVALUE = 65535
-    Y = "worldcereal_cropland"
+    # Y = "worldcereal_cropland"
     BAND_MAPPING = {
         "B02": "B2",
         "B03": "B3",
@@ -868,9 +868,6 @@ class WorldCerealInferenceDataset(Dataset):
 
         if (gt.ndim == 2) and (gt.shape[-1] > 1):
             gt = gt[:, 0]
-
-        x_coord = np.unique(x_coord)
-        y_coord = np.unique(y_coord)
 
         if len(all_probs.shape) == 1:
             all_probs = np.expand_dims(all_probs, axis=-1)
