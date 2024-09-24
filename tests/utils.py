@@ -1,17 +1,19 @@
 import pandas as pd
 
 from presto.dataset import WorldCerealBase
-from presto.utils import data_dir
+from presto.utils import data_dir, process_parquet
 
 
 def read_test_file(
     finetune_classes: str = "CROPTYPE0", downstream_classes: str = "CROPTYPE9"
 ) -> pd.DataFrame:
-    test_df = pd.read_parquet(data_dir / "worldcereal_testdf_upd.parquet")
-    # this is to align the parquet file with the new parquet files
-    # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
+    test_parquet_fpath = data_dir / "test_long_parquet_2017_CAN_AAFC-ACIGTD.parquet"
+    test_df_long = pd.read_parquet(test_parquet_fpath, engine="fastparquet")
+    test_df = process_parquet(test_df_long)
+    test_df.reset_index(inplace=True)
+
     test_df.rename(
-        {"catboost_prediction": "worldcereal_prediction"},
+        {"WORLDCOVER-LABEL-10m": "worldcereal_prediction"},
         axis=1,
         inplace=True,
     )

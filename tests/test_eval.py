@@ -7,7 +7,7 @@ import numpy as np
 import xarray as xr
 
 from presto.dataset import filter_remove_noncrops
-from presto.eval import MIN_SAMPLES_PER_CLASS, WorldCerealEval
+from presto.eval import MIN_SAMPLES_PER_CLASS, Hyperparams, WorldCerealEval
 from presto.presto import Presto
 from presto.utils import config_dir, data_dir, device
 from tests.utils import read_test_file
@@ -29,7 +29,11 @@ class TestEval(TestCase):
             balance=True,
         )
 
-        output, _, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
+        hyperparams = Hyperparams()
+        hyperparams.max_epochs = 1
+        output, _, _ = eval_task.finetuning_results(
+            model, ["CatBoostClassifier"], hyperparams=hyperparams
+        )
 
         self.assertTrue("PrestoFineTuningModel" in output["downstream_model_type"].unique())
         self.assertTrue("CatBoostClassifier" in output["downstream_model_type"].unique())
@@ -61,7 +65,11 @@ class TestEval(TestCase):
             balance=False,
         )
 
-        output, _, _ = eval_task.finetuning_results(model, ["CatBoostClassifier"])
+        hyperparams = Hyperparams()
+        hyperparams.max_epochs = 1
+        output, _, _ = eval_task.finetuning_results(
+            model, ["CatBoostClassifier"], hyperparams=hyperparams
+        )
 
         self.assertTrue("PrestoFineTuningModel" in output["downstream_model_type"].unique())
         self.assertTrue("CatBoostClassifier" in output["downstream_model_type"].unique())

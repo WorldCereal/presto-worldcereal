@@ -72,6 +72,7 @@ class WorldCerealEval:
         finetune_classes: str = "CROPTYPE0",
         downstream_classes: str = "CROPTYPE9",
         balance: bool = False,
+        augment: bool = False,
         train_masking: float = 0.0,
     ):
         self.seed = seed
@@ -151,6 +152,7 @@ class WorldCerealEval:
         self.balance = balance
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
         self.train_masking = train_masking
+        self.augment = augment
 
     @staticmethod
     def convert_to_onehot(
@@ -678,10 +680,8 @@ class WorldCerealEval:
         return partitioned_result_df
 
     def finetune(
-        self,
-        pretrained_model,
+        self, pretrained_model, hyperparams: Hyperparams = Hyperparams()
     ) -> PrestoFineTuningModel:
-        hyperparams = Hyperparams()
         model = self._construct_finetuning_model(pretrained_model)
 
         parameters = param_groups_lrd(model)
@@ -694,11 +694,10 @@ class WorldCerealEval:
 
         train_ds = self.ds_class(
             self.train_df,
-            # countries_to_remove=self.countries_to_remove,
-            # years_to_remove=self.years_to_remove,
             balance=self.balance,
             task_type=self.task_type,
             croptype_list=self.croptype_list,
+            augment=self.augment,
             mask_ratio=self.train_masking,
         )
 
@@ -707,6 +706,7 @@ class WorldCerealEval:
             self.val_df,
             countries_to_remove=self.countries_to_remove,
             years_to_remove=self.years_to_remove,
+            augment=False,  # don't augment the validation set
             task_type=self.task_type,
             croptype_list=self.croptype_list,
             mask_ratio=0.0,  # https://github.com/WorldCereal/presto-worldcereal/pull/102
@@ -876,6 +876,7 @@ class WorldCerealEval:
         self,
         pretrained_model,
         sklearn_model_modes: List[str],
+        hyperparams: Hyperparams = Hyperparams(),
     ) -> Tuple[pd.DataFrame, PrestoFineTuningModel, List]:
         for model_mode in sklearn_model_modes:
             assert model_mode in [
@@ -885,7 +886,7 @@ class WorldCerealEval:
                 "Hierarchical CatBoostClassifier",
             ]
 
-        finetuned_model = self.finetune(pretrained_model)
+        finetuned_model = self.finetune(pretrained_model, hyperparams=hyperparams)
         print("Finetuning done")
         results_df_ft = self.evaluate(finetuned_model, None, croptype_list=self.croptype_list)
         print("Finetuning head evaluation done")

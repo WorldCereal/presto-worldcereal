@@ -37,7 +37,9 @@ MaskedExample = namedtuple(
 )
 
 
-def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray) -> np.ndarray:
+def make_mask_no_dw(
+    strategy: str, mask_ratio: float, existing_mask: np.ndarray, num_timesteps: int = NUM_TIMESTEPS
+) -> np.ndarray:
     """
     Make a mask for a given strategy and percentage of masked values.
     Args:
@@ -48,7 +50,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
     mask = existing_mask.copy()
     srtm_mask = False
     num_tokens_to_mask = int(
-        ((NUM_TIMESTEPS * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio - sum(sum(mask))
+        ((num_timesteps * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio - sum(sum(mask))
     )
     assert num_tokens_to_mask > 0
 
@@ -72,7 +74,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
             np.random.shuffle(idx)
             idx = idx[:num_tokens_to_mask]
             all_tokens_mask[idx] = True
-            mask = all_tokens_mask.reshape((NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
+            mask = all_tokens_mask.reshape((num_timesteps, len(BANDS_GROUPS_IDX)))
         return mask
 
     # RANDOM BANDS
@@ -83,8 +85,8 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
     elif strategy == "group_bands":
         srtm_mask, num_tokens_to_mask = mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio)
         # next, we figure out how many tokens we can mask
-        num_band_groups_to_mask = int(num_tokens_to_mask / NUM_TIMESTEPS)
-        assert (num_tokens_to_mask - NUM_TIMESTEPS * num_band_groups_to_mask) >= 0
+        num_band_groups_to_mask = int(num_tokens_to_mask / num_timesteps)
+        assert (num_tokens_to_mask - num_timesteps * num_band_groups_to_mask) >= 0
         num_tokens_masked = 0
         # tuple because of mypy, which thinks lists can only hold one type
         band_groups: List[Any] = list(range(len(BANDS_GROUPS_IDX)))
@@ -113,7 +115,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
         if timesteps_to_mask > 0:
             max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
-            start_idx = randint(0, NUM_TIMESTEPS - timesteps_to_mask)
+            start_idx = randint(0, num_timesteps - timesteps_to_mask)
             num_tokens_to_mask -= int(
                 max_tokens_masked - sum(sum(mask[start_idx : start_idx + timesteps_to_mask]))
             )
@@ -130,6 +132,7 @@ def make_mask_no_dw(strategy: str, mask_ratio: float, existing_mask: np.ndarray)
 class MaskParamsNoDw:
     strategies: Tuple[str, ...] = ("NDVI",)
     ratio: float = 0.5
+    num_timesteps: int = NUM_TIMESTEPS
 
     def __post_init__(self):
         for strategy in self.strategies:
@@ -140,9 +143,14 @@ class MaskParamsNoDw:
                 "random_combinations",
             ]
 
-    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray):
+    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray, num_timesteps: int = NUM_TIMESTEPS):
         strategy = choice(self.strategies)
-        mask = make_mask_no_dw(strategy=strategy, mask_ratio=self.ratio, existing_mask=mask)
+        mask = make_mask_no_dw(
+            strategy=strategy,
+            mask_ratio=self.ratio,
+            existing_mask=mask,
+            num_timesteps=num_timesteps,
+        )
         x = eo_data * ~mask
         y = np.zeros(eo_data.shape).astype(np.float32)
         y[mask] = eo_data[mask]

@@ -98,7 +98,8 @@ class TestPresto(TestCase):
         )
         self.assertEqual(output.shape, input.shape)
         self.assertEqual(
-            dw_outut.shape, (batch_size, NUM_TIMESTEPS, DynamicWorld2020_2021.class_amount)
+            dw_outut.shape,
+            (batch_size, NUM_TIMESTEPS, DynamicWorld2020_2021.class_amount),
         )
 
     def test_tokens_correctly_masked(self):
@@ -327,7 +328,15 @@ class TestPresto(TestCase):
         x = torch.cat(
             [torch.zeros((batch_size, 1, num_dimensions))]  # latlon token
             + [
-                torch.ones(((batch_size, num_timesteps if group != "SRTM" else 1, num_dimensions)))
+                torch.ones(
+                    (
+                        (
+                            batch_size,
+                            num_timesteps if group != "SRTM" else 1,
+                            num_dimensions,
+                        )
+                    )
+                )
                 * idx
                 for group, idx in model.band_group_to_idx.items()
             ],
@@ -483,7 +492,7 @@ class TestPrestoEndToEnd(TestCase):
             orig_indices = torch.cat(
                 (
                     torch.zeros(upd_mask.shape[0])[:, None].to(device).int(),
-                    orig_indices.to(device) + 1,
+                    orig_indices + 1,
                 ),
                 dim=1,
             )
@@ -572,7 +581,10 @@ class TestPrestoEndToEnd(TestCase):
 
         sum_0, count_0 = sum - (SRTM_INDEX + 1), count - 1  # first sample in batch
         # second sample has S2_RGB masked out in 1 timestep
-        sum_1, count_1 = sum_0 - 1 * (list(BANDS_GROUPS_IDX).index("S2_RGB") + 1), count_0 - 1
+        sum_1, count_1 = (
+            sum_0 - 1 * (list(BANDS_GROUPS_IDX).index("S2_RGB") + 1),
+            count_0 - 1,
+        )
 
         enc = self.forward_encoder(x, dynamic_world, mask, eval_task=True)
         self.assertTrue(torch.all(enc[0] == sum_0 / count_0))

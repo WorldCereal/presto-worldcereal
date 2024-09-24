@@ -1,9 +1,11 @@
 # presto_pretrain_finetune, but in a notebook
 import argparse
+import gc
 import json
 import logging
 import os.path
 import pickle
+from glob import glob
 from pathlib import Path
 from typing import Optional, cast
 
@@ -11,7 +13,9 @@ import pandas as pd
 import requests
 import torch
 import xarray as xr
+from tqdm.auto import tqdm
 
+from presto.dataops import NODATAVALUE
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
@@ -23,6 +27,7 @@ from presto.utils import (
     device,
     initialize_logging,
     plot_spatial,
+    process_parquet,
     seed_everything,
     timestamp_dirname,
 )
@@ -161,8 +166,18 @@ model_modes = [
     # "Hierarchical CatBoostClassifier",
 ]
 
-logger.info("Loading data")
-df = pd.read_parquet(data_dir / parquet_file)
+logger.info("Reading dataset")
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))[:10]
+df_list = []
+for f in tqdm(files):
+    _data = pd.read_parquet(f, engine="fastparquet")
+    _data_pivot = process_parquet(_data)
+    _data_pivot.reset_index(inplace=True)
+    df_list.append(_data_pivot)
+df = pd.concat(df_list)
+df = df.fillna(NODATAVALUE)
+del df_list
+gc.collect()
 
 val_samples_file = f"{task_type}_{test_type}_generalization_test_split_samples.csv"
 
