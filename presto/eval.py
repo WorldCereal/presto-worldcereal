@@ -44,7 +44,7 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
-    max_epochs: int = 100
+    max_epochs: int = 3
     batch_size: int = 256
     patience: int = 20
     num_workers: int = 8
@@ -74,6 +74,7 @@ class WorldCerealEval:
         balance: bool = False,
         augment: bool = False,
         train_masking: float = 0.0,
+        use_valid_month: bool = True,
     ):
         self.seed = seed
         self.task_type = task_type
@@ -153,6 +154,7 @@ class WorldCerealEval:
         self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
         self.train_masking = train_masking
         self.augment = augment
+        self.use_valid_month = use_valid_month
 
     @staticmethod
     def convert_to_onehot(
@@ -211,20 +213,38 @@ class WorldCerealEval:
                 if isinstance(y, list) and len(y) == 2:
                     y = np.moveaxis(np.array(y), -1, 0)
                 target_list.append(y)
-                with torch.no_grad():
-                    encodings = (
-                        pretrained_model.encoder(
-                            x_f,
-                            dynamic_world=dw_f.long(),
-                            mask=variable_mask_f,
-                            latlons=latlons_f,
-                            month=month_f,
-                            valid_month=valid_month_f,
+                
+                if self.use_valid_month:
+                    with torch.no_grad():
+                        encodings = (
+                            pretrained_model.encoder(
+                                x_f,
+                                dynamic_world=dw_f.long(),
+                                mask=variable_mask_f,
+                                latlons=latlons_f,
+                                month=month_f,
+                                valid_month=valid_month_f,
+                            )
+                            .cpu()
+                            .numpy()
                         )
-                        .cpu()
-                        .numpy()
-                    )
-                    encoding_list.append(encodings)
+                        encoding_list.append(encodings)
+                else:
+                    with torch.no_grad():
+                        encodings = (
+                            pretrained_model.encoder(
+                                x_f,
+                                dynamic_world=dw_f.long(),
+                                mask=variable_mask_f,
+                                latlons=latlons_f,
+                                month=month_f,
+                            )
+                            .cpu()
+                            .numpy()
+                        )
+                        encoding_list.append(encodings)
+
+
             encodings_np = np.concatenate(encoding_list)
             targets = np.concatenate(target_list)
             if len(targets.shape) == 2 and targets.shape[1] == 1:
@@ -294,7 +314,7 @@ class WorldCerealEval:
                     l2_leaf_reg = 30
 
                 downstream_model = CatBoostClassifier(
-                    iterations=8000,
+                    iterations=100,
                     depth=8,
                     learning_rate=learning_rate,
                     early_stopping_rounds=50,
@@ -355,16 +375,15 @@ class WorldCerealEval:
         finetuned_model: Union[PrestoFineTuningModel, SklearnStyleModel],
         pretrained_model: Optional[PrestoFineTuningModel] = None,
         task_type: str = "cropland",
+        use_valid_month: bool = True,
     ) -> Tuple:
-
         test_preds, test_probs, targets = [], [], []
-
         for b in dl:
-            try:
-                x, y, dw, latlons, month, valid_month, variable_mask = b
-                x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
-                    t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
-                ]
+            x, y, dw, latlons, month, valid_month, variable_mask = b
+            x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+                t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
+            ]
+            if use_valid_month:
                 input_d = {
                     "x": x_f,
                     "dynamic_world": dw_f.long(),
@@ -373,11 +392,7 @@ class WorldCerealEval:
                     "month": month_f,
                     "valid_month": valid_month_f,
                 }
-            except ValueError:
-                x, y, dw, latlons, month, variable_mask = b
-                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
-                ]
+            else:
                 input_d = {
                     "x": x_f,
                     "dynamic_world": dw_f.long(),
@@ -385,6 +400,34 @@ class WorldCerealEval:
                     "mask": variable_mask_f,
                     "month": month_f,
                 }
+
+            # try:
+            #     x, y, dw, latlons, month, valid_month, variable_mask = b
+            #     x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+            #         t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
+            #     ]
+            #     input_d = {
+            #         "x": x_f,
+            #         "dynamic_world": dw_f.long(),
+            #         "latlons": latlons_f,
+            #         "mask": variable_mask_f,
+            #         "month": month_f,
+            #         "valid_month": valid_month_f,
+            #     }
+            # except ValueError:
+            #     x, y, dw, latlons, month, variable_mask = b
+            #     x_f, dw_f, latlons_f, month_f, variable_mask_f = [
+            #         t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            #     ]
+            #     input_d = {
+            #         "x": x_f,
+            #         "dynamic_world": dw_f.long(),
+            #         "latlons": latlons_f,
+            #         "mask": variable_mask_f,
+            #         "month": month_f,
+            #     }
+
+
             if isinstance(y, list) and len(y) == 2:
                 y = np.moveaxis(np.array(y), -1, 0)
             targets.append(y)
@@ -453,6 +496,7 @@ class WorldCerealEval:
                 x_coord,
                 y_coord,
             ) = ds[i]
+
             dl = DataLoader(
                 TensorDataset(
                     torch.from_numpy(eo).float(),
@@ -467,7 +511,7 @@ class WorldCerealEval:
                 shuffle=False,
             )
             test_preds_np, test_probs_np, _ = self._inference_for_dl(
-                dl, finetuned_model, pretrained_model, task_type=self.task_type
+                dl, finetuned_model, pretrained_model, task_type=self.task_type, use_valid_month=self.use_valid_month
             )
             test_preds_str = test_preds_np.copy()
 
@@ -507,8 +551,11 @@ class WorldCerealEval:
             b3 = eo[:, middle_timestep, NORMED_BANDS.index("B3")]
             b4 = eo[:, middle_timestep, NORMED_BANDS.index("B4")]
 
+            
             if self.task_type == "cropland":
                 da = ds.combine_predictions(
+                    x_coord,
+                    y_coord,
                     test_preds_np,
                     test_preds_np,
                     test_preds_np,
@@ -517,8 +564,6 @@ class WorldCerealEval:
                     b2,
                     b3,
                     b4,
-                    x_coord,
-                    y_coord,
                 )
             if self.task_type == "croptype":
                 da = ds.combine_predictions(
@@ -568,7 +613,7 @@ class WorldCerealEval:
         assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
 
         test_preds_np, test_probs_np, target_np = self._inference_for_dl(
-            dl, finetuned_model, pretrained_model, task_type=self.task_type
+            dl, finetuned_model, pretrained_model, task_type=self.task_type, use_valid_month=self.use_valid_month
         )
         if self.task_type == "cropland":
             test_preds_np = test_preds_np >= self.threshold
@@ -755,13 +800,11 @@ class WorldCerealEval:
             for x, y, dw, latlons, month, valid_month, variable_mask in tqdm(
                 train_dl, desc="Training", leave=False
             ):
-                # print(f"month shape during trn: {month.shape}")
-                # print(f"valid_month shape during trn: {valid_month.shape}")
                 x, y, dw, latlons, month, valid_month, variable_mask = [
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
 
-                if model.encoder.valid_month_as_token:
+                if self.use_valid_month:
                     input_d = {
                         "x": x,
                         "dynamic_world": dw.long(),
@@ -795,7 +838,7 @@ class WorldCerealEval:
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
 
-                if model.encoder.valid_month_as_token:
+                if self.use_valid_month:
                     input_d = {
                         "x": x,
                         "dynamic_world": dw.long(),
