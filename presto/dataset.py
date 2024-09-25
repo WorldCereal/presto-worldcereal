@@ -435,6 +435,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         super().__init__(dataframe)
         if balance:
             if self.task_type == "cropland":
+                logger.info("Balancing is enabled. Underrepresented class will be upsampled.")
                 neg_indices, pos_indices = [], []
                 for loc_idx, (_, row) in enumerate(self.df.iterrows()):
                     target = self.target_crop(
@@ -460,6 +461,10 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 # optimal_class_size = self.df["balancing_class"].value_counts().max()
                 optimal_class_size = 100
                 balancing_coeff = 1.5
+
+                logger.info(f"Balancing is enabled. Underrepresented classes will be randomly \
+upsampled until they reach size {optimal_class_size}, but no more than {balancing_coeff} \
+times of the initial class size.")
 
                 balanced_inds = []
                 for tclass in classes_lst:
