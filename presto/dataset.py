@@ -14,15 +14,8 @@ from einops import rearrange
 from pyproj import CRS, Transformer
 from torch.utils.data import Dataset
 
-from .dataops import (
-    BANDS,
-    BANDS_GROUPS_IDX,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    S1_S2_ERA5_SRTM,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, BANDS_GROUPS_IDX, MIN_EDGE_BUFFER, NODATAVALUE,
+                      NORMED_BANDS, S1_S2_ERA5_SRTM, DynamicWorld2020_2021)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, load_world_df
 
@@ -164,6 +157,7 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
         # an assumption we make here is that all timesteps for a token
         # have the same masking
         mask = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
+
         for df_val, presto_val in cls.BAND_MAPPING.items():
             values = np.array([float(row_d[df_val.format(t)]) for t in timestep_positions])
             # this occurs for the DEM values in one point in Fiji
@@ -181,6 +175,7 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
                 values[idx_valid] = values[idx_valid] / 100
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             eo_data[:, BANDS.index(presto_val)] = values * idx_valid
+
         for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
             # this occurs for the DEM values in one point in Fiji
             values = np.nan_to_num(row_d[df_val], nan=NODATAVALUE)
@@ -425,7 +420,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         self.return_hierarchical_labels = return_hierarchical_labels
         self.augment = augment
         if augment:
-            logger.info("Augmentation is enabled. The valid_date position will be shifted.")
+            logger.info("Augmentation is enabled. The horizontal jittering of the selected window will be performed.")
         self.mask_ratio = mask_ratio
         self.mask_params = MaskParamsNoDw(
             (
@@ -528,16 +523,19 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         eo, mask_per_token, latlon, month, valid_month = self.row_to_arrays(
             row, self.task_type, self.croptype_list
         )
+
         if self.mask_ratio > 0:
-            mask_per_token, eo, _, _ = self.mask_params.mask_data(eo, mask_per_token)
-        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+            mask_per_variable, normed_eo, _, _ = self.mask_params.mask_data(self.normalize_and_mask(eo), mask_per_token)
+        else:
+            normed_eo = self.normalize_and_mask(eo)
+            mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
 
         target = self.target_crop(
             row, self.task_type, self.croptype_list, self.return_hierarchical_labels
         )
 
         return (
-            self.normalize_and_mask(eo),
+            normed_eo,
             target,
             np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
             latlon,
