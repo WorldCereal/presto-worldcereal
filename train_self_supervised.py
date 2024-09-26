@@ -1,8 +1,9 @@
 # presto_pretrain_finetune, but in a notebook
 import argparse
+import gc
 import json
 import logging
-
+from glob import glob
 # import os.path
 # import pickle
 from pathlib import Path
@@ -12,32 +13,19 @@ import pandas as pd
 import requests
 import torch
 import torch.nn as nn
-from torch import optim
-from torch.utils.data import DataLoader
-from tqdm.auto import tqdm
-
 # import xarray as xr
-from presto.dataops import BANDS_GROUPS_IDX
+from presto.dataops import BANDS_GROUPS_IDX, NODATAVALUE
 from presto.dataset import WorldCerealBase, WorldCerealMaskedDataset
 from presto.eval import WorldCerealEval
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
-from presto.presto import (
-    LossWrapper,
-    Presto,
-    adjust_learning_rate,
-    extend_to_dekadal,
-    param_groups_weight_decay,
-)
-from presto.utils import (  # plot_spatial,
-    DEFAULT_SEED,
-    config_dir,
-    data_dir,
-    default_model_path,
-    device,
-    initialize_logging,
-    seed_everything,
-    timestamp_dirname,
-)
+from presto.presto import (LossWrapper, Presto, adjust_learning_rate,
+                           extend_to_dekadal, param_groups_weight_decay)
+from presto.utils import (DEFAULT_SEED, config_dir, data_dir,  # plot_spatial,
+                          default_model_path, device, initialize_logging,
+                          process_parquet, seed_everything, timestamp_dirname)
+from torch import optim
+from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 logger = logging.getLogger("__main__")
 
@@ -56,20 +44,27 @@ argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
 argparser.add_argument("--num_workers", type=int, default=64)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
-argparser.add_argument(
-    "--parquet_file",
-    type=str,
-    default="rawts-monthly_calval.parquet",
-    choices=["rawts-monthly_calval.parquet", "rawts-10d_calval.parquet"],
-)
+
 argparser.add_argument("--n_epochs", type=int, default=20)
 argparser.add_argument("--max_learning_rate", type=float, default=0.0001)
 argparser.add_argument("--min_learning_rate", type=float, default=0.0)
-argparser.add_argument("--finetune_train_masking", type=float, default=0.0)
 argparser.add_argument("--warmup_epochs", type=int, default=2)
 argparser.add_argument("--weight_decay", type=float, default=0.05)
 argparser.add_argument("--batch_size", type=int, default=2048)
 argparser.add_argument("--val_per_n_steps", type=int, default=-1, help="If -1, val every epoch")
+
+argparser.add_argument(
+    "--mask_strategies",
+    type=str,
+    default=[
+        "group_bands",
+        "random_timesteps",
+        "chunk_timesteps",
+        "random_combinations",
+    ],
+    nargs="+",
+    help="`all` will use all available masking strategies (including single bands)",
+)
 argparser.add_argument("--mask_ratio", type=float, default=0.75)
 argparser.add_argument(
     "--test_type",
@@ -105,7 +100,7 @@ if (len(mask_strategies) == 1) and (mask_strategies[0] == "all"):
     mask_strategies = MASK_STRATEGIES
 mask_ratio: float = args["mask_ratio"]
 
-presto_model_description: str = args["presto_model_description"]
+# presto_model_description: str = args["presto_model_description"]
 test_type: str = args["test_type"]
 assert test_type in ["random", "spatial", "temporal", "seasonal"]
 
@@ -128,7 +123,9 @@ model_logging_dir.mkdir(exist_ok=True, parents=True)
 initialize_logging(model_logging_dir)
 logger.info("Using output dir: %s" % model_logging_dir)
 
-parquet_file: str = args["parquet_file"]
+# parquet_file: str = args["parquet_file"]
+parquet_file = "/home/vito/butskoc/presto-worldcereal/data/long_parquet/\
+worldcereal_training_data.parquet"
 train_only_samples_file: str = args["train_only_samples_file"]
 
 dekadal = False
@@ -137,15 +134,23 @@ if "10d" in parquet_file:
     dekadal = True
     compositing_window = "10D"
 
-valid_month_as_token = False
-
 path_to_config = config_dir / "default.json"
 with open(path_to_config) as file:
     model_kwargs = json.load(file)
 
 
 logger.info("Loading data")
-df = pd.read_parquet(data_dir / parquet_file)
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))[10:20]
+df_list = []
+for f in tqdm(files):
+    _data = pd.read_parquet(f, engine="fastparquet")
+    _data_pivot = process_parquet(_data)
+    _data_pivot.reset_index(inplace=True)
+    df_list.append(_data_pivot)
+df = pd.concat(df_list)
+df = df.fillna(NODATAVALUE)
+del df_list
+gc.collect()
 
 val_samples_file = f"cropland_{test_type}_generalization_test_split_samples.csv"
 
@@ -154,26 +159,25 @@ val_samples_df = pd.read_csv(data_dir / "test_splits" / val_samples_file)
 
 train_df, val_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
 
-
 # Load the mask parameters
 mask_params = MaskParamsNoDw(mask_strategies, mask_ratio, num_timesteps=36 if dekadal else 12)
 masked_ds = WorldCerealMaskedDataset
 
 train_dataloader = DataLoader(
-    masked_ds(train_df, mask_params=mask_params),
+    masked_ds(train_df, mask_params=mask_params, is_ssl=True),
     batch_size=batch_size,
     shuffle=True,
     num_workers=num_workers,
 )
 val_dataloader = DataLoader(
-    masked_ds(val_df, mask_params=mask_params),
+    masked_ds(
+        val_df, 
+        mask_params=mask_params,
+        is_ssl=True
+        ),
     batch_size=batch_size,
     shuffle=False,
     num_workers=num_workers,
-)
-validation_task = WorldCerealEval(
-    train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
-    test_data=val_df.sample(1000, random_state=DEFAULT_SEED),
 )
 
 
@@ -182,18 +186,8 @@ if val_per_n_steps == -1:
 
 logger.info("Setting up model")
 if warm_start:
-
-    warm_start_model_name = "presto-pt"
-    warm_start_model_path = f"""
-    https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/{warm_start_model_name}_{compositing_window}.pt
-    """
-
-    if requests.get(warm_start_model_path).status_code >= 400:
-        logger.error(f"No url for {warm_start_model_name} available")
-
     model = Presto.load_pretrained(
-        model_path=warm_start_model_path,
-        from_url=True,
+        model_path=default_model_path,
         dekadal=dekadal,
         valid_month_as_token=False,
         strict=False,
@@ -244,12 +238,12 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
         train_size = 0
         model.train()
         for epoch_step, b in enumerate(tqdm(train_dataloader, desc="Train", leave=False)):
-            mask, x, y, start_month, valid_month = (
+            mask, x, y, start_month = (
                 b[0].to(device),
                 b[2].to(device),
                 b[3].to(device),
                 b[6].to(device),
-                b[10].to(device),
+                # b[10].to(device),
             )
             dw_mask, x_dw, y_dw = b[1].to(device), b[4].to(device).long(), b[5].to(device).long()
             latlons, real_mask = b[7].to(device), b[9].to(device)
@@ -270,7 +264,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 dynamic_world=x_dw,
                 latlons=latlons,
                 month=start_month,
-                valid_month=valid_month,
+                # valid_month=valid_month,
             )
             # set all SRTM timesteps except the first one to unmasked, so that
             # they will get ignored by the loss function even if the SRTM
@@ -297,13 +291,13 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
 
                 with torch.no_grad():
                     for b in tqdm(val_dataloader, desc="Validate"):
-                        mask, x, y, start_month, real_mask, valid_month = (
+                        mask, x, y, start_month, real_mask = (
                             b[0].to(device),
                             b[2].to(device),
                             b[3].to(device),
                             b[6].to(device),
                             b[9].to(device),
-                            b[10].to(device),
+                            # b[10].to(device),
                         )
                         dw_mask, x_dw = b[1].to(device), b[4].to(device).long()
                         y_dw, latlons = b[5].to(device).long(), b[7].to(device)
@@ -314,7 +308,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                             dynamic_world=x_dw,
                             latlons=latlons,
                             month=start_month,
-                            valid_month=valid_month,
+                            # valid_month=valid_month,
                         )
                         # set all SRTM timesteps except the first one to unmasked, so that
                         # they will get ignored by the loss function even if the SRTM
@@ -355,7 +349,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                     model_path = model_logging_dir / Path("models")
                     model_path.mkdir(exist_ok=True, parents=True)
 
-                    best_model_path = model_path / f"{model_name}{epoch}.pt"
+                    best_model_path = model_path / f"{model_name}_epoch{epoch}.pt"
                     logger.info(f"Saving best model to: {best_model_path}")
                     torch.save(model.state_dict(), best_model_path)
 

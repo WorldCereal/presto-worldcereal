@@ -335,12 +335,13 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         self.mask_params = mask_params
         self.task_type = task_type
         self.croptype_list = croptype_list
+        self.is_ssl = is_ssl
 
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, real_mask_per_token, latlon, month, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list, is_ssl
+            row, self.task_type, self.croptype_list, self.is_ssl
         )
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
