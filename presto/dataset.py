@@ -62,7 +62,7 @@ class WorldCerealBase(Dataset):
         available_timesteps = int(row_d["available_timesteps"])
     
         if is_ssl: 
-            valid_position = np.random.choice(range(MIN_EDGE_BUFFER,(available_timesteps-MIN_EDGE_BUFFER)), 1)
+            valid_position = int(np.random.choice(range(cls.NUM_TIMESTEPS // 2, (available_timesteps-cls.NUM_TIMESTEPS // 2)), 1))
             center_point = valid_position
         else:
             valid_position = int(row_d["valid_position"])
@@ -466,7 +466,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 classes_lst = self.df["balancing_class"].unique()
 
                 # optimal_class_size = self.df["balancing_class"].value_counts().max()
-                optimal_class_size = 100
+                optimal_class_size = 10000
                 balancing_coeff = 1.5
 
                 logger.info(f"Balancing is enabled. Underrepresented classes will be randomly \
