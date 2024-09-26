@@ -16,19 +16,9 @@ import torch
 import xarray as xr
 from matplotlib import pyplot as plt
 
-from .dataops import (
-    BANDS,
-    ERA5_BANDS,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    REMOVED_BANDS,
-    S1_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_BANDS,
-    SRTM_BANDS,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
+                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
+                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
 
 # plt = None
 
@@ -585,7 +575,7 @@ def plot_spatial(
         cmap = mcolors.ListedColormap(colors)
         cmap.set_bad(color='whitesmoke')
 
-        plt.imshow(spatial_preds.prediction_0, cmap=cmap)
+        plt.imshow(prediction_0, cmap=cmap)
         patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
         plt.legend(
             handles=patches,
