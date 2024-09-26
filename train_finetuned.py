@@ -49,20 +49,7 @@ argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
 argparser.add_argument("--num_workers", type=int, default=64)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
-argparser.add_argument(
-    "--parquet_file",
-    type=str,
-    default="rawts-monthly_calval.parquet",
-    choices=["rawts-monthly_calval.parquet", "rawts-10d_calval.parquet"],
-)
-argparser.add_argument("--n_epochs", type=int, default=20)
-argparser.add_argument("--max_learning_rate", type=float, default=0.0001)
-argparser.add_argument("--min_learning_rate", type=float, default=0.0)
 argparser.add_argument("--finetune_train_masking", type=float, default=0.0)
-argparser.add_argument("--warmup_epochs", type=int, default=2)
-argparser.add_argument("--weight_decay", type=float, default=0.05)
-argparser.add_argument("--batch_size", type=int, default=4096)
-argparser.add_argument("--val_per_n_steps", type=int, default=-1, help="If -1, val every epoch")
 argparser.add_argument(
     "--presto_model_description",
     type=str,
@@ -85,7 +72,7 @@ argparser.add_argument(
     choices=["random", "spatial", "temporal", "seasonal"],
 )
 argparser.add_argument("--time_token", type=str, default="month", choices=["month", "none"])
-
+argparser.add_argument("--augment", dest="augment", action="store_true")
 argparser.add_argument(
     "--finetune_classes",
     type=str,
@@ -99,11 +86,11 @@ argparser.add_argument(
     choices=["CROPTYPE9", "CROPTYPE19"],
 )
 argparser.add_argument("--balance", dest="balance", default=False, action="store_true")
-
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
+argparser.set_defaults(augment=False)
 args = argparser.parse_args().__dict__
 
 model_name = args["model_name"]
@@ -121,6 +108,7 @@ downstream_classes: str = args["downstream_classes"]
 test_type: str = args["test_type"]
 time_token: str = args["time_token"]
 balance: bool = args["balance"]
+augment: bool = args["augment"]
 assert test_type in ["random", "spatial", "temporal", "seasonal"]
 
 seed_everything(seed)
@@ -142,7 +130,9 @@ model_logging_dir.mkdir(exist_ok=True, parents=True)
 initialize_logging(model_logging_dir)
 logger.info("Using output dir: %s" % model_logging_dir)
 
-parquet_file: str = args["parquet_file"]
+# parquet_file: str = args["parquet_file"]
+parquet_file = "/home/vito/butskoc/presto-worldcereal/data/long_parquet/\
+worldcereal_training_data.parquet"
 train_only_samples_file: str = args["train_only_samples_file"]
 
 dekadal = False
@@ -167,7 +157,7 @@ model_modes = [
 ]
 
 logger.info("Reading dataset")
-files = sorted(glob(f"{parquet_file}/**/*.parquet"))[:10]
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))[10:20]
 df_list = []
 for f in tqdm(files):
     _data = pd.read_parquet(f, engine="fastparquet")
@@ -200,8 +190,10 @@ full_eval = WorldCerealEval(
     downstream_classes=downstream_classes,
     dekadal=dekadal,
     balance=balance,
+    augment=augment,
     spatial_inference_savedir=model_logging_dir,
     train_masking=args["finetune_train_masking"],
+    use_valid_month=valid_month_as_token,
 )
 
 model_path = output_parent_dir / "data"
@@ -276,7 +268,7 @@ else:
     results_df_combined, finetuned_model, sklearn_models_trained = full_eval.finetuning_results(
         model, sklearn_model_modes=model_modes
     )
-    torch.save(finetuned_model.state_dict(), finetuned_model_path)
+    # torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 results_df_combined["presto_model_description"] = presto_model_description
 results_df_combined["compositing_window"] = compositing_window
