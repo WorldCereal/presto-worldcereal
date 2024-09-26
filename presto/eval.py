@@ -18,20 +18,13 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    CLASS_MAPPINGS,
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
+from .dataset import (CLASS_MAPPINGS, NORMED_BANDS,
+                      WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (
-    Presto,
-    PrestoFineTuningModel,
-    get_sinusoid_encoding_table,
-    param_groups_lrd,
-)
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device, prep_dataframe
 
 MIN_SAMPLES_PER_CLASS = 3
@@ -155,6 +148,8 @@ class WorldCerealEval:
         self.train_masking = train_masking
         self.augment = augment
         self.use_valid_month = use_valid_month
+        logger.info(f"Usage of time token is {'enabled' if use_valid_month else 'disabled'}.")
+        logger.info(f"Mask ratio is {'enabled' if train_masking>0 else 'disabled'}, {train_masking}.")
 
     @staticmethod
     def convert_to_onehot(
