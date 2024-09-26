@@ -178,4 +178,32 @@ class TestDataset(TestCase):
         )
         class_counts_df["imbalanced_counts"] = class_counts_df.index.map(class_counts_imbalanced)
 
-        self.assertTrue((class_counts_df["balanced_counts"] >= class_counts_df["imbalanced_counts"]).all()) 
+        self.assertTrue((class_counts_df["balanced_counts"] >= class_counts_df["imbalanced_counts"]).all())
+
+    def test_augment_temporal_jittering(self):
+        row_d = {"available_timesteps": 1000, "valid_position": 20}
+
+        valid_position = int(row_d["valid_position"])
+
+        timestep_positions_base = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=False, is_ssl=False
+        )
+        timestep_positions_augment1 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=True, is_ssl=False
+        )
+        timestep_positions_augment2 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=True, is_ssl=False
+        )
+
+        timestep_positions_ssl1 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=False, is_ssl=True
+        )
+        timestep_positions_ssl2 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=False, is_ssl=True
+        )
+        
+        self.assertTrue(timestep_positions_base[0] == (valid_position - WorldCerealBase.NUM_TIMESTEPS // 2)) 
+        self.assertTrue(timestep_positions_base[-1] == (valid_position + (WorldCerealBase.NUM_TIMESTEPS // 2) - 1))
+        self.assertTrue(timestep_positions_augment1[0] != timestep_positions_augment2[0])
+        self.assertTrue(timestep_positions_ssl1[0] != timestep_positions_ssl2[0])
+        self.asserTrue((valid_position not in timestep_positions_ssl1) or (valid_position not in timestep_positions_ssl2))
