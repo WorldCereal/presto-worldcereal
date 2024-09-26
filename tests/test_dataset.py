@@ -3,13 +3,11 @@ from unittest import TestCase
 
 import numpy as np
 import torch
-
 from presto.dataops import NODATAVALUE, NUM_ORG_BANDS, NUM_TIMESTEPS
-from presto.dataset import (
-    WorldCerealInferenceDataset,
-    WorldCerealLabelledDataset,
-    WorldCerealMaskedDataset,
-)
+from presto.dataset import (WorldCerealInferenceDataset,
+                            WorldCerealLabelledDataset,
+                            WorldCerealMaskedDataset, filter_remove_noncrops)
+from presto.eval import Hyperparams, WorldCerealEval
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
 from presto.utils import config_dir, device
@@ -72,7 +70,7 @@ class TestDataset(TestCase):
                 latlons=torch.from_numpy(latlons).float()[:num_vals],
                 mask=torch.from_numpy(mask).int()[:num_vals],
                 month=torch.from_numpy(months).long()[:num_vals],
-                # valid_month=torch.from_numpy(valid_months).long()[:num_vals],
+                valid_month=torch.from_numpy(valid_months).long()[:num_vals],
             )
 
     def test_combine_predictions(self):
@@ -142,3 +140,42 @@ class TestDataset(TestCase):
         input_list = [1] * 10
         output_list = WorldCerealLabelledDataset.multiply_list_length_by_float(input_list, 2.5)
         self.assertEqual(len(output_list), 25)
+
+
+    def test_balancing_croptype(self):
+        finetune_classes = "CROPTYPE0"
+        downstream_classes = "CROPTYPE9"
+        test_data = read_test_file(finetune_classes, downstream_classes)
+        test_data = filter_remove_noncrops(test_data)
+
+        balance_indices = eval_task_balance.ds_class(
+            eval_task_balance.train_df,
+            task_type=eval_task_balance.task_type,
+            croptype_list=eval_task_balance.croptype_list,
+            balance=eval_task_balance.balance,
+            augment=eval_task_balance.augment,
+            mask_ratio=eval_task_balance.train_masking,
+        ).indices
+        class_counts_balanced = (
+            eval_task_balance.train_df.finetune_class.iloc[balance_indices]
+            .value_counts()
+            .sort_index()
+        )
+        class_counts_df = pd.DataFrame(class_counts_balanced)
+        class_counts_df.columns = ["balanced_counts"]
+
+        imbalance_indices = eval_task_imbalance.ds_class(
+            eval_task_imbalance.train_df,
+            task_type=eval_task_imbalance.task_type,
+            croptype_list=eval_task_imbalance.croptype_list,
+            balance=eval_task_imbalance.balance,
+            augment=eval_task_imbalance.augment,
+            mask_ratio=eval_task_imbalance.train_masking,
+        ).indices
+        class_counts_imbalanced = (
+            eval_task_imbalance.train_df.finetune_class.iloc[imbalance_indices]
+            .value_counts()
+        )
+        class_counts_df["imbalanced_counts"] = class_counts_df.index.map(class_counts_imbalanced)
+
+        self.assertTrue((class_counts_df["balanced_counts"] >= class_counts_df["imbalanced_counts"]).all()) 
