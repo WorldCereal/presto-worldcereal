@@ -58,36 +58,40 @@ class WorldCerealBase(Dataset):
         return self.df.shape[0]
 
     @classmethod
-    def get_timestep_positions(cls, row_d: Dict, augment: bool = False) -> List[int]:
+    def get_timestep_positions(cls, row_d: Dict, augment: bool = False, is_ssl: bool = False) -> List[int]:
         available_timesteps = int(row_d["available_timesteps"])
-        valid_position = int(row_d["valid_position"])
-
-        if not augment:
-            #  check if the valid position is too close to the start_date and force shifting it
-            if valid_position < cls.NUM_TIMESTEPS // 2:
-                center_point = cls.NUM_TIMESTEPS // 2
-            #  or too close to the end_date
-            elif valid_position > (available_timesteps - cls.NUM_TIMESTEPS // 2):
-                center_point = available_timesteps - cls.NUM_TIMESTEPS // 2
-            else:
-                # Center the timesteps around the valid position
-                center_point = valid_position
+    
+        if is_ssl: 
+            valid_position = np.random.choice(range(MIN_EDGE_BUFFER,(available_timesteps-MIN_EDGE_BUFFER)), 1)
+            center_point = valid_position
         else:
-            # Shift the center point but make sure the resulting range
-            # well includes the valid position
+            valid_position = int(row_d["valid_position"])
+            if not augment:
+                #  check if the valid position is too close to the start_date and force shifting it
+                if valid_position < cls.NUM_TIMESTEPS // 2:
+                    center_point = cls.NUM_TIMESTEPS // 2
+                #  or too close to the end_date
+                elif valid_position > (available_timesteps - cls.NUM_TIMESTEPS // 2):
+                    center_point = available_timesteps - cls.NUM_TIMESTEPS // 2
+                else:
+                    # Center the timesteps around the valid position
+                    center_point = valid_position
+            else:
+                # Shift the center point but make sure the resulting range
+                # well includes the valid position
 
-            min_center_point = max(
-                cls.NUM_TIMESTEPS // 2,
-                valid_position + MIN_EDGE_BUFFER - cls.NUM_TIMESTEPS // 2,
-            )
-            max_center_point = min(
-                available_timesteps - cls.NUM_TIMESTEPS // 2,
-                valid_position - MIN_EDGE_BUFFER + cls.NUM_TIMESTEPS // 2,
-            )
+                min_center_point = max(
+                    cls.NUM_TIMESTEPS // 2,
+                    valid_position + MIN_EDGE_BUFFER - cls.NUM_TIMESTEPS // 2,
+                )
+                max_center_point = min(
+                    available_timesteps - cls.NUM_TIMESTEPS // 2,
+                    valid_position - MIN_EDGE_BUFFER + cls.NUM_TIMESTEPS // 2,
+                )
 
-            center_point = np.random.randint(
-                min_center_point, max_center_point + 1
-            )  # max_center_point included
+                center_point = np.random.randint(
+                    min_center_point, max_center_point + 1
+                )  # max_center_point included
 
         last_timestep = min(available_timesteps, center_point + cls.NUM_TIMESTEPS // 2)
         first_timestep = max(0, last_timestep - cls.NUM_TIMESTEPS)
@@ -110,6 +114,7 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
         task_type: str = "cropland",
         croptype_list: List = [],
         augment: bool = False,
+        is_ssl: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
@@ -117,7 +122,7 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
 
-        timestep_positions = cls.get_timestep_positions(row_d, augment=augment)
+        timestep_positions = cls.get_timestep_positions(row_d, augment=augment, is_ssl=is_ssl)
 
         if cls.NUM_TIMESTEPS == 12:
             initial_start_date_position = pd.to_datetime(row_d["start_date"]).month
@@ -324,6 +329,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         mask_params: MaskParamsNoDw,
         task_type: str = "cropland",
         croptype_list: List = [],
+        is_ssl: bool = True
     ):
         super().__init__(dataframe)
         self.mask_params = mask_params
@@ -334,7 +340,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, real_mask_per_token, latlon, month, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list
+            row, self.task_type, self.croptype_list, is_ssl
         )
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
