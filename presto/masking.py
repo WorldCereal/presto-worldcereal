@@ -7,7 +7,6 @@ import numpy as np
 
 from .dataops import (
     BAND_EXPANSION,
-    BANDS,
     BANDS_GROUPS_IDX,
     NUM_TIMESTEPS,
     SRTM_INDEX,
@@ -63,7 +62,6 @@ def make_mask_no_dw(
     if num_tokens_to_mask <= 0:
         mask[:, SRTM_INDEX] = srtm_mask
         return np.repeat(mask, BAND_EXPANSION, axis=1)
-
 
     def mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio):
         should_flip = random() < mask_ratio

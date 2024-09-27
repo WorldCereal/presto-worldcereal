@@ -44,7 +44,7 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
-    max_epochs: int = 3
+    max_epochs: int = 100
     batch_size: int = 256
     patience: int = 20
     num_workers: int = 8
@@ -112,12 +112,12 @@ class WorldCerealEval:
                     self.num_outputs = len(train_classes)
 
                 # use classes obtained from train to trim val and test classes
-                self.val_df.loc[
-                    ~self.val_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
-                self.test_df.loc[
-                    ~self.test_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
+                self.val_df.loc[~self.val_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
+                self.test_df.loc[~self.test_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
 
             # create one-hot representation from obtained labels
             # one-hot is needed for finetuning,
@@ -156,7 +156,9 @@ class WorldCerealEval:
         self.augment = augment
         self.use_valid_month = use_valid_month
         logger.info(f"Usage of time token is {'enabled' if use_valid_month else 'disabled'}.")
-        logger.info(f"Mask ratio is {'enabled' if train_masking>0 else 'disabled'}, {train_masking}.")
+        logger.info(
+            f"Mask ratio is {'enabled' if train_masking>0 else 'disabled'}, {train_masking}."
+        )
 
     @staticmethod
     def convert_to_onehot(
@@ -215,7 +217,7 @@ class WorldCerealEval:
                 if isinstance(y, list) and len(y) == 2:
                     y = np.moveaxis(np.array(y), -1, 0)
                 target_list.append(y)
-                
+
                 if self.use_valid_month:
                     with torch.no_grad():
                         encodings = (
@@ -245,7 +247,6 @@ class WorldCerealEval:
                             .numpy()
                         )
                         encoding_list.append(encodings)
-
 
             encodings_np = np.concatenate(encoding_list)
             targets = np.concatenate(target_list)
@@ -316,7 +317,7 @@ class WorldCerealEval:
                     l2_leaf_reg = 30
 
                 downstream_model = CatBoostClassifier(
-                    iterations=100,
+                    iterations=8000,
                     depth=8,
                     learning_rate=learning_rate,
                     early_stopping_rounds=50,
@@ -429,7 +430,6 @@ class WorldCerealEval:
             #         "month": month_f,
             #     }
 
-
             if isinstance(y, list) and len(y) == 2:
                 y = np.moveaxis(np.array(y), -1, 0)
             targets.append(y)
@@ -513,7 +513,11 @@ class WorldCerealEval:
                 shuffle=False,
             )
             test_preds_np, test_probs_np, _ = self._inference_for_dl(
-                dl, finetuned_model, pretrained_model, task_type=self.task_type, use_valid_month=self.use_valid_month
+                dl,
+                finetuned_model,
+                pretrained_model,
+                task_type=self.task_type,
+                use_valid_month=self.use_valid_month,
             )
             test_preds_str = test_preds_np.copy()
 
@@ -553,7 +557,6 @@ class WorldCerealEval:
             b3 = eo[:, middle_timestep, NORMED_BANDS.index("B3")]
             b4 = eo[:, middle_timestep, NORMED_BANDS.index("B4")]
 
-            
             if self.task_type == "cropland":
                 da = ds.combine_predictions(
                     x_coord,
@@ -615,7 +618,11 @@ class WorldCerealEval:
         assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
 
         test_preds_np, test_probs_np, target_np = self._inference_for_dl(
-            dl, finetuned_model, pretrained_model, task_type=self.task_type, use_valid_month=self.use_valid_month
+            dl,
+            finetuned_model,
+            pretrained_model,
+            task_type=self.task_type,
+            use_valid_month=self.use_valid_month,
         )
         if self.task_type == "cropland":
             test_preds_np = test_preds_np >= self.threshold

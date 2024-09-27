@@ -243,7 +243,9 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         dummy_df = df[
             (df["sample_id"].isin(samples_to_add_ts_before_start)) & (df["timestamp_ind"] == 0)
         ].copy()
-        dummy_df["timestamp"] = dummy_df["timestamp"] - pd.DateOffset(months=n_ts_to_add)
+        dummy_df["timestamp"] = dummy_df["timestamp"] - pd.DateOffset(
+            months=n_ts_to_add
+        )  # type: ignore
         dummy_df[feature_columns] = NODATAVALUE
         df = pd.concat([df, dummy_df])
 
@@ -255,7 +257,9 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         dummy_df = df[
             (df["sample_id"].isin(samples_to_add_ts_after_end)) & (df["is_last_available_ts"])
         ].copy()
-        dummy_df["timestamp"] = dummy_df["timestamp"] + pd.DateOffset(months=n_ts_to_add)
+        dummy_df["timestamp"] = dummy_df["timestamp"] + pd.DateOffset(
+            months=n_ts_to_add
+        )  # type: ignore
         dummy_df[feature_columns] = NODATAVALUE
         df = pd.concat([df, dummy_df])
 
@@ -293,16 +297,16 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     df_pivot.columns = [
         f"{xx[0]}-ts{xx[1]}" if isinstance(xx[1], int) else xx[0]
         for xx in df_pivot.columns.to_flat_index()
-    ]
+    ]  # type: ignore
     df_pivot.columns = [
         f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns
-    ]
+    ]  # type: ignore
     df_pivot.columns = [
         f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns
-    ]
+    ]  # type: ignore
     df_pivot.columns = [
         f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
-    ]
+    ]  # type: ignore
 
     df_pivot["valid_position"] = (
         df_pivot["valid_date"].dt.year * 12 + df_pivot["valid_date"].dt.month
@@ -574,8 +578,10 @@ def plot_spatial(
 
     if task_type == "croptype":
         fig.add_subplot(2, 3, 4)
-        
-        pred0_ewoc_int = [int(xx) if not np.isnan(xx) else 1000000000 for xx in np.unique(pred0_ewoc)]
+
+        pred0_ewoc_int = [
+            int(xx) if not np.isnan(xx) else 1000000000 for xx in np.unique(pred0_ewoc)
+        ]
         values = [croptype_map[str(xx)] for xx in pred0_ewoc_int]
         colors = [colors_map[str(xx)] for xx in pred0_ewoc_int]
 
@@ -583,7 +589,7 @@ def plot_spatial(
         # colors = [colors_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
 
         cmap = mcolors.ListedColormap(colors)
-        cmap.set_bad(color='whitesmoke')
+        cmap.set_bad(color="whitesmoke")
 
         plt.imshow(prediction_0, cmap=cmap)
         patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]

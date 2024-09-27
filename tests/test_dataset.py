@@ -13,7 +13,7 @@ from presto.dataset import (
     WorldCerealMaskedDataset,
     filter_remove_noncrops,
 )
-from presto.eval import Hyperparams, WorldCerealEval
+from presto.eval import WorldCerealEval
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
 from presto.utils import config_dir, device
@@ -148,7 +148,6 @@ class TestDataset(TestCase):
         output_list = WorldCerealLabelledDataset.multiply_list_length_by_float(input_list, 2.5)
         self.assertEqual(len(output_list), 25)
 
-
     def test_balancing_croptype(self):
         finetune_classes = "CROPTYPE0"
         downstream_classes = "CROPTYPE9"
@@ -195,13 +194,14 @@ class TestDataset(TestCase):
             augment=eval_task_imbalance.augment,
             mask_ratio=eval_task_imbalance.train_masking,
         ).indices
-        class_counts_imbalanced = (
-            eval_task_imbalance.train_df.finetune_class.iloc[imbalance_indices]
-            .value_counts()
-        )
+        class_counts_imbalanced = eval_task_imbalance.train_df.finetune_class.iloc[
+            imbalance_indices
+        ].value_counts()
         class_counts_df["imbalanced_counts"] = class_counts_df.index.map(class_counts_imbalanced)
 
-        self.assertTrue((class_counts_df["balanced_counts"] >= class_counts_df["imbalanced_counts"]).all())
+        self.assertTrue(
+            (class_counts_df["balanced_counts"] >= class_counts_df["imbalanced_counts"]).all()
+        )
 
     def test_augment_temporal_jittering(self):
         row_d = {"available_timesteps": 1000, "valid_position": 20}
@@ -224,9 +224,17 @@ class TestDataset(TestCase):
         timestep_positions_ssl2 = WorldCerealLabelledDataset.get_timestep_positions(
             row_d, augment=False, is_ssl=True
         )
-        
-        self.assertTrue(timestep_positions_base[0] == (valid_position - WorldCerealBase.NUM_TIMESTEPS // 2)) 
-        self.assertTrue(timestep_positions_base[-1] == (valid_position + (WorldCerealBase.NUM_TIMESTEPS // 2) - 1))
+
+        self.assertTrue(
+            timestep_positions_base[0] == (valid_position - WorldCerealBase.NUM_TIMESTEPS // 2)
+        )
+        self.assertTrue(
+            timestep_positions_base[-1]
+            == (valid_position + (WorldCerealBase.NUM_TIMESTEPS // 2) - 1)
+        )
         self.assertTrue(timestep_positions_augment1[0] != timestep_positions_augment2[0])
         self.assertTrue(timestep_positions_ssl1[0] != timestep_positions_ssl2[0])
-        self.assertTrue((valid_position not in timestep_positions_ssl1) or (valid_position not in timestep_positions_ssl2))
+        self.assertTrue(
+            (valid_position not in timestep_positions_ssl1)
+            or (valid_position not in timestep_positions_ssl2)
+        )

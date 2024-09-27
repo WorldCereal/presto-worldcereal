@@ -64,8 +64,8 @@ class TestEval(TestCase):
             downstream_classes=downstream_classes,
             dekadal=False,
             balance=False,
-            augment = False,
-            train_masking = 0.0,
+            augment=False,
+            train_masking=0.0,
             use_valid_month=False,
         )
 
@@ -87,7 +87,6 @@ class TestEval(TestCase):
             ((output["support"] >= MIN_SAMPLES_PER_CLASS) & (output["f1-score"].isna())).sum(), 0
         )
 
-    
     def test_spatial_inference_croptype(
         self,
     ):

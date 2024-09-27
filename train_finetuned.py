@@ -1,4 +1,3 @@
-# presto_pretrain_finetune, but in a notebook
 import argparse
 import gc
 import json
@@ -11,7 +10,6 @@ from typing import Optional, cast
 
 import pandas as pd
 import requests
-import torch
 import xarray as xr
 from tqdm.auto import tqdm
 

@@ -1,17 +1,12 @@
-# presto_pretrain_finetune, but in a notebook
 import argparse
 import gc
 import json
 import logging
 from glob import glob
-
-# import os.path
-# import pickle
 from pathlib import Path
 from typing import Optional, Tuple, cast
 
 import pandas as pd
-import requests
 import torch
 import torch.nn as nn
 from torch import optim
@@ -21,7 +16,6 @@ from tqdm.auto import tqdm
 # import xarray as xr
 from presto.dataops import BANDS_GROUPS_IDX, NODATAVALUE
 from presto.dataset import WorldCerealBase, WorldCerealMaskedDataset
-from presto.eval import WorldCerealEval
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
     LossWrapper,
@@ -185,11 +179,7 @@ train_dataloader = DataLoader(
     num_workers=num_workers,
 )
 val_dataloader = DataLoader(
-    masked_ds(
-        val_df, 
-        mask_params=mask_params,
-        is_ssl=True
-        ),
+    masked_ds(val_df, mask_params=mask_params, is_ssl=True),
     batch_size=batch_size,
     shuffle=False,
     num_workers=num_workers,

@@ -65,11 +65,18 @@ class WorldCerealBase(Dataset):
         return self.df.shape[0]
 
     @classmethod
-    def get_timestep_positions(cls, row_d: Dict, augment: bool = False, is_ssl: bool = False) -> List[int]:
+    def get_timestep_positions(
+        cls, row_d: Dict, augment: bool = False, is_ssl: bool = False
+    ) -> List[int]:
         available_timesteps = int(row_d["available_timesteps"])
-    
-        if is_ssl: 
-            valid_position = int(np.random.choice(range(cls.NUM_TIMESTEPS // 2, (available_timesteps-cls.NUM_TIMESTEPS // 2)), 1))
+
+        if is_ssl:
+            valid_position = int(
+                np.random.choice(
+                    range(cls.NUM_TIMESTEPS // 2, (available_timesteps - cls.NUM_TIMESTEPS // 2)),
+                    1,
+                )
+            )
             center_point = valid_position
         else:
             valid_position = int(row_d["valid_position"])
@@ -336,7 +343,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         mask_params: MaskParamsNoDw,
         task_type: str = "cropland",
         croptype_list: List = [],
-        is_ssl: bool = True
+        is_ssl: bool = True,
     ):
         super().__init__(dataframe)
         self.mask_params = mask_params
@@ -434,7 +441,10 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         self.return_hierarchical_labels = return_hierarchical_labels
         self.augment = augment
         if augment:
-            logger.info("Augmentation is enabled. The horizontal jittering of the selected window will be performed.")
+            logger.info(
+                "Augmentation is enabled. \
+The horizontal jittering of the selected window will be performed."
+            )
         self.mask_ratio = mask_ratio
         self.mask_params = MaskParamsNoDw(
             (
@@ -476,9 +486,11 @@ class WorldCerealLabelledDataset(WorldCerealBase):
                 optimal_class_size = 10000
                 balancing_coeff = 1.5
 
-                logger.info(f"Balancing is enabled. Underrepresented classes will be randomly \
+                logger.info(
+                    f"Balancing is enabled. Underrepresented classes will be randomly \
 upsampled until they reach size {optimal_class_size}, but no more than {balancing_coeff} \
-times of the initial class size.")
+times of the initial class size."
+                )
 
                 balanced_inds = []
                 for tclass in classes_lst:
@@ -544,7 +556,9 @@ times of the initial class size.")
         )
 
         if self.mask_ratio > 0:
-            mask_per_variable, normed_eo, _, _ = self.mask_params.mask_data(self.normalize_and_mask(eo), mask_per_token)
+            mask_per_variable, normed_eo, _, _ = self.mask_params.mask_data(
+                self.normalize_and_mask(eo), mask_per_token
+            )
         else:
             normed_eo = self.normalize_and_mask(eo)
             mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
@@ -786,9 +800,7 @@ class WorldCerealInferenceDataset(Dataset):
         return inarr
 
     @classmethod
-    def nc_to_arrays(
-        cls, filepath: Path
-    ) -> Tuple[
+    def nc_to_arrays(cls, filepath: Path) -> Tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray,
@@ -915,4 +927,6 @@ class WorldCerealInferenceDataset(Dataset):
             all_preds_ewoc_code, "(y x) -> 1 y x", y=len(y_coord), x=len(x_coord)
         )
 
-        return xr.DataArray(coords=[bands, y_coord, x_coord], dims=["bands", "y", "x"], data=data)
+        return xr.DataArray(
+            coords=[bands, y_coord, x_coord], dims=["bands", "y", "x"], data=data  # type: ignore
+        )

@@ -486,9 +486,7 @@ class TestPrestoEndToEnd(TestCase):
             # append latlon tokens
             latlon_tokens = torch.ones((x.shape[0], 1, embedding_size)) * -1
             x = torch.cat((latlon_tokens, x), dim=1)
-            upd_mask = torch.cat(
-                (torch.zeros(x.shape[0])[:, None].to(device), upd_mask), dim=1
-            )
+            upd_mask = torch.cat((torch.zeros(x.shape[0])[:, None].to(device), upd_mask), dim=1)
             orig_indices = torch.cat(
                 (
                     torch.zeros(upd_mask.shape[0])[:, None].to(device).int(),
