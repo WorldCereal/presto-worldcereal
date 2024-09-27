@@ -7,14 +7,20 @@ from unittest import TestCase
 import numpy as np
 import torch
 from einops import repeat
-from presto.dataops import (BANDS_GROUPS_IDX, NUM_BANDS, NUM_ORG_BANDS,
-                            NUM_TIMESTEPS, S1_S2_ERA5_SRTM, SRTM_INDEX,
-                            DynamicWorld2020_2021)
-from presto.presto import (Decoder, Encoder, Presto, month_to_tensor,
-                           param_groups_lrd)
-from presto.utils import config_dir, data_dir, default_model_path, device
 from torch import nn
 from torch.optim import AdamW
+
+from presto.dataops import (
+    BANDS_GROUPS_IDX,
+    NUM_BANDS,
+    NUM_ORG_BANDS,
+    NUM_TIMESTEPS,
+    S1_S2_ERA5_SRTM,
+    SRTM_INDEX,
+    DynamicWorld2020_2021,
+)
+from presto.presto import Decoder, Encoder, Presto, month_to_tensor, param_groups_lrd
+from presto.utils import config_dir, data_dir, default_model_path, device
 
 
 class TestPresto(TestCase):

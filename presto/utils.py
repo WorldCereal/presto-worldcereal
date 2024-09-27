@@ -16,9 +16,19 @@ import torch
 import xarray as xr
 from matplotlib import pyplot as plt
 
-from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
-                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
-                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
+from .dataops import (
+    BANDS,
+    ERA5_BANDS,
+    MIN_EDGE_BUFFER,
+    NODATAVALUE,
+    NORMED_BANDS,
+    REMOVED_BANDS,
+    S1_BANDS,
+    S1_S2_ERA5_SRTM,
+    S2_BANDS,
+    SRTM_BANDS,
+    DynamicWorld2020_2021,
+)
 
 # plt = None
 

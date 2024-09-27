@@ -1,6 +1,7 @@
 from unittest import TestCase
 
 import numpy as np
+
 from presto.masking import BANDS_GROUPS_IDX, NUM_TIMESTEPS, make_mask_no_dw
 
 TEST_MASK_RATIOS = [x / 100 for x in range(5, 100, 5)]

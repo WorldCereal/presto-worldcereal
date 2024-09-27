@@ -5,6 +5,7 @@ from unittest import TestCase
 
 import numpy as np
 import xarray as xr
+
 from presto.dataset import filter_remove_noncrops
 from presto.eval import MIN_SAMPLES_PER_CLASS, Hyperparams, WorldCerealEval
 from presto.presto import Presto

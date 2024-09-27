@@ -4,10 +4,15 @@ from unittest import TestCase
 import numpy as np
 import pandas as pd
 import torch
+
 from presto.dataops import NODATAVALUE, NUM_ORG_BANDS, NUM_TIMESTEPS
-from presto.dataset import (WorldCerealBase, WorldCerealInferenceDataset,
-                            WorldCerealLabelledDataset,
-                            WorldCerealMaskedDataset, filter_remove_noncrops)
+from presto.dataset import (
+    WorldCerealBase,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelledDataset,
+    WorldCerealMaskedDataset,
+    filter_remove_noncrops,
+)
 from presto.eval import Hyperparams, WorldCerealEval
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto

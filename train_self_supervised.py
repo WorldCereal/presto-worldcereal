@@ -4,6 +4,7 @@ import gc
 import json
 import logging
 from glob import glob
+
 # import os.path
 # import pickle
 from pathlib import Path
@@ -13,19 +14,33 @@ import pandas as pd
 import requests
 import torch
 import torch.nn as nn
+from torch import optim
+from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
+
 # import xarray as xr
 from presto.dataops import BANDS_GROUPS_IDX, NODATAVALUE
 from presto.dataset import WorldCerealBase, WorldCerealMaskedDataset
 from presto.eval import WorldCerealEval
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
-from presto.presto import (LossWrapper, Presto, adjust_learning_rate,
-                           extend_to_dekadal, param_groups_weight_decay)
-from presto.utils import (DEFAULT_SEED, config_dir, data_dir,  # plot_spatial,
-                          default_model_path, device, initialize_logging,
-                          process_parquet, seed_everything, timestamp_dirname)
-from torch import optim
-from torch.utils.data import DataLoader
-from tqdm.auto import tqdm
+from presto.presto import (
+    LossWrapper,
+    Presto,
+    adjust_learning_rate,
+    extend_to_dekadal,
+    param_groups_weight_decay,
+)
+from presto.utils import (  # plot_spatial,
+    DEFAULT_SEED,
+    config_dir,
+    data_dir,
+    default_model_path,
+    device,
+    initialize_logging,
+    process_parquet,
+    seed_everything,
+    timestamp_dirname,
+)
 
 logger = logging.getLogger("__main__")
 

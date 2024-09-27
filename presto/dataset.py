@@ -14,8 +14,15 @@ from einops import rearrange
 from pyproj import CRS, Transformer
 from torch.utils.data import Dataset
 
-from .dataops import (BANDS, BANDS_GROUPS_IDX, MIN_EDGE_BUFFER, NODATAVALUE,
-                      NORMED_BANDS, S1_S2_ERA5_SRTM, DynamicWorld2020_2021)
+from .dataops import (
+    BANDS,
+    BANDS_GROUPS_IDX,
+    MIN_EDGE_BUFFER,
+    NODATAVALUE,
+    NORMED_BANDS,
+    S1_S2_ERA5_SRTM,
+    DynamicWorld2020_2021,
+)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, load_world_df
 
