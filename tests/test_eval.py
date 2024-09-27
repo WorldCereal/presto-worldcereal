@@ -5,7 +5,6 @@ from unittest import TestCase
 
 import numpy as np
 import xarray as xr
-
 from presto.dataset import filter_remove_noncrops
 from presto.eval import MIN_SAMPLES_PER_CLASS, Hyperparams, WorldCerealEval
 from presto.presto import Presto
@@ -48,6 +47,7 @@ class TestEval(TestCase):
         path_to_config = config_dir / "default.json"
         with open(path_to_config) as file:
             model_kwargs = json.load(file)
+
         model = Presto.construct(**model_kwargs)
 
         finetune_classes = "CROPTYPE0"
@@ -63,6 +63,9 @@ class TestEval(TestCase):
             downstream_classes=downstream_classes,
             dekadal=False,
             balance=False,
+            augment = False,
+            train_masking = 0.0,
+            use_valid_month=False,
         )
 
         hyperparams = Hyperparams()
@@ -83,6 +86,7 @@ class TestEval(TestCase):
             ((output["support"] >= MIN_SAMPLES_PER_CLASS) & (output["f1-score"].isna())).sum(), 0
         )
 
+    
     def test_spatial_inference_croptype(
         self,
     ):
