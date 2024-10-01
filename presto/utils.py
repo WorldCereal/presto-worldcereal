@@ -8,13 +8,10 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
 import geopandas as gpd
-import matplotlib.colors as mcolors
-import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-from matplotlib import pyplot as plt
 
 from .dataops import (
     BANDS,
@@ -413,9 +410,8 @@ def plot_results(
     to_wandb: bool = False,
     prefix: str = "",
 ):
-    global plt
-    if plt is None:
-        from matplotlib import pyplot as plt
+
+    from matplotlib import pyplot as plt
 
     def plot(title: str, plot_fn: Callable, figsize=(15, 5)) -> Path:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
@@ -538,6 +534,11 @@ def plot_spatial(
     to_wandb: bool = False,
     task_type: str = "cropland",
 ):
+
+    import matplotlib.colors as mcolors
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
+
     croptype_map = CLASS_MAPPINGS["CROPTYPE0"]
     colors_map = CLASS_MAPPINGS["CROPTYPE0_COLORS"]
 
