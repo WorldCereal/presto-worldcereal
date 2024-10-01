@@ -67,12 +67,17 @@ class WorldCerealBase(Dataset):
         available_timesteps = int(row_d["available_timesteps"])
 
         if is_ssl:
-            valid_position = int(
-                np.random.choice(
-                    range(cls.NUM_TIMESTEPS // 2, (available_timesteps - cls.NUM_TIMESTEPS // 2)),
-                    1,
+            if available_timesteps == cls.NUM_TIMESTEPS:
+                valid_position = int(cls.NUM_TIMESTEPS // 2)
+            else:
+                valid_position = int(
+                    np.random.choice(
+                        range(
+                            cls.NUM_TIMESTEPS // 2, (available_timesteps - cls.NUM_TIMESTEPS // 2)
+                        ),
+                        1,
+                    )
                 )
-            )
             center_point = valid_position
         else:
             valid_position = int(row_d["valid_position"])
