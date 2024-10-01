@@ -24,7 +24,7 @@ from .dataops import (
     DynamicWorld2020_2021,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import DEFAULT_SEED, data_dir, load_world_df
+from .utils import DEFAULT_SEED, data_dir, get_class_mappings, load_world_df
 
 logger = logging.getLogger("__main__")
 
@@ -32,9 +32,6 @@ IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
     for idx in val:
         IDX_TO_BAND_GROUPS[NORMED_BANDS[idx]] = band_group_idx
-
-with open(data_dir / "croptype_mappings" / "croptype_classes.json") as f:
-    CLASS_MAPPINGS = json.load(f)
 
 
 class WorldCerealBase(Dataset):
@@ -233,6 +230,8 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
         finetune_classes="CROPTYPE0",
         downstream_classes="CROPTYPE19",
     ) -> pd.DataFrame:
+
+        CLASS_MAPPINGS = get_class_mappings()
 
         wc2ewoc_map = pd.read_csv(data_dir / "croptype_mappings" / "wc2eurocrops_map.csv")
         wc2ewoc_map["ewoc_code"] = wc2ewoc_map["ewoc_code"].str.replace("-", "").astype(int)

@@ -19,7 +19,6 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from .dataset import (
-    CLASS_MAPPINGS,
     NORMED_BANDS,
     WorldCerealInferenceDataset,
     WorldCerealLabelled10DDataset,
@@ -32,7 +31,7 @@ from .presto import (
     get_sinusoid_encoding_table,
     param_groups_lrd,
 )
-from .utils import DEFAULT_SEED, device, prep_dataframe
+from .utils import DEFAULT_SEED, device, get_class_mappings, prep_dataframe
 
 MIN_SAMPLES_PER_CLASS = 3
 
@@ -485,6 +484,9 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ):
         assert self.spatial_inference_savedir is not None
+
+        CLASS_MAPPINGS = get_class_mappings()
+
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
             (

@@ -37,9 +37,6 @@ default_model_path = data_dir / "default_model.pt"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DEFAULT_SEED: int = 42
 
-with open(data_dir / "croptype_mappings" / "croptype_classes.json") as f:
-    CLASS_MAPPINGS = json.load(f)
-
 
 # From https://gist.github.com/ihoromi4/b681a9088f348942b01711f251e5f964
 def seed_everything(seed: int = DEFAULT_SEED):
@@ -84,6 +81,20 @@ def initialize_logging(output_dir: Union[str, Path], to_file=True, logger_name="
 def timestamp_dirname(suffix: Optional[str] = None) -> str:
     ts = datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%f")
     return f"{ts}_{suffix}" if suffix is not None else ts
+
+
+def get_class_mappings() -> Dict:
+    """Method to get the WorldCereal class mappings for downstream task.
+
+    Returns
+    -------
+    Dict
+        the resulting dictionary with the class mappings
+    """
+    with open(data_dir / "croptype_mappings" / "croptype_classes.json") as f:
+        CLASS_MAPPINGS = json.load(f)
+
+    return CLASS_MAPPINGS
 
 
 def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
@@ -538,6 +549,8 @@ def plot_spatial(
     import matplotlib.colors as mcolors
     import matplotlib.patches as mpatches
     import matplotlib.pyplot as plt
+
+    CLASS_MAPPINGS = get_class_mappings()
 
     croptype_map = CLASS_MAPPINGS["CROPTYPE0"]
     colors_map = CLASS_MAPPINGS["CROPTYPE0_COLORS"]
