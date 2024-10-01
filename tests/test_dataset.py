@@ -4,11 +4,22 @@ from unittest import TestCase
 import numpy as np
 import pandas as pd
 import torch
-from presto.dataops import (NDVI_INDEX, NODATAVALUE, NUM_ORG_BANDS,
-                            NUM_TIMESTEPS, S2_RGB_INDEX, S2_NIR_10m_INDEX)
-from presto.dataset import (WorldCerealBase, WorldCerealInferenceDataset,
-                            WorldCerealLabelledDataset,
-                            WorldCerealMaskedDataset, filter_remove_noncrops)
+
+from presto.dataops import (
+    NDVI_INDEX,
+    NODATAVALUE,
+    NUM_ORG_BANDS,
+    NUM_TIMESTEPS,
+    S2_RGB_INDEX,
+    S2_NIR_10m_INDEX,
+)
+from presto.dataset import (
+    WorldCerealBase,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelledDataset,
+    WorldCerealMaskedDataset,
+    filter_remove_noncrops,
+)
 from presto.eval import WorldCerealEval
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
@@ -151,19 +162,18 @@ class TestDataset(TestCase):
         # expected behavior is that NDVI is masked out
         # at the first six timesteps
         valid_position = int(test_row["valid_position"])
-        for ts in range(valid_position-6, valid_position-3):
+        for ts in range(valid_position - 6, valid_position - 3):
             test_row[f"OPTICAL-B04-ts{ts}-10m"] = NODATAVALUE
-        for ts in range(valid_position-3, valid_position-1):
+        for ts in range(valid_position - 3, valid_position - 1):
             test_row[f"OPTICAL-B08-ts{ts}-10m"] = NODATAVALUE
         test_row[f"OPTICAL-B04-ts{valid_position-1}-10m"] = NODATAVALUE
         test_row[f"OPTICAL-B08-ts{valid_position-1}-10m"] = NODATAVALUE
-        
+
         eo, mask, latlon, month, valid_month = WorldCerealBase.row_to_arrays(test_row)
 
-        self.assertTrue(set([0,1,2,5]) & set(np.where(mask[:, S2_RGB_INDEX])[0]))
-        self.assertTrue(set([3,4,5]) & set(np.where(mask[:, S2_NIR_10m_INDEX])[0]))
+        self.assertTrue(set([0, 1, 2, 5]) & set(np.where(mask[:, S2_RGB_INDEX])[0]))
+        self.assertTrue(set([3, 4, 5]) & set(np.where(mask[:, S2_NIR_10m_INDEX])[0]))
         self.assertTrue(mask[:6, NDVI_INDEX].all())
-
 
     def test_balancing_croptype(self):
         finetune_classes = "CROPTYPE0"
@@ -252,10 +262,16 @@ class TestDataset(TestCase):
             timestep_positions_base[-1]
             == (valid_position + (WorldCerealBase.NUM_TIMESTEPS // 2) - 1)
         )
-        self.assertTrue(np.unique([
-            timestep_positions_augment1[0],
-            timestep_positions_augment2[0],
-            timestep_positions_augment3[0]]).shape[0] > 1)
+        self.assertTrue(
+            np.unique(
+                [
+                    timestep_positions_augment1[0],
+                    timestep_positions_augment2[0],
+                    timestep_positions_augment3[0],
+                ]
+            ).shape[0]
+            > 1
+        )
         self.assertTrue(timestep_positions_ssl1[0] != timestep_positions_ssl2[0])
         self.assertTrue(
             (valid_position not in timestep_positions_ssl1)
