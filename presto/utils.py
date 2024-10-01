@@ -13,19 +13,9 @@ import pandas as pd
 import torch
 import xarray as xr
 
-from .dataops import (
-    BANDS,
-    ERA5_BANDS,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    REMOVED_BANDS,
-    S1_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_BANDS,
-    SRTM_BANDS,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
+                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
+                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
 
 # plt = None
 
@@ -111,7 +101,8 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     timestamp is the date of the observation.
 
     This function performs the following operations:
-    - computing relative position of the timestamp and valid_date in the timeseries
+    - computing relative position of the timestamp (timestamp_ind variable) 
+      and valid_date (valid_position variable) in the timeseries
     - filtering out samples were valid date is outside the range of the actual extractions
     - adding dummy timesteps filled with NODATA values before the start_date or after
       the end_date for samples where valid_date is close to the edge of the timeseries;
