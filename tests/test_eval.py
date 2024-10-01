@@ -31,6 +31,8 @@ class TestEval(TestCase):
 
         hyperparams = Hyperparams()
         hyperparams.max_epochs = 1
+        hyperparams.num_workers = 4
+        hyperparams.catboost_iterations = 100
         output, _, _ = eval_task.finetuning_results(
             model, ["CatBoostClassifier"], hyperparams=hyperparams
         )
@@ -71,6 +73,8 @@ class TestEval(TestCase):
 
         hyperparams = Hyperparams()
         hyperparams.max_epochs = 1
+        hyperparams.num_workers = 4
+        hyperparams.catboost_iterations = 100
         output, _, _ = eval_task.finetuning_results(
             model, ["CatBoostClassifier"], hyperparams=hyperparams
         )

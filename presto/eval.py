@@ -47,6 +47,7 @@ class Hyperparams:
     batch_size: int = 256
     patience: int = 20
     num_workers: int = 8
+    catboost_iterations: int = 8000
 
 
 class WorldCerealEval:
@@ -195,6 +196,7 @@ class WorldCerealEval:
         self,
         pretrained_model: PrestoFineTuningModel,
         models: List[str] = ["Regression", "Random Forest"],
+        hyperparams: Hyperparams = Hyperparams(),
     ) -> Union[Sequence[BaseEstimator], Dict]:
         for model_mode in models:
             assert model_mode in [
@@ -316,7 +318,7 @@ class WorldCerealEval:
                     l2_leaf_reg = 30
 
                 downstream_model = CatBoostClassifier(
-                    iterations=8000,
+                    iterations=hyperparams.catboost_iterations,
                     depth=8,
                     learning_rate=learning_rate,
                     early_stopping_rounds=50,
@@ -339,7 +341,7 @@ class WorldCerealEval:
 
             elif model == "Hierarchical CatBoostClassifier":
                 downstream_model = CatBoostClassifierWrapper(
-                    iterations=8000,
+                    iterations=hyperparams.catboost_iterations,
                     depth=8,
                     eval_metric="F1",
                     learning_rate=0.2,
@@ -911,12 +913,14 @@ class WorldCerealEval:
         self,
         sklearn_model_modes: List[str],
         finetuned_model: PrestoFineTuningModel,
+        hyperparams: Hyperparams = Hyperparams(),
     ):
         results_df = pd.DataFrame()
         if len(sklearn_model_modes) > 0:
             sklearn_models = self.finetune_sklearn_model(
                 finetuned_model,
                 models=sklearn_model_modes,
+                hyperparams=hyperparams
             )
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {type(sklearn_model).__name__}...")
@@ -947,7 +951,7 @@ class WorldCerealEval:
         if self.spatial_inference_savedir is not None:
             self.spatial_inference(finetuned_model, None)
         results_df_sklearn, sklearn_models_trained = self.finetuning_results_sklearn(
-            sklearn_model_modes, finetuned_model
+            sklearn_model_modes, finetuned_model, hyperparams
         )
         results_df_combined = pd.concat([results_df_ft, results_df_sklearn], axis=0)
 
