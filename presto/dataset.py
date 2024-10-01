@@ -13,15 +13,9 @@ from einops import rearrange
 from pyproj import CRS, Transformer
 from torch.utils.data import Dataset
 
-from .dataops import (
-    BANDS,
-    BANDS_GROUPS_IDX,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    S1_S2_ERA5_SRTM,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, BANDS_GROUPS_IDX, MIN_EDGE_BUFFER, NDVI_INDEX,
+                      NODATAVALUE, NORMED_BANDS, S1_S2_ERA5_SRTM, S2_RGB_INDEX,
+                      DynamicWorld2020_2021, S2_NIR_10m_INDEX)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, get_class_mappings, load_world_df
 
@@ -203,12 +197,20 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
             eo_data[:, BANDS.index(presto_val)] = values * idx_valid
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
+        # check if the visual bands mask is True
+        # or nir mask, and adjust the NDVI mask accordingly
+        mask[:, NDVI_INDEX] = np.logical_or(
+            mask[:, S2_RGB_INDEX],
+            mask[:, S2_NIR_10m_INDEX]
+            )
+
         return (cls.check(eo_data), mask.astype(bool), latlon, month, valid_month)
 
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, mask_per_token, latlon, month, valid_month = self.row_to_arrays(row)
+
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -360,6 +362,7 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         eo, real_mask_per_token, latlon, month, valid_month = self.row_to_arrays(
             row, self.task_type, self.croptype_list, self.is_ssl
         )
+
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
         )
