@@ -918,9 +918,7 @@ class WorldCerealEval:
         results_df = pd.DataFrame()
         if len(sklearn_model_modes) > 0:
             sklearn_models = self.finetune_sklearn_model(
-                finetuned_model,
-                models=sklearn_model_modes,
-                hyperparams=hyperparams
+                finetuned_model, models=sklearn_model_modes, hyperparams=hyperparams
             )
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {type(sklearn_model).__name__}...")
