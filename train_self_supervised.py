@@ -15,7 +15,11 @@ from tqdm.auto import tqdm
 
 # import xarray as xr
 from presto.dataops import BANDS_GROUPS_IDX, NODATAVALUE
-from presto.dataset import WorldCerealBase, WorldCerealMaskedDataset
+from presto.dataset import (
+    WorldCerealBase,
+    WorldCerealMaskedDataset,
+    WorldCerealMasked10DDataset
+)
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
     LossWrapper,
@@ -170,7 +174,7 @@ train_df, val_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sa
 
 # Load the mask parameters
 mask_params = MaskParamsNoDw(mask_strategies, mask_ratio, num_timesteps=36 if dekadal else 12)
-masked_ds = WorldCerealMaskedDataset
+masked_ds = WorldCerealMasked10DDataset if dekadal else WorldCerealMaskedDataset
 
 train_dataloader = DataLoader(
     masked_ds(train_df, mask_params=mask_params, is_ssl=True),
