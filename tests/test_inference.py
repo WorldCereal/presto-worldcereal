@@ -3,16 +3,18 @@ from unittest import TestCase
 import numpy as np
 import pandas as pd
 import xarray as xr
-from presto.dataops import (NDVI_INDEX, NODATAVALUE, S2_RGB_INDEX,
-                            S2_NIR_10m_INDEX)
+from torch.utils.data import DataLoader
+
+from presto.dataops import NDVI_INDEX, NODATAVALUE, S2_RGB_INDEX, S2_NIR_10m_INDEX
 from presto.dataset import WorldCerealBase, WorldCerealInferenceDataset
-from presto.inference import (PrestoFeatureExtractor, compile_encoder,
-                              get_presto_features)
+from presto.inference import (
+    PrestoFeatureExtractor,
+    compile_encoder,
+    get_presto_features,
+)
 from presto.presto import Presto
 from presto.utils import data_dir, device, prep_dataframe
-from pyproj import CRS, Transformer
 from tests.utils import read_test_file
-from torch.utils.data import DataLoader
 
 
 class TestInference(TestCase):
@@ -67,7 +69,6 @@ class TestInference(TestCase):
             / "WORLDCEREAL-INPUTS-10m_belgium_good_32631_2020-08-01_2022-03-31.nc"
         )
         ds = xr.open_dataset(filepath)
-        epsg = CRS.from_wkt(xr.open_dataset(filepath).crs.attrs["crs_wkt"]).to_epsg()
         arr = ds.drop_vars("crs").to_array(dim="bands")
         arr = WorldCerealInferenceDataset._subset_array_temporally(arr)
 
@@ -82,4 +83,4 @@ class TestInference(TestCase):
 
         self.assertTrue(set([0, 1, 2, 5]) & set(np.where(mask[:, :, S2_RGB_INDEX])[1]))
         self.assertTrue(set([3, 4, 5]) & set(np.where(mask[:, :, S2_NIR_10m_INDEX])[1]))
-        self.assertTrue(mask[:,:6, NDVI_INDEX].all())
+        self.assertTrue(mask[:, :6, NDVI_INDEX].all())
