@@ -714,6 +714,10 @@ class WorldCerealInferenceDataset(Dataset):
                 eo_data[:, :, BANDS.index(presto_band)] = 0
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] = 1
 
+        # check if the visual bands mask is True
+        # or nir mask, and adjust the NDVI mask accordingly
+        mask[:, :, NDVI_INDEX] = np.logical_or(mask[:, :, S2_RGB_INDEX], mask[:, :, S2_NIR_10m_INDEX])
+
         return eo_data, mask
 
     @staticmethod
