@@ -13,18 +13,9 @@ from einops import rearrange
 from pyproj import CRS, Transformer
 from torch.utils.data import Dataset
 
-from .dataops import (
-    BANDS,
-    BANDS_GROUPS_IDX,
-    MIN_EDGE_BUFFER,
-    NDVI_INDEX,
-    NODATAVALUE,
-    NORMED_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_RGB_INDEX,
-    DynamicWorld2020_2021,
-    S2_NIR_10m_INDEX,
-)
+from .dataops import (BANDS, BANDS_GROUPS_IDX, MIN_EDGE_BUFFER, NDVI_INDEX,
+                      NODATAVALUE, NORMED_BANDS, S1_S2_ERA5_SRTM, S2_RGB_INDEX,
+                      DynamicWorld2020_2021, S2_NIR_10m_INDEX)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, get_class_mappings, load_world_df
 
@@ -366,7 +357,10 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, real_mask_per_token, latlon, month, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list, self.is_ssl
+            row, 
+            task_type=self.task_type, 
+            croptype_list=self.croptype_list, 
+            is_ssl=self.is_ssl
         )
 
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
