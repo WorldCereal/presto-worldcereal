@@ -191,6 +191,8 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         "start_date",
         "sample_id",
         "valid_date",
+        "location_id",
+        "ref_id",
     ]
 
     bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
