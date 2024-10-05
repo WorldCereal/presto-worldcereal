@@ -564,7 +564,7 @@ times of the initial class size."
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
         eo, mask_per_token, latlon, month, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list
+            row, self.task_type, self.croptype_list, augment=self.augment
         )
 
         if self.mask_ratio > 0:
