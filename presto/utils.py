@@ -238,10 +238,9 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     if len(samples_after_end_date) > 0 or len(samples_before_start_date) > 0:
         logger.warning(
             f"""\
-        Dataset {df["sample_id"].iloc[0].split("_")[0]}: removing {len(samples_after_end_date)}\
-        samples with valid_date after the end_date\
-        and {len(samples_before_start_date)} samples with valid_date before the start_date
-        """
+Dataset {df["ref_id"].iloc[0]}: removing {len(samples_after_end_date)}\
+samples with valid_date after the end_date\
+and {len(samples_before_start_date)} samples with valid_date before the start_date"""
         )
         df = df[~df["sample_id"].isin(samples_before_start_date)]
         df = df[~df["sample_id"].isin(samples_after_end_date)]

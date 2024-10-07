@@ -159,6 +159,8 @@ files = sorted(glob(f"{parquet_file}/**/*.parquet"))[10:20]
 df_list = []
 for f in tqdm(files):
     _data = pd.read_parquet(f, engine="fastparquet")
+    _ref_id = f.split("/")[-2].split("=")[-1]
+    _data["ref_id"] = _ref_id
     _data_pivot = process_parquet(_data)
     _data_pivot.reset_index(inplace=True)
     df_list.append(_data_pivot)
