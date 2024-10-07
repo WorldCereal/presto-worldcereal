@@ -817,23 +817,14 @@ class WorldCerealEval:
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
 
-                if self.use_valid_month:
-                    input_d = {
-                        "x": x,
-                        "dynamic_world": dw.long(),
-                        "latlons": latlons,
-                        "mask": variable_mask,
-                        "month": month,
-                        "valid_month": valid_month,
-                    }
-                else:
-                    input_d = {
-                        "x": x,
-                        "dynamic_world": dw.long(),
-                        "latlons": latlons,
-                        "mask": variable_mask,
-                        "month": month,
-                    }
+                input_d = {
+                    "x": x,
+                    "dynamic_world": dw.long(),
+                    "latlons": latlons,
+                    "mask": variable_mask,
+                    "month": month,
+                    "valid_month": valid_month if self.use_valid_month else None,
+                }
 
                 optimizer.zero_grad()
                 preds = model(**input_d)
@@ -851,23 +842,14 @@ class WorldCerealEval:
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
 
-                if self.use_valid_month:
-                    input_d = {
-                        "x": x,
-                        "dynamic_world": dw.long(),
-                        "latlons": latlons,
-                        "mask": variable_mask,
-                        "month": month,
-                        "valid_month": valid_month,
-                    }
-                else:
-                    input_d = {
-                        "x": x,
-                        "dynamic_world": dw.long(),
-                        "latlons": latlons,
-                        "mask": variable_mask,
-                        "month": month,
-                    }
+                input_d = {
+                    "x": x,
+                    "dynamic_world": dw.long(),
+                    "latlons": latlons,
+                    "mask": variable_mask,
+                    "month": month,
+                    "valid_month": valid_month if self.use_valid_month else None,
+                }
 
                 with torch.no_grad():
                     preds = model(**input_d)
