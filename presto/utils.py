@@ -13,19 +13,9 @@ import pandas as pd
 import torch
 import xarray as xr
 
-from .dataops import (
-    BANDS,
-    ERA5_BANDS,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    REMOVED_BANDS,
-    S1_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_BANDS,
-    SRTM_BANDS,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
+                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
+                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
 
 # plt = None
 
@@ -238,14 +228,15 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     if len(samples_after_end_date) > 0 or len(samples_before_start_date) > 0:
         logger.warning(
             f"""\
-Dataset {df["ref_id"].iloc[0]}: removing {len(samples_after_end_date)}\
-samples with valid_date after the end_date\
+Dataset {df["ref_id"].iloc[0]}: removing {len(samples_after_end_date)} \
+samples with valid_date after the end_date \
 and {len(samples_before_start_date)} samples with valid_date before the start_date"""
         )
         df = df[~df["sample_id"].isin(samples_before_start_date)]
         df = df[~df["sample_id"].isin(samples_after_end_date)]
 
     # add timesteps before the start_date where needed
+    intermediate_dummy_df = pd.DataFrame()
     for n_ts_to_add in range(1, MIN_EDGE_BUFFER + 1):
         samples_to_add_ts_before_start = latest_obs_position[
             (MIN_EDGE_BUFFER - latest_obs_position["valid_position"]) >= -n_ts_to_add
@@ -257,9 +248,11 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
             months=n_ts_to_add
         )  # type: ignore
         dummy_df[feature_columns] = NODATAVALUE
-        df = pd.concat([df, dummy_df])
+        intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
+    df = pd.concat([df, intermediate_dummy_df])
 
     # add timesteps after the end_date where needed
+    intermediate_dummy_df = pd.DataFrame()
     for n_ts_to_add in range(1, MIN_EDGE_BUFFER + 1):
         samples_to_add_ts_after_end = latest_obs_position[
             (MIN_EDGE_BUFFER - latest_obs_position["valid_position_diff"]) >= n_ts_to_add
@@ -271,11 +264,16 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
             months=n_ts_to_add
         )  # type: ignore
         dummy_df[feature_columns] = NODATAVALUE
-        df = pd.concat([df, dummy_df])
+        intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
+    df = pd.concat([df, intermediate_dummy_df])
 
     # Now reassign start_date to the minimum timestamp
     new_start_date = df.groupby(["sample_id"])["timestamp"].min()
     df["start_date"] = df["sample_id"].map(new_start_date)
+
+    # Also reassign end_date to the maximum timestamp
+    new_end_date = df.groupby(["sample_id"])["timestamp"].max()
+    df["end_date"] = df["sample_id"].map(new_end_date)
 
     # reinitialize timestep_ind
     df["timestamp_ind"] = (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month) - (
@@ -324,6 +322,22 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
     df_pivot["available_timesteps"] = (
         df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month
     ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month) + 1
+
+    from presto.dataops import NUM_TIMESTEPS
+
+    min_center_point = np.maximum(
+        NUM_TIMESTEPS // 2,
+        df_pivot["valid_position"] + MIN_EDGE_BUFFER - NUM_TIMESTEPS // 2,
+    )
+    max_center_point = np.minimum(
+        df_pivot["available_timesteps"] - NUM_TIMESTEPS // 2,
+        df_pivot["valid_position"] - MIN_EDGE_BUFFER + NUM_TIMESTEPS // 2,
+    )
+
+    faulty_samples = min_center_point > max_center_point
+    if faulty_samples.sum() > 0:
+        logger.warning(f"Dropping {faulty_samples.sum()} faulty samples.")
+    df_pivot = df_pivot[~faulty_samples]
 
     df_pivot["year"] = df_pivot["valid_date"].dt.year
 
