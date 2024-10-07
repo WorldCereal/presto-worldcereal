@@ -219,35 +219,20 @@ class WorldCerealEval:
                     y = np.moveaxis(np.array(y), -1, 0)
                 target_list.append(y)
 
-                if self.use_valid_month:
-                    with torch.no_grad():
-                        encodings = (
-                            pretrained_model.encoder(
-                                x_f,
-                                dynamic_world=dw_f.long(),
-                                mask=variable_mask_f,
-                                latlons=latlons_f,
-                                month=month_f,
-                                valid_month=valid_month_f,
-                            )
-                            .cpu()
-                            .numpy()
+                with torch.no_grad():
+                    encodings = (
+                        pretrained_model.encoder(
+                            x_f,
+                            dynamic_world=dw_f.long(),
+                            mask=variable_mask_f,
+                            latlons=latlons_f,
+                            month=month_f,
+                            valid_month=valid_month_f if self.use_valid_month else None,
                         )
-                        encoding_list.append(encodings)
-                else:
-                    with torch.no_grad():
-                        encodings = (
-                            pretrained_model.encoder(
-                                x_f,
-                                dynamic_world=dw_f.long(),
-                                mask=variable_mask_f,
-                                latlons=latlons_f,
-                                month=month_f,
-                            )
-                            .cpu()
-                            .numpy()
-                        )
-                        encoding_list.append(encodings)
+                        .cpu()
+                        .numpy()
+                    )
+                    encoding_list.append(encodings)
 
             encodings_np = np.concatenate(encoding_list)
             targets = np.concatenate(target_list)
