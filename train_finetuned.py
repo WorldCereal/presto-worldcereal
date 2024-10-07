@@ -10,25 +10,17 @@ from typing import Optional, cast
 
 import pandas as pd
 import requests
+import torch
 import xarray as xr
-from tqdm.auto import tqdm
-
 from presto.dataops import NODATAVALUE
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
-from presto.utils import (
-    DEFAULT_SEED,
-    config_dir,
-    data_dir,
-    default_model_path,
-    device,
-    initialize_logging,
-    plot_spatial,
-    process_parquet,
-    seed_everything,
-    timestamp_dirname,
-)
+from presto.utils import (DEFAULT_SEED, config_dir, data_dir,
+                          default_model_path, device, initialize_logging,
+                          plot_spatial, process_parquet, seed_everything,
+                          timestamp_dirname)
+from tqdm.auto import tqdm
 
 logger = logging.getLogger("__main__")
 
@@ -155,7 +147,7 @@ model_modes = [
 ]
 
 logger.info("Reading dataset")
-files = sorted(glob(f"{parquet_file}/**/*.parquet"))[10:20]
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))
 df_list = []
 for f in tqdm(files):
     _data = pd.read_parquet(f, engine="fastparquet")
@@ -201,7 +193,8 @@ model_path.mkdir(exist_ok=True, parents=True)
 
 experiment_prefix = f"""\
 {presto_model_description}_{task_type}_{finetune_classes}_\
-{compositing_window}_{test_type}_time-token={time_token}_balance={balance}\
+{compositing_window}_{test_type}_time-token={time_token}_balance={balance}_\
+augment={augment}\
 """
 
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"
@@ -268,7 +261,7 @@ else:
     results_df_combined, finetuned_model, sklearn_models_trained = full_eval.finetuning_results(
         model, sklearn_model_modes=model_modes
     )
-    # torch.save(finetuned_model.state_dict(), finetuned_model_path)
+    torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 results_df_combined["presto_model_description"] = presto_model_description
 results_df_combined["compositing_window"] = compositing_window
