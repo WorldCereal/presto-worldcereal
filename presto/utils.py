@@ -13,9 +13,19 @@ import pandas as pd
 import torch
 import xarray as xr
 
-from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
-                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
-                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
+from .dataops import (
+    BANDS,
+    ERA5_BANDS,
+    MIN_EDGE_BUFFER,
+    NODATAVALUE,
+    NORMED_BANDS,
+    REMOVED_BANDS,
+    S1_BANDS,
+    S1_S2_ERA5_SRTM,
+    S2_BANDS,
+    SRTM_BANDS,
+    DynamicWorld2020_2021,
+)
 
 # plt = None
 
@@ -320,8 +330,10 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
         df_pivot["valid_date"].dt.year * 12 + df_pivot["valid_date"].dt.month
     ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
     df_pivot["available_timesteps"] = (
-        df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month
-    ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month) + 1
+        (df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month)
+        - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
+        + 1
+    )
 
     from presto.dataops import NUM_TIMESTEPS
 
