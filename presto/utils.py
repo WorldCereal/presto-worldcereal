@@ -323,7 +323,7 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
     ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
     df_pivot["available_timesteps"] = (
         df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month
-    ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
+    ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month) + 1
 
     df_pivot["year"] = df_pivot["valid_date"].dt.year
 
