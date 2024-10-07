@@ -112,12 +112,12 @@ class WorldCerealEval:
                     self.num_outputs = len(train_classes)
 
                 # use classes obtained from train to trim val and test classes
-                self.val_df.loc[
-                    ~self.val_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
-                self.test_df.loc[
-                    ~self.test_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
+                self.val_df.loc[~self.val_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
+                self.test_df.loc[~self.test_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
 
             # create one-hot representation from obtained labels
             # one-hot is needed for finetuning,
@@ -387,49 +387,14 @@ class WorldCerealEval:
             x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
                 t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
             ]
-            if use_valid_month:
-                input_d = {
-                    "x": x_f,
-                    "dynamic_world": dw_f.long(),
-                    "latlons": latlons_f,
-                    "mask": variable_mask_f,
-                    "month": month_f,
-                    "valid_month": valid_month_f,
-                }
-            else:
-                input_d = {
-                    "x": x_f,
-                    "dynamic_world": dw_f.long(),
-                    "latlons": latlons_f,
-                    "mask": variable_mask_f,
-                    "month": month_f,
-                }
-
-            # try:
-            #     x, y, dw, latlons, month, valid_month, variable_mask = b
-            #     x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
-            #         t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
-            #     ]
-            #     input_d = {
-            #         "x": x_f,
-            #         "dynamic_world": dw_f.long(),
-            #         "latlons": latlons_f,
-            #         "mask": variable_mask_f,
-            #         "month": month_f,
-            #         "valid_month": valid_month_f,
-            #     }
-            # except ValueError:
-            #     x, y, dw, latlons, month, variable_mask = b
-            #     x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-            #         t.to(device) for t in (x, dw, latlons, month, variable_mask)
-            #     ]
-            #     input_d = {
-            #         "x": x_f,
-            #         "dynamic_world": dw_f.long(),
-            #         "latlons": latlons_f,
-            #         "mask": variable_mask_f,
-            #         "month": month_f,
-            #     }
+            input_d = {
+                "x": x_f,
+                "dynamic_world": dw_f.long(),
+                "latlons": latlons_f,
+                "mask": variable_mask_f,
+                "month": month_f,
+                "valid_month": valid_month_f if use_valid_month else None,
+            }
 
             if isinstance(y, list) and len(y) == 2:
                 y = np.moveaxis(np.array(y), -1, 0)
