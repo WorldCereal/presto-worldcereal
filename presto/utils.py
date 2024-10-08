@@ -117,13 +117,20 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     - adding dummy timesteps filled with NODATA values before the start_date or after
       the end_date for samples where valid_date is close to the edge of the timeseries;
       this closeness is defined by the globally defined parameter MIN_EDGE_BUFFER
-    - reinitializing the start_date and timestamp_ind to take into account
+    - reinitializing the start_date, end_date and timestamp_ind to take into account
       newly added timesteps
     - checking for missing timesteps in the middle of the timeseries and adding them
       with NODATA values
     - pivoting the DataFrame to wide format with columns for each band
       and timesteps as suffixes
     - assigning the correct suffixes to the band names
+    - computing the final valid_date position in the timeseries that takes
+      into account updated start_date
+    - computing the number of available timesteps in the timeseries that
+      takes into account updated start_date and end_date; available_timesteps
+      holds the absolute number of timesteps that for which observations are
+      available; it cannot be less than NUM_TIMESTEPS; if this is the case,
+      sample is considered faulty and is removed from the dataset
     - post-processing with prep_dataframe function
 
     Returns
@@ -350,6 +357,12 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
     if faulty_samples.sum() > 0:
         logger.warning(f"Dropping {faulty_samples.sum()} faulty samples.")
     df_pivot = df_pivot[~faulty_samples]
+
+    samples_with_too_few_ts = df_pivot["available_timesteps"]<NUM_TIMESTEPS
+    if samples_with_too_few_ts.sum() > 0:
+        logger.warning(f"Dropping {samples_with_too_few_ts.sum()} samples with \
+number of available timesteps less than {NUM_TIMESTEPS}.")
+    df_pivot = df_pivot[~samples_with_too_few_ts]
 
     df_pivot["year"] = df_pivot["valid_date"].dt.year
 
