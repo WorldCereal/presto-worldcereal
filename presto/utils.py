@@ -358,10 +358,12 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
         logger.warning(f"Dropping {faulty_samples.sum()} faulty samples.")
     df_pivot = df_pivot[~faulty_samples]
 
-    samples_with_too_few_ts = df_pivot["available_timesteps"]<NUM_TIMESTEPS
+    samples_with_too_few_ts = df_pivot["available_timesteps"] < NUM_TIMESTEPS
     if samples_with_too_few_ts.sum() > 0:
-        logger.warning(f"Dropping {samples_with_too_few_ts.sum()} samples with \
-number of available timesteps less than {NUM_TIMESTEPS}.")
+        logger.warning(
+            f"Dropping {samples_with_too_few_ts.sum()} samples with \
+number of available timesteps less than {NUM_TIMESTEPS}."
+        )
     df_pivot = df_pivot[~samples_with_too_few_ts]
 
     df_pivot["year"] = df_pivot["valid_date"].dt.year
