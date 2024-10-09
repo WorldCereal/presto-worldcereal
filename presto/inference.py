@@ -214,6 +214,9 @@ def get_presto_features(
         return presto_extractor._get_encodings(dl)
 
     elif isinstance(inarr, xr.DataArray):
+        # Check if we have the expected 12 timesteps
+        if len(inarr.t) != 12:
+            raise ValueError(f"Can only run Presto on 12 timesteps, got: {len(inarr.t)}")
         return presto_extractor.extract_presto_features(inarr, epsg=epsg)
 
     else:
