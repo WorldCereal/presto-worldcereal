@@ -12,24 +12,15 @@ import pandas as pd
 import requests
 import torch
 import xarray as xr
-from tqdm.auto import tqdm
-
 from presto.dataops import NODATAVALUE
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
-from presto.utils import (
-    DEFAULT_SEED,
-    config_dir,
-    data_dir,
-    default_model_path,
-    device,
-    initialize_logging,
-    plot_spatial,
-    process_parquet,
-    seed_everything,
-    timestamp_dirname,
-)
+from presto.utils import (DEFAULT_SEED, config_dir, data_dir,
+                          default_model_path, device, initialize_logging,
+                          plot_spatial, process_parquet, seed_everything,
+                          timestamp_dirname)
+from tqdm.auto import tqdm
 
 logger = logging.getLogger("__main__")
 
@@ -218,7 +209,7 @@ if os.path.isfile(finetuned_model_path):
 
     finetuned_model = Presto.load_pretrained(
         model_path=finetuned_model_path,
-        strict=False,
+        strict=True,
         is_finetuned=True,
         dekadal=dekadal,
         valid_month_as_token=valid_month_as_token,
@@ -255,7 +246,7 @@ else:
             from_url=True,
             dekadal=dekadal,
             valid_month_as_token=valid_month_as_token,
-            strict=False,
+            strict=True,
         )
 
         best_model_path: Optional[Path] = default_model_path
