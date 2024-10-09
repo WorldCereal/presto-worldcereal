@@ -498,12 +498,12 @@ class Encoder(nn.Module):
         # if location overfitting is happenning
         # upd_mask[:, 0] = 1
 
-        if valid_month is not None:
+        if self.valid_month_as_token:
+            assert valid_month is not None
             val_month_token = self.valid_month_encoding(valid_month)
-            if self.valid_month_as_token:
-                x, upd_mask, orig_indices = self.add_token(
-                    val_month_token.unsqueeze(1), x, upd_mask, orig_indices
-                )
+            x, upd_mask, orig_indices = self.add_token(
+                val_month_token.unsqueeze(1), x, upd_mask, orig_indices
+            )
         else:
             # if it is None, we ignore it as a token but do add it to
             # the output embedding
