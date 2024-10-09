@@ -856,7 +856,7 @@ class Presto(nn.Module):
         is_finetuned: bool = False,
         dekadal: bool = False,
         num_outputs: int = 1,
-        valid_month_as_token: bool = False,
+        valid_month_as_token: bool = True,
         valid_month_size: int = 128,
     ):
 
@@ -868,11 +868,8 @@ class Presto(nn.Module):
         if dekadal:
             model = extend_to_dekadal(model)
 
-        # if is_finetuned:
-        # here, I want to be able to upload Presto model that
-        # has already been finetuned so that I can only play with the head
-        # a model needs to be constructed so that weights can be loaded
-        # currently, cannot correctly construct the finetuned head and populate it with weights 😥
+        if is_finetuned:
+            model = model.construct_finetuning_model(num_outputs)
 
         if from_url:
             presto_model_layers = cls.load_layers_from_url(str(model_path))
