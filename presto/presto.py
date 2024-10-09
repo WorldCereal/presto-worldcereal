@@ -520,10 +520,7 @@ class Encoder(nn.Module):
             # set masked tokens to 0
             x_for_mean = x * (1 - upd_mask.unsqueeze(-1))
             x_mean = x_for_mean.sum(dim=1) / torch.sum(1 - upd_mask, -1, keepdim=True)
-            if self.valid_month_as_token:
-                return torch.cat([self.norm(x_mean), val_month_token], dim=-1)
-            else:
-                return self.norm(x_mean)
+            return self.norm(x_mean)
 
         return self.norm(x), orig_indices, upd_mask
 
@@ -841,10 +838,7 @@ class Presto(nn.Module):
         self,
         num_outputs: int,
     ) -> PrestoFineTuningModel:
-        if self.encoder.valid_month_as_token:
-            hidden_size = self.encoder.embedding_size + self.encoder.valid_month_size
-        else:
-            hidden_size = self.encoder.embedding_size
+        hidden_size = self.encoder.embedding_size
         head = FinetuningHead(
             num_outputs=num_outputs,
             hidden_size=hidden_size,
