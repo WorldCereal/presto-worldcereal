@@ -13,6 +13,8 @@ import pandas as pd
 import torch
 import xarray as xr
 
+from presto.dataops import NUM_TIMESTEPS
+
 from .dataops import (
     BANDS,
     ERA5_BANDS,
@@ -341,8 +343,6 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
         - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
         + 1
     )
-
-    from presto.dataops import NUM_TIMESTEPS
 
     min_center_point = np.maximum(
         NUM_TIMESTEPS // 2,
