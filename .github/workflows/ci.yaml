@@ -6,7 +6,9 @@ on:
     tags:
       - '*'
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - croptype
 
 jobs:
   ci:

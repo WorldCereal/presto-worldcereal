@@ -13,7 +13,9 @@ class TestMasking(TestCase):
         real_masked_tokens[0, 0] = True
         for mask_ratio in TEST_MASK_RATIOS:
             eo_mask = make_mask_no_dw(
-                strategy="group_bands", mask_ratio=mask_ratio, existing_mask=real_masked_tokens
+                strategy="group_bands",
+                mask_ratio=mask_ratio,
+                existing_mask=real_masked_tokens,
             )
             self.assertTrue(
                 (eo_mask[0, BANDS_GROUPS_IDX[list(BANDS_GROUPS_IDX.keys())[0]]] == 1).all()
@@ -78,7 +80,8 @@ class TestMasking(TestCase):
                     srtm_masked = True
 
                 total_mask = eo_mask[
-                    :, [x for x in range(eo_mask.shape[1]) if x not in BANDS_GROUPS_IDX["SRTM"]]
+                    :,
+                    [x for x in range(eo_mask.shape[1]) if x not in BANDS_GROUPS_IDX["SRTM"]],
                 ]
                 for timestep in range(total_mask.shape[0]):
                     timestep_vals = total_mask[timestep, :]
