@@ -18,19 +18,12 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
+from .dataset import (NORMED_BANDS, WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (
-    Presto,
-    PrestoFineTuningModel,
-    get_sinusoid_encoding_table,
-    param_groups_lrd,
-)
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device, get_class_mappings, prep_dataframe
 
 MIN_SAMPLES_PER_CLASS = 3
@@ -257,6 +250,7 @@ class WorldCerealEval:
                     task_type=self.task_type,
                     croptype_list=[],
                     return_hierarchical_labels="Hierarchical" in model,
+                    augment=self.augment,
                 ),
                 batch_size=2048,
                 shuffle=False,
@@ -691,6 +685,7 @@ class WorldCerealEval:
         self, pretrained_model, hyperparams: Hyperparams = Hyperparams()
     ) -> PrestoFineTuningModel:
         model = self._construct_finetuning_model(pretrained_model)
+        print(model)
 
         parameters = param_groups_lrd(model)
 
@@ -824,8 +819,8 @@ class WorldCerealEval:
 
             pbar.set_description(
                 f"Train metric: {train_loss[-1]:.3f}, Val metric: {val_loss[-1]:.3f}, \
-                Best Val Loss: {best_loss:.3f} \
-                (no improvement for {epochs_since_improvement} epochs)"
+Best Val Loss: {best_loss:.3f} \
+(no improvement for {epochs_since_improvement} epochs)"
             )
             if run is not None:
                 wandb.log(
