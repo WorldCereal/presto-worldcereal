@@ -12,22 +12,11 @@ import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-
 from presto.dataops import NUM_TIMESTEPS
 
-from .dataops import (
-    BANDS,
-    ERA5_BANDS,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    REMOVED_BANDS,
-    S1_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_BANDS,
-    SRTM_BANDS,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
+                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
+                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
 
 # plt = None
 
@@ -618,23 +607,23 @@ def plot_spatial(
 
     fig = plt.figure(figsize=(40, 25))
 
-    fig.add_subplot(2, 3, 1)
-    plt.imshow(ground_truth)
-    plt.axis("off")
-    plt.title("Phase I WorldCereal Mask")
+    ax1 = fig.add_subplot(2, 3, 1)
+    ax1.imshow(ground_truth)
+    ax1.axis("off")
+    ax1.set_title("Phase I WorldCereal Mask", fontsize=24)
 
-    fig.add_subplot(2, 3, 2)
-    plt.imshow(rgb_ts6)
-    plt.axis("off")
-    plt.title("RGB TS6")
+    ax2 = fig.add_subplot(2, 3, 2)
+    ax2.imshow(rgb_ts6)
+    ax2.axis("off")
+    ax2.set_title("RGB TS6", fontsize=24)
 
-    fig.add_subplot(2, 3, 3)
-    plt.imshow(ndvi)
-    plt.axis("off")
-    plt.title("NDVI TS6")
+    ax3 = fig.add_subplot(2, 3, 3)
+    ax3.imshow(ndvi)
+    ax3.axis("off")
+    ax3.set_title("NDVI TS6", fontsize=24)
 
     if task_type == "croptype":
-        fig.add_subplot(2, 3, 4)
+        ax4 = fig.add_subplot(2, 3, 4)
 
         pred0_ewoc_int = [
             int(xx) if not np.isnan(xx) else 1000000000 for xx in np.unique(pred0_ewoc)
@@ -648,36 +637,46 @@ def plot_spatial(
         cmap = mcolors.ListedColormap(colors)
         cmap.set_bad(color="whitesmoke")
 
-        plt.imshow(prediction_0, cmap=cmap)
-        patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
-        plt.legend(
+        ax4.imshow(prediction_0, cmap=cmap)
+        patches = [
+            mpatches.Patch(color=colors[ii], label=values[ii])
+            for ii in range(len(values))
+        ]
+        ax4.legend(
             handles=patches,
             bbox_to_anchor=(1.25, 0.65),
             loc=1,
-            borderaxespad=0.0,
-            prop={"size": 6},
+            borderaxespad=1.0,
+            prop={"size": 20},
         )
-        plt.axis("off")
-        plt.title("Croptype predictions")
+        ax4.axis("off")
+        ax4.set_title("Croptype predictions", fontsize=24)
 
     if task_type == "cropland":
-        fig.add_subplot(2, 3, 4)
-        plt.imshow(prob_0 > 0.5)
-        plt.axis("off")
-        plt.title("Cropland predictions")
+        ax4 = fig.add_subplot(2, 3, 4)
+        ax4.imshow(prob_0 > 0.5)
+        ax4.axis("off")
+        ax4.set_title("Cropland predictions", fontsize=20)
 
-    fig.add_subplot(2, 3, 5)
-    plt.imshow(prob_0, cmap="Greens", vmin=0, vmax=1)
-    plt.colorbar()
-    plt.axis("off")
-    plt.title("Top1 class prob")
+    ax5 = fig.add_subplot(2, 3, 5)
+    im = ax5.imshow(prob_0, cmap="Greens", vmin=0, vmax=1)
+    ax5.axis("off")
+    ax5.set_title("Top1 class prob", fontsize=24)
+    # Create an axis for the colorbar that is aligned with the plot
+    divider = make_axes_locatable(ax5)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cbar = plt.colorbar(im, cax=cax)
+    cbar.ax.tick_params(labelsize=15)  # Set font size for colorbar
 
     if task_type == "croptype":
-        fig.add_subplot(2, 3, 6)
-        plt.imshow(prob_1, cmap="Greens", vmin=0, vmax=1)
-        plt.colorbar()
-        plt.axis("off")
-        plt.title("Top2 class prob")
+        ax6 = fig.add_subplot(2, 3, 6)
+        im = ax6.imshow(prob_1, cmap="Greens", vmin=0, vmax=1)
+        ax6.axis("off")
+        ax6.set_title("Top2 class prob", fontsize=24)
+        divider = make_axes_locatable(ax6)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        cbar = plt.colorbar(im, cax=cax)
+        cbar.ax.tick_params(labelsize=15)  # Set font size for colorbar
 
     # plt.suptitle(test_patch_name)
 
