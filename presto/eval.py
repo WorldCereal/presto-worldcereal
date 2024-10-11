@@ -18,12 +18,19 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (NORMED_BANDS, WorldCerealInferenceDataset,
-                      WorldCerealLabelled10DDataset,
-                      WorldCerealLabelledDataset)
+from .dataset import (
+    NORMED_BANDS,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelled10DDataset,
+    WorldCerealLabelledDataset,
+)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (Presto, PrestoFineTuningModel,
-                     get_sinusoid_encoding_table, param_groups_lrd)
+from .presto import (
+    Presto,
+    PrestoFineTuningModel,
+    get_sinusoid_encoding_table,
+    param_groups_lrd,
+)
 from .utils import DEFAULT_SEED, device, get_class_mappings, prep_dataframe
 
 MIN_SAMPLES_PER_CLASS = 3
@@ -685,7 +692,7 @@ class WorldCerealEval:
         self, pretrained_model, hyperparams: Hyperparams = Hyperparams()
     ) -> PrestoFineTuningModel:
         model = self._construct_finetuning_model(pretrained_model)
-        
+
         parameters = param_groups_lrd(model)
 
         if self.task_type == "croptype":

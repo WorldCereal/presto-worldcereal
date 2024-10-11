@@ -4,22 +4,11 @@ from unittest import TestCase
 import numpy as np
 import pandas as pd
 import torch
-
-from presto.dataops import (
-    NDVI_INDEX,
-    NODATAVALUE,
-    NUM_ORG_BANDS,
-    NUM_TIMESTEPS,
-    S2_RGB_INDEX,
-    S2_NIR_10m_INDEX,
-)
-from presto.dataset import (
-    WorldCerealBase,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelledDataset,
-    WorldCerealMaskedDataset,
-    filter_remove_noncrops,
-)
+from presto.dataops import (NDVI_INDEX, NODATAVALUE, NUM_ORG_BANDS,
+                            NUM_TIMESTEPS, S2_RGB_INDEX, S2_NIR_10m_INDEX)
+from presto.dataset import (WorldCerealBase, WorldCerealInferenceDataset,
+                            WorldCerealLabelledDataset,
+                            WorldCerealMaskedDataset, filter_remove_noncrops)
 from presto.eval import WorldCerealEval
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
@@ -73,6 +62,8 @@ class TestDataset(TestCase):
             model_kwargs = json.load(file)
 
         model = Presto.construct(**model_kwargs)
+        # valid_month token can only be used in finetuning model
+        model = model.construct_finetuning_model(num_outputs=1)
         model.to(device)
         model.encoder.valid_month_as_token = True
         eo, dw, mask, latlons, months, _, valid_months, _, _ = ds[0]
