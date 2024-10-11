@@ -196,7 +196,12 @@ def get_presto_features(
 
     # Load the model
     from_url = presto_url.startswith("http")
-    presto_model = Presto.load_pretrained(model_path=presto_url, from_url=from_url, strict=False)
+    presto_model = Presto.load_pretrained(
+        model_path=presto_url,
+        from_url=from_url,
+        strict=False,
+        valid_month_as_token=use_valid_date_token,
+    )
 
     # Compile for optimized inference. Note that warmup takes some time
     # so this is only recommended for larger inference jobs
