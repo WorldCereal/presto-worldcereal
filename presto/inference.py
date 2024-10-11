@@ -243,9 +243,12 @@ def compile_encoder(presto_encoder: nn.Module) -> Callable[..., Any]:
     logger.info("Warming-up ...")
     for _ in range(3):
         presto_encoder(
-            torch.rand((1, 12, 17)).to(device),
-            torch.ones((1, 12)).to(device).long(),
-            torch.rand(1, 2).to(device),
+            x=torch.rand((1, 12, 17)).to(device),
+            dynamic_world=torch.ones((1, 12)).to(device).long(),
+            latlons=torch.rand(1, 2).to(device),
+            valid_month=torch.tensor([5]).to(device)
+            if presto_encoder.valid_month_as_token
+            else None,
         )
 
     logger.info("Compilation done.")
