@@ -856,7 +856,7 @@ class Presto(nn.Module):
         is_finetuned: bool = False,
         dekadal: bool = False,
         num_outputs: int = 1,
-        valid_month_as_token: bool = True,
+        valid_month_as_token: bool = False,
         valid_month_size: int = 128,
     ):
 
