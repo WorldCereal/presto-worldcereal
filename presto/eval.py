@@ -18,19 +18,12 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
+from .dataset import (NORMED_BANDS, WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (
-    Presto,
-    PrestoFineTuningModel,
-    get_sinusoid_encoding_table,
-    param_groups_lrd,
-)
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device, get_class_mappings, prep_dataframe
 
 MIN_SAMPLES_PER_CLASS = 3
@@ -692,8 +685,7 @@ class WorldCerealEval:
         self, pretrained_model, hyperparams: Hyperparams = Hyperparams()
     ) -> PrestoFineTuningModel:
         model = self._construct_finetuning_model(pretrained_model)
-        print(model)
-
+        
         parameters = param_groups_lrd(model)
 
         if self.task_type == "croptype":
@@ -877,9 +869,9 @@ Best Val Loss: {best_loss:.3f} \
             ]
 
         finetuned_model = self.finetune(pretrained_model, hyperparams=hyperparams)
-        print("Finetuning done")
+        logger.info("Finetuning done")
         results_df_ft = self.evaluate(finetuned_model, None, croptype_list=self.croptype_list)
-        print("Finetuning head evaluation done")
+        logger.info("Finetuning head evaluation done")
         if self.spatial_inference_savedir is not None:
             self.spatial_inference(finetuned_model, None)
         results_df_sklearn, sklearn_models_trained = self.finetuning_results_sklearn(
