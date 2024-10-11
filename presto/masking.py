@@ -5,8 +5,13 @@ from typing import Any, List, Tuple
 
 import numpy as np
 
-from .dataops import (BAND_EXPANSION, BANDS_GROUPS_IDX, NUM_TIMESTEPS,
-                      SRTM_INDEX, TIMESTEPS_IDX)
+from .dataops import (
+    BAND_EXPANSION,
+    BANDS_GROUPS_IDX,
+    NUM_TIMESTEPS,
+    SRTM_INDEX,
+    TIMESTEPS_IDX,
+)
 
 MASK_STRATEGIES = (
     "group_bands",
@@ -45,10 +50,8 @@ def make_mask_no_dw(
     mask = existing_mask.copy()
 
     srtm_mask = False
-    
-    num_tokens_to_mask = int(
-        ((num_timesteps * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio
-    )
+
+    num_tokens_to_mask = int(((num_timesteps * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio)
     assert num_tokens_to_mask > 0
 
     def mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio):

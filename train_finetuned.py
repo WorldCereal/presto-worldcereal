@@ -12,15 +12,24 @@ import pandas as pd
 import requests
 import torch
 import xarray as xr
+from tqdm.auto import tqdm
+
 from presto.dataops import NODATAVALUE
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
 from presto.presto import Presto
-from presto.utils import (DEFAULT_SEED, config_dir, data_dir,
-                          default_model_path, device, initialize_logging,
-                          plot_spatial, process_parquet, seed_everything,
-                          timestamp_dirname)
-from tqdm.auto import tqdm
+from presto.utils import (
+    DEFAULT_SEED,
+    config_dir,
+    data_dir,
+    default_model_path,
+    device,
+    initialize_logging,
+    plot_spatial,
+    process_parquet,
+    seed_everything,
+    timestamp_dirname,
+)
 
 logger = logging.getLogger("__main__")
 

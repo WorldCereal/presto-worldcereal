@@ -12,11 +12,22 @@ import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
+
 from presto.dataops import NUM_TIMESTEPS
 
-from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
-                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
-                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
+from .dataops import (
+    BANDS,
+    ERA5_BANDS,
+    MIN_EDGE_BUFFER,
+    NODATAVALUE,
+    NORMED_BANDS,
+    REMOVED_BANDS,
+    S1_BANDS,
+    S1_S2_ERA5_SRTM,
+    S2_BANDS,
+    SRTM_BANDS,
+    DynamicWorld2020_2021,
+)
 
 # plt = None
 
@@ -581,6 +592,7 @@ def plot_spatial(
     import matplotlib.colors as mcolors
     import matplotlib.patches as mpatches
     import matplotlib.pyplot as plt
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
 
     CLASS_MAPPINGS = get_class_mappings()
 
@@ -638,10 +650,7 @@ def plot_spatial(
         cmap.set_bad(color="whitesmoke")
 
         ax4.imshow(prediction_0, cmap=cmap)
-        patches = [
-            mpatches.Patch(color=colors[ii], label=values[ii])
-            for ii in range(len(values))
-        ]
+        patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
         ax4.legend(
             handles=patches,
             bbox_to_anchor=(1.25, 0.65),
