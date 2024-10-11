@@ -4,11 +4,22 @@ from unittest import TestCase
 import numpy as np
 import pandas as pd
 import torch
-from presto.dataops import (NDVI_INDEX, NODATAVALUE, NUM_ORG_BANDS,
-                            NUM_TIMESTEPS, S2_RGB_INDEX, S2_NIR_10m_INDEX)
-from presto.dataset import (WorldCerealBase, WorldCerealInferenceDataset,
-                            WorldCerealLabelledDataset,
-                            WorldCerealMaskedDataset, filter_remove_noncrops)
+
+from presto.dataops import (
+    NDVI_INDEX,
+    NODATAVALUE,
+    NUM_ORG_BANDS,
+    NUM_TIMESTEPS,
+    S2_RGB_INDEX,
+    S2_NIR_10m_INDEX,
+)
+from presto.dataset import (
+    WorldCerealBase,
+    WorldCerealInferenceDataset,
+    WorldCerealLabelledDataset,
+    WorldCerealMaskedDataset,
+    filter_remove_noncrops,
+)
 from presto.eval import WorldCerealEval
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
