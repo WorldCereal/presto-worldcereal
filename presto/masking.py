@@ -51,7 +51,9 @@ def make_mask_no_dw(
 
     srtm_mask = False
 
-    num_tokens_to_mask = int(((num_timesteps * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio)
+    num_tokens_to_mask = int(
+        ((num_timesteps * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio
+    ) - sum(sum(mask))
     assert num_tokens_to_mask > 0
 
     def mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio):
