@@ -92,8 +92,12 @@ class TestInference(TestCase):
         )
 
         # Uncomment to regenerate ref features
-        features_without_valid_month_token.to_netcdf(data_dir / "test_inference_features_no_vm.nc")
-        features_with_valid_month_token.to_netcdf(data_dir / "test_inference_features_with_vm.nc")
+        # features_without_valid_month_token.to_netcdf(
+        #   data_dir / "test_inference_features_no_vm.nc"
+        # )
+        # features_with_valid_month_token.to_netcdf(
+        #   data_dir / "test_inference_features_with_vm.nc"
+        # )
 
         # Load ref features
         ref_features_without_valid_month_token = xr.open_dataarray(
