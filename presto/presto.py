@@ -504,11 +504,6 @@ class Encoder(nn.Module):
             x, upd_mask, orig_indices = self.add_token(
                 val_month_token.unsqueeze(1), x, upd_mask, orig_indices
             )
-        else:
-            # if it is None, we ignore it as a token but do add it to
-            # the output embedding
-            valid_month = torch.ones((x.shape[0],), device=device).long()
-            val_month_token = self.valid_month_encoding(valid_month)
 
         # apply Transformer blocks
         attn_mask = ~upd_mask.bool()
