@@ -257,6 +257,7 @@ class WorldCerealEval:
                     task_type=self.task_type,
                     croptype_list=[],
                     return_hierarchical_labels="Hierarchical" in model,
+                    augment=self.augment,
                 ),
                 batch_size=2048,
                 shuffle=False,
@@ -824,8 +825,8 @@ class WorldCerealEval:
 
             pbar.set_description(
                 f"Train metric: {train_loss[-1]:.3f}, Val metric: {val_loss[-1]:.3f}, \
-                Best Val Loss: {best_loss:.3f} \
-                (no improvement for {epochs_since_improvement} epochs)"
+Best Val Loss: {best_loss:.3f} \
+(no improvement for {epochs_since_improvement} epochs)"
             )
             if run is not None:
                 wandb.log(
@@ -875,9 +876,9 @@ class WorldCerealEval:
             ]
 
         finetuned_model = self.finetune(pretrained_model, hyperparams=hyperparams)
-        print("Finetuning done")
+        logger.info("Finetuning done")
         results_df_ft = self.evaluate(finetuned_model, None, croptype_list=self.croptype_list)
-        print("Finetuning head evaluation done")
+        logger.info("Finetuning head evaluation done")
         if self.spatial_inference_savedir is not None:
             self.spatial_inference(finetuned_model, None)
         results_df_sklearn, sklearn_models_trained = self.finetuning_results_sklearn(

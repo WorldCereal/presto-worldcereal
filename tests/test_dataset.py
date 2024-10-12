@@ -64,7 +64,33 @@ class TestDataset(TestCase):
         s1_s2_mask = mask[:, :-5]
         self.assertTrue((y[:, :-5][s1_s2_mask] != 0).all())
 
-    def test_spatial_dataset(self):
+    def test_spatial_dataset_with_valid_month_token(self):
+        num_vals = 100
+        ds = WorldCerealInferenceDataset()
+        # for now, let's just test it runs smoothly
+        path_to_config = config_dir / "default.json"
+        with open(path_to_config) as file:
+            model_kwargs = json.load(file)
+
+        model = Presto.construct(**model_kwargs)
+        # valid_month token can only be used in finetuning model
+        # or in the encoder
+        model = model.construct_finetuning_model(num_outputs=1)
+        model.to(device)
+        model.encoder.valid_month_as_token = True
+        eo, dw, mask, latlons, months, _, valid_months, _, _ = ds[0]
+
+        with torch.no_grad():
+            _ = model(
+                x=torch.from_numpy(eo).float()[:num_vals],
+                dynamic_world=torch.from_numpy(dw).long()[:num_vals],
+                latlons=torch.from_numpy(latlons).float()[:num_vals],
+                mask=torch.from_numpy(mask).int()[:num_vals],
+                month=torch.from_numpy(months).long()[:num_vals],
+                valid_month=torch.from_numpy(valid_months).long()[:num_vals],
+            )
+
+    def test_spatial_dataset_without_valid_month_token(self):
         num_vals = 100
         ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
@@ -74,9 +100,9 @@ class TestDataset(TestCase):
 
         model = Presto.construct(**model_kwargs)
         model.to(device)
-        eo, dw, mask, latlons, months, _, valid_months, _, _ = ds[0]
+        model.encoder.valid_month_as_token = False
+        eo, dw, mask, latlons, months, _, _, _, _ = ds[0]
 
-        # TODO: investigate why inference test fails with valid_month
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
@@ -84,7 +110,6 @@ class TestDataset(TestCase):
                 latlons=torch.from_numpy(latlons).float()[:num_vals],
                 mask=torch.from_numpy(mask).int()[:num_vals],
                 month=torch.from_numpy(months).long()[:num_vals],
-                # valid_month=torch.from_numpy(valid_months).long()[:num_vals],
             )
 
     def test_combine_predictions(self):

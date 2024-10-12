@@ -50,18 +50,11 @@ def make_mask_no_dw(
     mask = existing_mask.copy()
 
     srtm_mask = False
+
     num_tokens_to_mask = int(
-        ((num_timesteps * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio - sum(sum(mask))
-    )
-
-    # change the assert behavior to a less strict one,
-    # so that for smaller mask_ratios existing missing values
-    # are used as "natural" mask
-
-    # assert num_tokens_to_mask > 0
-    if num_tokens_to_mask <= 0:
-        mask[:, SRTM_INDEX] = srtm_mask
-        return np.repeat(mask, BAND_EXPANSION, axis=1)
+        ((num_timesteps * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio
+    ) - sum(sum(mask))
+    assert num_tokens_to_mask > 0
 
     def mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio):
         should_flip = random() < mask_ratio
