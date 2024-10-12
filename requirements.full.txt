@@ -11,4 +11,5 @@ matplotlib==3.7.5
 rtree==1.1.0
 tqdm==4.64.1
 types-requests~=2.32.0
+hiclass==4.10.0
 

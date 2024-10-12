@@ -8,6 +8,7 @@ from typing import Optional, Sized, Tuple, Union, cast
 import numpy as np
 import requests
 import torch
+import torch.utils.model_zoo
 from einops import repeat
 from torch import nn
 from torch.jit import Final
@@ -246,10 +247,7 @@ def get_month_encoding_table(d_hid):
     cos_table = np.cos(np.stack([angles for _ in range(d_hid // 2)], axis=-1))
     month_table = np.concatenate([sin_table[:-1], cos_table[:-1]], axis=-1)
 
-    if torch.cuda.is_available():
-        return torch.FloatTensor(month_table).cuda()
-    else:
-        return torch.FloatTensor(month_table)
+    return torch.FloatTensor(month_table).to(device)
 
 
 def month_to_tensor(
@@ -285,11 +283,17 @@ class Encoder(nn.Module):
         mlp_ratio=2,
         num_heads=8,
         max_sequence_length=24,
+        valid_month_as_token: bool = False,
+        valid_month_size: int = 128,
     ):
         super().__init__()
 
         self.band_groups = BANDS_GROUPS_IDX
         self.embedding_size = embedding_size
+        self.valid_month_as_token = valid_month_as_token
+        if valid_month_as_token:
+            assert valid_month_size == embedding_size
+        self.valid_month_size = valid_month_size
 
         # this is used for the channel embedding
         self.band_group_to_idx = {
@@ -306,6 +310,7 @@ class Encoder(nn.Module):
         self.dw_embed = nn.Embedding(
             num_embeddings=DynamicWorld2020_2021.class_amount + 1,
             embedding_dim=embedding_size,
+            device=device,
         )
         self.latlon_embed = nn.Linear(3, embedding_size)
 
@@ -329,13 +334,19 @@ class Encoder(nn.Module):
         channel_embedding_size = int(embedding_size * channel_embed_ratio)
         month_embedding_size = int(embedding_size * month_embed_ratio)
         self.pos_embed = nn.Parameter(
-            torch.zeros(1, max_sequence_length, pos_embedding_size), requires_grad=False
+            torch.zeros(1, max_sequence_length, pos_embedding_size),
+            requires_grad=False,
         )
         month_tab = get_month_encoding_table(month_embedding_size)
         self.month_embed = nn.Embedding.from_pretrained(month_tab, freeze=True)
+
         self.channel_embed = nn.Embedding(
             num_embeddings=len(self.band_groups) + 1,
             embedding_dim=channel_embedding_size,
+        )
+
+        self.valid_month_encoding = nn.Embedding.from_pretrained(
+            get_month_encoding_table(valid_month_size)
         )
 
         self.initialize_weights()
@@ -387,6 +398,16 @@ class Encoder(nn.Module):
 
         return x, indices, updated_mask
 
+    @staticmethod
+    def add_token(token, token_list, mask, indices):
+        token_list = torch.cat((token, token_list), dim=1)
+        mask = torch.cat((torch.zeros(token_list.shape[0])[:, None].to(device), mask), dim=1)
+        indices = torch.cat(
+            (torch.zeros(token_list.shape[0])[:, None].to(device).int(), indices + 1),
+            dim=1,
+        )
+        return token_list, mask, indices
+
     def forward(
         self,
         x: torch.Tensor,
@@ -394,14 +415,15 @@ class Encoder(nn.Module):
         latlons: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         month: Union[torch.Tensor, int] = 0,
+        valid_month: Optional[torch.Tensor] = None,
         eval_task: bool = True,
     ):
-        device = x.device
+        # device = x.device
 
         if mask is None:
             mask = torch.zeros_like(x, device=x.device)
 
-        months = month_to_tensor(month, x.shape[0], x.shape[1], device)
+        months = month_to_tensor(month, x.shape[0], x.shape[1], x.device)
         month_embedding = self.month_embed(months)
         positional_embedding = repeat(
             self.pos_embed[:, : x.shape[1], :],
@@ -415,9 +437,11 @@ class Encoder(nn.Module):
 
         for channel_group, channel_idxs in self.band_groups.items():
             tokens = self.eo_patch_embed[channel_group](x[:, :, channel_idxs])
+
             channel_embedding = self.channel_embed(
                 torch.tensor(self.band_group_to_idx[channel_group]).long().to(device)
             )
+
             channel_embedding = repeat(channel_embedding, "d -> b t d", b=x.shape[0], t=x.shape[1])
             if channel_group == "SRTM":
                 # for SRTM, we reduce it to a single token instead of
@@ -445,13 +469,16 @@ class Encoder(nn.Module):
 
         # then, dynamic world
         tokens = self.dw_embed(dynamic_world)
+
         channel_embedding = self.channel_embed(
             torch.tensor(self.band_group_to_idx["dynamic_world"]).long().to(device)
         )
+
         channel_embedding = repeat(channel_embedding, "d -> b t d", b=x.shape[0], t=x.shape[1])
         positional_embedding = torch.cat(
             (month_embedding, channel_embedding, positional_embedding), dim=-1
         )
+
         tokens += positional_embedding
         all_tokens.append(tokens)
 
@@ -465,16 +492,23 @@ class Encoder(nn.Module):
 
         # append latlon tokens
         latlon_tokens = self.latlon_embed(self.cartesian(latlons)).unsqueeze(1)
-        x = torch.cat((latlon_tokens, x), dim=1)
-        upd_mask = torch.cat((torch.zeros(x.shape[0])[:, None].to(device), upd_mask), dim=1)
-        orig_indices = torch.cat(
-            (torch.zeros(x.shape[0])[:, None].to(device).int(), orig_indices + 1),
-            dim=1,
-        )
+        x, upd_mask, orig_indices = self.add_token(latlon_tokens, x, upd_mask, orig_indices)
+
+        # un-comment the next line to ignore latlon tokens to test
+        # if location overfitting is happenning
+        # upd_mask[:, 0] = 1
+
+        if self.valid_month_as_token:
+            assert valid_month is not None
+            val_month_token = self.valid_month_encoding(valid_month)
+            x, upd_mask, orig_indices = self.add_token(
+                val_month_token.unsqueeze(1), x, upd_mask, orig_indices
+            )
 
         # apply Transformer blocks
+        attn_mask = ~upd_mask.bool()
         for blk in self.blocks:
-            x = blk(x, attn_mask=~upd_mask.bool())
+            x = blk(x, attn_mask=attn_mask)
 
         # mask will be a boolean of shape [batch, total_num_tokens]
         if eval_task:
@@ -482,6 +516,7 @@ class Encoder(nn.Module):
             x_for_mean = x * (1 - upd_mask.unsqueeze(-1))
             x_mean = x_for_mean.sum(dim=1) / torch.sum(1 - upd_mask, -1, keepdim=True)
             return self.norm(x_mean)
+
         return self.norm(x), orig_indices, upd_mask
 
 
@@ -702,6 +737,7 @@ class PrestoFineTuningModel(nn.Module):
         latlons: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         month: Union[torch.Tensor, int] = 0,
+        valid_month: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         return self.head(
             self.encoder(
@@ -710,6 +746,7 @@ class PrestoFineTuningModel(nn.Module):
                 latlons=latlons,
                 mask=mask,
                 month=month,
+                valid_month=valid_month,
                 eval_task=True,
             )
         )
@@ -741,6 +778,7 @@ class Presto(nn.Module):
         latlons: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         month: Union[torch.Tensor, int] = 0,
+        valid_month: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         x, orig_indices, x_mask = self.encoder(
             x=x,
@@ -749,8 +787,8 @@ class Presto(nn.Module):
             mask=mask,
             month=month,
             eval_task=False,
+            valid_month=valid_month,
         )
-
         return self.decoder(x, orig_indices, x_mask, month)
 
     @classmethod
@@ -766,6 +804,8 @@ class Presto(nn.Module):
         decoder_depth=2,
         decoder_num_heads=8,
         max_sequence_length=24,
+        valid_month_as_token: bool = False,
+        valid_month_size: int = 128,
     ):
         encoder = Encoder(
             embedding_size=encoder_embedding_size,
@@ -775,6 +815,8 @@ class Presto(nn.Module):
             mlp_ratio=mlp_ratio,
             num_heads=encoder_num_heads,
             max_sequence_length=max_sequence_length,
+            valid_month_as_token=valid_month_as_token,
+            valid_month_size=valid_month_size,
         )
         decoder = Decoder(
             channel_embeddings=encoder.channel_embed,
@@ -791,9 +833,10 @@ class Presto(nn.Module):
         self,
         num_outputs: int,
     ) -> PrestoFineTuningModel:
+        hidden_size = self.encoder.embedding_size
         head = FinetuningHead(
             num_outputs=num_outputs,
-            hidden_size=self.encoder.embedding_size,
+            hidden_size=hidden_size,
         )
         model = PrestoFineTuningModel(self.encoder, head).to(self.encoder.pos_embed.device)
         model.train()
@@ -801,22 +844,43 @@ class Presto(nn.Module):
 
     @classmethod
     def load_pretrained(
-        cls, model_path: Union[str, Path] = default_model_path, strict: bool = True
+        cls,
+        model_path: Union[str, Path] = default_model_path,
+        from_url: bool = False,
+        strict: bool = True,
+        is_finetuned: bool = False,
+        dekadal: bool = False,
+        num_outputs: int = 1,
+        valid_month_as_token: bool = False,
+        valid_month_size: int = 128,
     ):
-        model = cls.construct()
-        model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
+
+        model = cls.construct(
+            valid_month_as_token=valid_month_as_token,
+            valid_month_size=valid_month_size,
+        )
+
+        if dekadal:
+            model = extend_to_dekadal(model)
+
+        if is_finetuned:
+            model = model.construct_finetuning_model(num_outputs)
+
+        if from_url:
+            presto_model_layers = cls.load_layers_from_url(str(model_path))
+            model.load_state_dict(presto_model_layers, strict=strict)
+        else:
+            model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
 
         return model
 
     @classmethod
     @functools.lru_cache(maxsize=6)
-    def load_pretrained_url(cls, presto_url: str, strict: bool = True):
+    def load_layers_from_url(cls, presto_url: str):
         response = requests.get(presto_url)
         presto_model_layers = torch.load(io.BytesIO(response.content), map_location=device)
-        model = cls.construct()
-        model.load_state_dict(presto_model_layers, strict=strict)
 
-        return model
+        return presto_model_layers
 
 
 def param_groups_lrd(
@@ -882,3 +946,39 @@ def get_layer_id_for_rest_finetuning(name, num_layers):
         return int(name.split(".")[2]) + 1
     else:
         return num_layers
+
+
+def extend_to_dekadal(model):
+    # reinitialize positional embeddings for encoder to deal with decadal data
+    max_sequence_length = 72  # can this be 36?
+    old_pos_embed_device = model.encoder.pos_embed.device
+    model.encoder.pos_embed = nn.Parameter(
+        torch.zeros(
+            1,
+            max_sequence_length,
+            model.encoder.pos_embed.shape[-1],
+            device=old_pos_embed_device,
+        ),
+        requires_grad=False,
+    )
+    pos_embed = get_sinusoid_encoding_table(
+        model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
+    )
+    model.encoder.pos_embed.data.copy_(pos_embed.to(device=old_pos_embed_device))
+
+    # reinitialize positional embeddings for decoder to deal with decadal data
+    old_pos_embed_device = model.decoder.pos_embed.device
+    model.decoder.pos_embed = nn.Parameter(
+        torch.zeros(
+            1,
+            max_sequence_length,
+            model.decoder.pos_embed.shape[-1],
+            device=old_pos_embed_device,
+        ),
+        requires_grad=False,
+    )
+    pos_embed = get_sinusoid_encoding_table(
+        model.decoder.pos_embed.shape[1], model.decoder.pos_embed.shape[-1]
+    )
+    model.decoder.pos_embed.data.copy_(pos_embed.to(device=old_pos_embed_device))
+    return model

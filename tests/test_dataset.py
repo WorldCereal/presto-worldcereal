@@ -1,24 +1,36 @@
+import json
 from unittest import TestCase
 
 import numpy as np
+import pandas as pd
 import torch
 
-from presto.dataops import NUM_ORG_BANDS, NUM_TIMESTEPS
+from presto.dataops import (
+    NDVI_INDEX,
+    NODATAVALUE,
+    NUM_ORG_BANDS,
+    NUM_TIMESTEPS,
+    S2_RGB_INDEX,
+    S2_NIR_10m_INDEX,
+)
 from presto.dataset import (
+    WorldCerealBase,
     WorldCerealInferenceDataset,
     WorldCerealLabelledDataset,
     WorldCerealMaskedDataset,
-    target_maize,
+    filter_remove_noncrops,
 )
+from presto.eval import WorldCerealEval
 from presto.masking import MaskParamsNoDw
 from presto.presto import Presto
-from tests.utils import NUM_CROP_POINTS, NUM_MAIZE_POINTS, read_test_file
+from presto.utils import config_dir, device
+from tests.utils import read_test_file
 
 
 class TestDataset(TestCase):
     def test_normalize_and_mask(self):
         test_data = np.ones((NUM_TIMESTEPS, NUM_ORG_BANDS))
-        test_data[0, 0] = WorldCerealLabelledDataset._NODATAVALUE
+        test_data[0, 0] = NODATAVALUE
         out = WorldCerealLabelledDataset.normalize_and_mask(test_data)
         self.assertEqual(out[0, 0], 0)
 
@@ -39,7 +51,8 @@ class TestDataset(TestCase):
         eo_data = vals[2]
         y = vals[3]
         true_mask = vals[9]
-        self.assertTrue((mask[true_mask] == True).all())
+        # self.assertTrue((mask[true_mask] == True).all())
+        self.assertTrue((mask[true_mask] == 1).all())
         self.assertTrue((eo_data[true_mask] == 0).all())
         # we are very confident these should not be 0 after normalization
         combined_s2_s1 = (eo_data + y)[:, :-5]
@@ -51,46 +64,94 @@ class TestDataset(TestCase):
         s1_s2_mask = mask[:, :-5]
         self.assertTrue((y[:, :-5][s1_s2_mask] != 0).all())
 
-    def test_spatial_dataset(self):
+    def test_spatial_dataset_with_valid_month_token(self):
         num_vals = 100
         ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
-        model = Presto.construct()
-        eo, dw, mask, flat_latlons, months, _, _, _ = ds[0]
+        path_to_config = config_dir / "default.json"
+        with open(path_to_config) as file:
+            model_kwargs = json.load(file)
+
+        model = Presto.construct(**model_kwargs)
+        # valid_month token can only be used in finetuning model
+        # or in the encoder
+        model = model.construct_finetuning_model(num_outputs=1)
+        model.to(device)
+        model.encoder.valid_month_as_token = True
+        eo, dw, mask, latlons, months, _, valid_months, _, _ = ds[0]
+
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
                 dynamic_world=torch.from_numpy(dw).long()[:num_vals],
-                latlons=torch.from_numpy(flat_latlons).float()[:num_vals],
+                latlons=torch.from_numpy(latlons).float()[:num_vals],
+                mask=torch.from_numpy(mask).int()[:num_vals],
+                month=torch.from_numpy(months).long()[:num_vals],
+                valid_month=torch.from_numpy(valid_months).long()[:num_vals],
+            )
+
+    def test_spatial_dataset_without_valid_month_token(self):
+        num_vals = 100
+        ds = WorldCerealInferenceDataset()
+        # for now, let's just test it runs smoothly
+        path_to_config = config_dir / "default.json"
+        with open(path_to_config) as file:
+            model_kwargs = json.load(file)
+
+        model = Presto.construct(**model_kwargs)
+        model.to(device)
+        model.encoder.valid_month_as_token = False
+        eo, dw, mask, latlons, months, _, _, _, _ = ds[0]
+
+        with torch.no_grad():
+            _ = model(
+                x=torch.from_numpy(eo).float()[:num_vals],
+                dynamic_world=torch.from_numpy(dw).long()[:num_vals],
+                latlons=torch.from_numpy(latlons).float()[:num_vals],
                 mask=torch.from_numpy(mask).int()[:num_vals],
                 month=torch.from_numpy(months).long()[:num_vals],
             )
 
     def test_combine_predictions(self):
-        # adapted from https://github.com/nasaharvest/openmapflow/blob/main/tests/test_inference.py
-        flat_lat = np.array([14.95313164, 14.95313165])
-        flat_lon = np.array([-86.25070894, -86.25061911])
-        batch_predictions = np.array([[0.43200156], [0.55286014], [0.5265], [0.5236109]])
-        ndvi = np.array([0.43200156, 0.55286014, 0.5265, 0.5236109])
-        worldcereal_labels = np.array([[1, 1], [0, 0], [1, 1], [0, 0]])
+        # copied from https://github.com/nasaharvest/openmapflow/blob/main/tests/test_inference.py
+        x_coord = np.array([14.95313164, 14.95323164, 14.95333164, 14.95343164, 14.95353164])
+        y_coord = np.array([-86.25070894, -86.25061911, -86.25052928, -86.25043945, -86.25034962])
+
+        b2 = np.random.rand(len(y_coord) * len(x_coord))
+        b3 = np.random.rand(len(y_coord) * len(x_coord))
+        b4 = np.random.rand(len(y_coord) * len(x_coord))
+        ndvi = np.random.rand(len(y_coord) * len(x_coord))
+
+        worldcereal_labels = np.random.randint(
+            low=0, high=2, size=(len(y_coord) * len(x_coord)), dtype=int
+        )
+        batch_predictions = np.random.rand(len(y_coord) * len(x_coord))
+        all_preds_ewoc_code = np.full_like(batch_predictions, 110000000)
+
         da_predictions = WorldCerealInferenceDataset.combine_predictions(
             all_preds=batch_predictions,
             gt=worldcereal_labels,
             ndvi=ndvi,
-            x_coord=flat_lat,
-            y_coord=flat_lon,
+            all_preds_ewoc_code=all_preds_ewoc_code,
+            all_probs=batch_predictions,
+            b2=b2,
+            b3=b3,
+            b4=b4,
+            x_coord=x_coord,
+            y_coord=y_coord,
         )
+
         df_predictions = da_predictions.to_dataset(dim="bands").to_dataframe()
 
         # Check size
         self.assertEqual(df_predictions.index.levels[0].name, "y")
         self.assertEqual(df_predictions.index.levels[1].name, "x")
-        self.assertEqual(len(df_predictions.index.levels[0]), 2)
-        self.assertEqual(len(df_predictions.index.levels[1]), 2)
+        self.assertEqual(len(df_predictions.index.levels[0]), len(y_coord))
+        self.assertEqual(len(df_predictions.index.levels[1]), len(x_coord))
 
         # Check coords
-        self.assertTrue((df_predictions.index.levels[0].values == flat_lon).all())
-        self.assertTrue((df_predictions.index.levels[1].values == flat_lat).all())
+        self.assertTrue((df_predictions.index.levels[0].values == y_coord).all())
+        self.assertTrue((df_predictions.index.levels[1].values == x_coord).all())
 
         # Check all predictions between 0 and 1
         self.assertTrue(df_predictions["prediction_0"].min() >= 0)
@@ -104,6 +165,7 @@ class TestDataset(TestCase):
 
     def test_targets_correctly_calculated_crop_noncrop(self):
         df = read_test_file()
+        NUM_CROP_POINTS = (df["LANDCOVER_LABEL"] == 11).sum()
         ds = WorldCerealLabelledDataset(df)
         num_positives = 0
         for i in range(len(ds)):
@@ -113,18 +175,130 @@ class TestDataset(TestCase):
             num_positives += y == 1
         self.assertTrue(num_positives == NUM_CROP_POINTS)
 
-    def test_targets_correctly_calculated_maize(self):
-        df = read_test_file()
-        ds = WorldCerealLabelledDataset(df, target_function=target_maize)
-        num_positives = 0
-        for i in range(len(ds)):
-            batch = ds[i]
-            y = batch[1]
-            assert y in [0, 1]
-            num_positives += y == 1
-        self.assertTrue(num_positives == NUM_MAIZE_POINTS)
-
     def test_list_correctly_resized(self):
         input_list = [1] * 10
         output_list = WorldCerealLabelledDataset.multiply_list_length_by_float(input_list, 2.5)
         self.assertEqual(len(output_list), 25)
+
+    def test_mask_consistency(self):
+        df = read_test_file()
+        test_row = df.sample().iloc[0]
+        # make first 6 timesteps filled with NODATAVALUE
+        # expected behavior is that NDVI is masked out
+        # at the first six timesteps
+        valid_position = int(test_row["valid_position"])
+        for ts in range(valid_position - 6, valid_position - 3):
+            test_row[f"OPTICAL-B04-ts{ts}-10m"] = NODATAVALUE
+        for ts in range(valid_position - 3, valid_position - 1):
+            test_row[f"OPTICAL-B08-ts{ts}-10m"] = NODATAVALUE
+        test_row[f"OPTICAL-B04-ts{valid_position-1}-10m"] = NODATAVALUE
+        test_row[f"OPTICAL-B08-ts{valid_position-1}-10m"] = NODATAVALUE
+
+        eo, mask, latlon, month, valid_month = WorldCerealBase.row_to_arrays(test_row)
+
+        self.assertTrue(set([0, 1, 2, 5]) & set(np.where(mask[:, S2_RGB_INDEX])[0]))
+        self.assertTrue(set([3, 4, 5]) & set(np.where(mask[:, S2_NIR_10m_INDEX])[0]))
+        self.assertTrue(mask[:6, NDVI_INDEX].all())
+
+    def test_balancing_croptype(self):
+        finetune_classes = "CROPTYPE0"
+        downstream_classes = "CROPTYPE9"
+        test_data = read_test_file(finetune_classes, downstream_classes)
+        test_data = filter_remove_noncrops(test_data)
+
+        eval_task_balance = WorldCerealEval(
+            test_data,
+            test_data,
+            task_type="croptype",
+            finetune_classes=finetune_classes,
+            downstream_classes=downstream_classes,
+            balance=True,
+        )
+        balance_indices = eval_task_balance.ds_class(
+            eval_task_balance.train_df,
+            task_type=eval_task_balance.task_type,
+            croptype_list=eval_task_balance.croptype_list,
+            balance=eval_task_balance.balance,
+            augment=eval_task_balance.augment,
+            mask_ratio=eval_task_balance.train_masking,
+        ).indices
+        class_counts_balanced = (
+            eval_task_balance.train_df.finetune_class.iloc[balance_indices]
+            .value_counts()
+            .sort_index()
+        )
+        class_counts_df = pd.DataFrame(class_counts_balanced)
+        class_counts_df.columns = ["balanced_counts"]
+
+        eval_task_imbalance = WorldCerealEval(
+            test_data,
+            test_data,
+            task_type="croptype",
+            finetune_classes=finetune_classes,
+            downstream_classes=downstream_classes,
+            balance=False,
+        )
+        imbalance_indices = eval_task_imbalance.ds_class(
+            eval_task_imbalance.train_df,
+            task_type=eval_task_imbalance.task_type,
+            croptype_list=eval_task_imbalance.croptype_list,
+            balance=eval_task_imbalance.balance,
+            augment=eval_task_imbalance.augment,
+            mask_ratio=eval_task_imbalance.train_masking,
+        ).indices
+        class_counts_imbalanced = eval_task_imbalance.train_df.finetune_class.iloc[
+            imbalance_indices
+        ].value_counts()
+        class_counts_df["imbalanced_counts"] = class_counts_df.index.map(class_counts_imbalanced)
+
+        self.assertTrue(
+            (class_counts_df["balanced_counts"] >= class_counts_df["imbalanced_counts"]).all()
+        )
+
+    def test_augment_temporal_jittering(self):
+        row_d = {"available_timesteps": 1000, "valid_position": 20}
+
+        valid_position = int(row_d["valid_position"])
+
+        timestep_positions_base = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=False, is_ssl=False
+        )
+        timestep_positions_augment1 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=True, is_ssl=False
+        )
+        timestep_positions_augment2 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=True, is_ssl=False
+        )
+        timestep_positions_augment3 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=True, is_ssl=False
+        )
+
+        timestep_positions_ssl1 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=False, is_ssl=True
+        )
+        timestep_positions_ssl2 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=False, is_ssl=True
+        )
+
+        self.assertTrue(
+            timestep_positions_base[0] == (valid_position - WorldCerealBase.NUM_TIMESTEPS // 2)
+        )
+        self.assertTrue(
+            timestep_positions_base[-1]
+            == (valid_position + (WorldCerealBase.NUM_TIMESTEPS // 2) - 1)
+        )
+        self.assertTrue(
+            np.unique(
+                [
+                    timestep_positions_augment1[0],
+                    timestep_positions_augment2[0],
+                    timestep_positions_augment3[0],
+                ]
+            ).shape[0]
+            > 1
+        )
+        self.assertTrue(timestep_positions_ssl1[0] != timestep_positions_ssl2[0])
+        self.assertTrue(
+            (valid_position not in timestep_positions_ssl1)
+            or (valid_position not in timestep_positions_ssl2)
+        )

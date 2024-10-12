@@ -19,7 +19,7 @@ from .dataops import (
 from .dataset import WorldCerealBase, WorldCerealInferenceDataset
 from .masking import BAND_EXPANSION
 from .presto import Presto
-from .utils import device, prep_dataframe
+from .utils import device, process_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +32,23 @@ IDX_TO_BAND_GROUPS = {
 
 
 class PrestoFeatureExtractor:
-    def __init__(self, model: Presto, batch_size: int = 8192):
+    def __init__(self, model: Presto, use_valid_date_token: bool = False, batch_size: int = 8192):
         """
         Initialize the PrestoFeatureExtractor with a Presto model.
 
         Args:
             model (Presto): The Presto model used for feature extraction.
+            use_valid_date_token (bool): Use `valid_date` as input token to focus Presto.
             batch_size (int): Batch size for dataloader.
         """
         self.model = model
+        self.use_valid_date_token = use_valid_date_token
         self.batch_size = batch_size
+
+        if use_valid_date_token:
+            logger.warning('Initializing PrestoFeatureExtractor with "valid_date" token.')
+        else:
+            logger.warning('Initializing PrestoFeatureExtractor without "valid_date" token.')
 
     _NODATAVALUE = 65535
     _ds = WorldCerealInferenceDataset
@@ -53,6 +60,7 @@ class PrestoFeatureExtractor:
         months: np.ndarray,
         latlons: np.ndarray,
         mask: np.ndarray,
+        valid_months: np.ndarray,
     ) -> DataLoader:
         """
         Create a PyTorch DataLoader for encoding features.
@@ -63,6 +71,8 @@ class PrestoFeatureExtractor:
             latlons (np.ndarray): Array containing latitude and longitude coordinates.
             inarr (xr.DataArray): Input xarray.DataArray.
             mask (np.ndarray): Array containing masking data.
+            months (np.ndarray): Array containing month data.
+            valid_months (np.ndarray): Array containing valid month data.
 
         Returns:
             DataLoader: PyTorch DataLoader for encoding features.
@@ -74,6 +84,7 @@ class PrestoFeatureExtractor:
                 torch.from_numpy(dynamic_world).long(),
                 torch.from_numpy(latlons).float(),
                 torch.from_numpy(months).long(),
+                torch.from_numpy(valid_months).long(),
                 torch.from_numpy(mask).float(),
             ),
             batch_size=self.batch_size,
@@ -84,10 +95,13 @@ class PrestoFeatureExtractor:
 
     def _create_presto_input(
         self, inarr: xr.DataArray, epsg: int = 4326
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         eo_data, mask = self._ds._extract_eo_data(inarr)
         flat_latlons = self._ds._extract_latlons(inarr, epsg)
         months = self._ds._extract_months(inarr)
+
+        valid_month = pd.to_datetime(inarr.attrs["valid_date"]).month - 1
+        valid_months = np.full_like(months, valid_month)
         dynamic_world = np.ones((eo_data.shape[0], eo_data.shape[1])) * (
             DynamicWorld2020_2021.class_amount
         )
@@ -98,6 +112,7 @@ class PrestoFeatureExtractor:
             months,
             flat_latlons,
             np.repeat(mask, BAND_EXPANSION, axis=-1),
+            valid_months,
         )
 
     def _get_encodings(self, dl: DataLoader) -> np.ndarray:
@@ -118,11 +133,10 @@ class PrestoFeatureExtractor:
 
         with torch.no_grad():
 
-            for i, (x, dw, latlons, month, variable_mask) in enumerate(dl):
-                x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-                    t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            for i, (x, dw, latlons, month, valid_month, variable_mask) in enumerate(dl):
+                x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
+                    t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
                 ]
-
                 encodings[i * self.batch_size : i * self.batch_size + self.batch_size, :] = (
                     self.model.encoder(
                         x_f,
@@ -130,6 +144,7 @@ class PrestoFeatureExtractor:
                         mask=variable_mask_f,
                         latlons=latlons_f,
                         month=month_f,
+                        valid_month=(valid_month_f if self.use_valid_date_token else None),
                     )
                     .cpu()
                     .numpy()
@@ -139,8 +154,10 @@ class PrestoFeatureExtractor:
 
     def extract_presto_features(self, inarr: xr.DataArray, epsg: int = 4326) -> xr.DataArray:
 
-        eo, dynamic_world, months, latlons, mask = self._create_presto_input(inarr, epsg)
-        dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask)
+        eo, dynamic_world, months, latlons, mask, valid_months = self._create_presto_input(
+            inarr, epsg
+        )
+        dl = self._create_dataloader(eo, dynamic_world, months, latlons, mask, valid_months)
 
         features = self._get_encodings(dl)
         features = rearrange(features, "(x y) c -> x y c", x=len(inarr.x), y=len(inarr.y))
@@ -158,6 +175,7 @@ def get_presto_features(
     inarr: Union[pd.DataFrame, xr.DataArray],
     presto_url: str,
     epsg: int = 4326,
+    use_valid_date_token: bool = False,
     batch_size: int = 8192,
     compile: bool = False,
 ) -> Union[np.ndarray, xr.DataArray]:
@@ -168,6 +186,7 @@ def get_presto_features(
         inarr (xr.DataArray or pd.DataFrame): Input data as xarray DataArray or pandas DataFrame.
         presto_url (str): URL to the pretrained Presto model.
         epsg (int) : EPSG code describing the coordinates.
+        use_valid_date_token (bool) : Use `valid_date` as input token to focus Presto.
         batch_size (int): Batch size to be used for Presto inference.
         compile (bool): Whether to compile the model before extracting features.
 
@@ -176,17 +195,22 @@ def get_presto_features(
     """
 
     # Load the model
-    if presto_url.startswith("http"):
-        presto_model = Presto.load_pretrained_url(presto_url=presto_url, strict=False)
-    else:
-        presto_model = Presto.load_pretrained(model_path=presto_url, strict=False)
+    from_url = presto_url.startswith("http")
+    presto_model = Presto.load_pretrained(
+        model_path=presto_url,
+        from_url=from_url,
+        strict=False,
+        valid_month_as_token=use_valid_date_token,
+    )
 
     # Compile for optimized inference. Note that warmup takes some time
     # so this is only recommended for larger inference jobs
     if compile:
         presto_model.encoder = compile_encoder(presto_model.encoder)
 
-    presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
+    presto_extractor = PrestoFeatureExtractor(
+        presto_model, use_valid_date_token=use_valid_date_token, batch_size=batch_size
+    )
 
     if isinstance(inarr, pd.DataFrame):
         processed_df = process_parquet(inarr)
@@ -195,123 +219,13 @@ def get_presto_features(
         return presto_extractor._get_encodings(dl)
 
     elif isinstance(inarr, xr.DataArray):
+        # Check if we have the expected 12 timesteps
+        if len(inarr.t) != 12:
+            raise ValueError(f"Can only run Presto on 12 timesteps, got: {len(inarr.t)}")
         return presto_extractor.extract_presto_features(inarr, epsg=epsg)
 
     else:
         raise ValueError("Input data must be either xr.DataArray or pd.DataFrame")
-
-
-def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
-    # add dummy value + rename stuff for compatibility with existing functions
-    df["OPTICAL-B8A"] = 65535
-    df.rename(
-        columns={
-            "S1-SIGMA0-VV": "SAR-VV",
-            "S1-SIGMA0-VH": "SAR-VH",
-            "S2-L2A-B02": "OPTICAL-B02",
-            "S2-L2A-B03": "OPTICAL-B03",
-            "S2-L2A-B04": "OPTICAL-B04",
-            "S2-L2A-B05": "OPTICAL-B05",
-            "S2-L2A-B06": "OPTICAL-B06",
-            "S2-L2A-B07": "OPTICAL-B07",
-            "S2-L2A-B08": "OPTICAL-B08",
-            "S2-L2A-B11": "OPTICAL-B11",
-            "S2-L2A-B12": "OPTICAL-B12",
-            "AGERA5-precipitation-flux": "METEO-precipitation_flux",
-            "AGERA5-temperature-mean": "METEO-temperature_mean",
-        },
-        inplace=True,
-    )
-
-    feature_columns = [
-        "METEO-precipitation_flux",
-        "METEO-temperature_mean",
-        "SAR-VH",
-        "SAR-VV",
-        "OPTICAL-B02",
-        "OPTICAL-B03",
-        "OPTICAL-B04",
-        "OPTICAL-B08",
-        "OPTICAL-B8A",
-        "OPTICAL-B05",
-        "OPTICAL-B06",
-        "OPTICAL-B07",
-        "OPTICAL-B11",
-        "OPTICAL-B12",
-    ]
-    index_columns = [
-        "CROPTYPE_LABEL",
-        "DEM-alt-20m",
-        "DEM-slo-20m",
-        "LANDCOVER_LABEL",
-        "POTAPOV-LABEL-10m",
-        "WORLDCOVER-LABEL-10m",
-        "aez_zoneid",
-        "end_date",
-        "lat",
-        "lon",
-        "start_date",
-        "sample_id",
-        "valid_date",
-    ]
-
-    bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
-    bands20m = [
-        "SAR-VH",
-        "SAR-VV",
-        "OPTICAL-B05",
-        "OPTICAL-B06",
-        "OPTICAL-B07",
-        "OPTICAL-B11",
-        "OPTICAL-B12",
-        "OPTICAL-B8A",
-    ]
-    bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
-
-    # ----------------------------------------------------------------------------
-    # PLACEHOLDER for substituting start_date with one derived from crop calendars
-    # df['start_date'] = seasons.get_season_start(df[['lat','lon']])
-
-    # For now, in absence of a relevant start_date, we get time difference with respect
-    # to end_date so we can take 12 months counted back from end_date
-    df["valid_date_ind"] = (
-        (((df["timestamp"] - df["end_date"]).dt.days + 365) / 30).round().astype(int)
-    )
-
-    # Now reassign start_date to the actual subset counted back from end_date
-    df["start_date"] = df["end_date"] - pd.DateOffset(years=1) + pd.DateOffset(days=1)
-
-    df_pivot = df[(df["valid_date_ind"] >= 0) & (df["valid_date_ind"] < 12)].pivot(
-        index=index_columns, columns="valid_date_ind", values=feature_columns
-    )
-
-    # ----------------------------------------------------------------------------
-
-    if df_pivot.empty:
-        raise ValueError("Left with an empty DataFrame!")
-
-    df_pivot.reset_index(inplace=True)
-    df_pivot.columns = [
-        f"{xx[0]}-ts{xx[1]}" if isinstance(xx[1], int) else xx[0]
-        for xx in df_pivot.columns.to_flat_index()
-    ]
-    df_pivot.columns = [
-        f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns
-    ]
-    df_pivot.columns = [
-        f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns
-    ]
-    df_pivot.columns = [
-        f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
-    ]
-
-    df_pivot["start_date"] = df_pivot["start_date"].dt.date.astype(str)
-    df_pivot["end_date"] = df_pivot["end_date"].dt.date.astype(str)
-    df_pivot["valid_date"] = df_pivot["valid_date"].dt.date.astype(str)
-
-    df_pivot = prep_dataframe(df_pivot)
-
-    return df_pivot
 
 
 @functools.lru_cache(maxsize=6)
@@ -334,9 +248,12 @@ def compile_encoder(presto_encoder: nn.Module) -> Callable[..., Any]:
     logger.info("Warming-up ...")
     for _ in range(3):
         presto_encoder(
-            torch.rand((1, 12, 17)).to(device),
-            torch.ones((1, 12)).to(device).long(),
-            torch.rand(1, 2).to(device),
+            x=torch.rand((1, 12, 17)).to(device),
+            dynamic_world=torch.ones((1, 12)).to(device).long(),
+            latlons=torch.rand(1, 2).to(device),
+            valid_month=torch.tensor([5]).to(device)
+            if presto_encoder.valid_month_as_token
+            else None,
         )
 
     logger.info("Compilation done.")
