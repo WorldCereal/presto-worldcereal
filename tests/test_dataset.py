@@ -74,12 +74,12 @@ class TestDataset(TestCase):
 
         model = Presto.construct(**model_kwargs)
         # valid_month token can only be used in finetuning model
+        # or in the encoder
         model = model.construct_finetuning_model(num_outputs=1)
         model.to(device)
         model.encoder.valid_month_as_token = True
         eo, dw, mask, latlons, months, _, valid_months, _, _ = ds[0]
 
-        # TODO: investigate why inference test fails with valid_month
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
@@ -103,7 +103,6 @@ class TestDataset(TestCase):
         model.encoder.valid_month_as_token = False
         eo, dw, mask, latlons, months, _, _, _, _ = ds[0]
 
-        # TODO: investigate why inference test fails with valid_month
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
