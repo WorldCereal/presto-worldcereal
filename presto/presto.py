@@ -498,17 +498,12 @@ class Encoder(nn.Module):
         # if location overfitting is happenning
         # upd_mask[:, 0] = 1
 
-        if valid_month is not None:
+        if self.valid_month_as_token:
+            assert valid_month is not None
             val_month_token = self.valid_month_encoding(valid_month)
-            if self.valid_month_as_token:
-                x, upd_mask, orig_indices = self.add_token(
-                    val_month_token.unsqueeze(1), x, upd_mask, orig_indices
-                )
-        else:
-            # if it is None, we ignore it as a token but do add it to
-            # the output embedding
-            valid_month = torch.ones((x.shape[0],), device=device).long()
-            val_month_token = self.valid_month_encoding(valid_month)
+            x, upd_mask, orig_indices = self.add_token(
+                val_month_token.unsqueeze(1), x, upd_mask, orig_indices
+            )
 
         # apply Transformer blocks
         attn_mask = ~upd_mask.bool()
@@ -520,10 +515,7 @@ class Encoder(nn.Module):
             # set masked tokens to 0
             x_for_mean = x * (1 - upd_mask.unsqueeze(-1))
             x_mean = x_for_mean.sum(dim=1) / torch.sum(1 - upd_mask, -1, keepdim=True)
-            if self.valid_month_as_token:
-                return torch.cat([self.norm(x_mean), val_month_token], dim=-1)
-            else:
-                return self.norm(x_mean)
+            return self.norm(x_mean)
 
         return self.norm(x), orig_indices, upd_mask
 
@@ -841,10 +833,7 @@ class Presto(nn.Module):
         self,
         num_outputs: int,
     ) -> PrestoFineTuningModel:
-        if self.encoder.valid_month_as_token:
-            hidden_size = self.encoder.embedding_size + self.encoder.valid_month_size
-        else:
-            hidden_size = self.encoder.embedding_size
+        hidden_size = self.encoder.embedding_size
         head = FinetuningHead(
             num_outputs=num_outputs,
             hidden_size=hidden_size,
@@ -874,11 +863,8 @@ class Presto(nn.Module):
         if dekadal:
             model = extend_to_dekadal(model)
 
-        # if is_finetuned:
-        # here, I want to be able to upload Presto model that
-        # has already been finetuned so that I can only play with the head
-        # a model needs to be constructed so that weights can be loaded
-        # currently, cannot correctly construct the finetuned head and populate it with weights 😥
+        if is_finetuned:
+            model = model.construct_finetuning_model(num_outputs)
 
         if from_url:
             presto_model_layers = cls.load_layers_from_url(str(model_path))

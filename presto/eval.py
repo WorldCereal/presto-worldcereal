@@ -19,7 +19,6 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from .dataset import (
-    CLASS_MAPPINGS,
     NORMED_BANDS,
     WorldCerealInferenceDataset,
     WorldCerealLabelled10DDataset,
@@ -32,7 +31,7 @@ from .presto import (
     get_sinusoid_encoding_table,
     param_groups_lrd,
 )
-from .utils import DEFAULT_SEED, device, prep_dataframe
+from .utils import DEFAULT_SEED, device, get_class_mappings, prep_dataframe
 
 MIN_SAMPLES_PER_CLASS = 3
 
@@ -48,6 +47,7 @@ class Hyperparams:
     batch_size: int = 256
     patience: int = 20
     num_workers: int = 8
+    catboost_iterations: int = 8000
 
 
 class WorldCerealEval:
@@ -196,6 +196,7 @@ class WorldCerealEval:
         self,
         pretrained_model: PrestoFineTuningModel,
         models: List[str] = ["Regression", "Random Forest"],
+        hyperparams: Hyperparams = Hyperparams(),
     ) -> Union[Sequence[BaseEstimator], Dict]:
         for model_mode in models:
             assert model_mode in [
@@ -218,35 +219,20 @@ class WorldCerealEval:
                     y = np.moveaxis(np.array(y), -1, 0)
                 target_list.append(y)
 
-                if self.use_valid_month:
-                    with torch.no_grad():
-                        encodings = (
-                            pretrained_model.encoder(
-                                x_f,
-                                dynamic_world=dw_f.long(),
-                                mask=variable_mask_f,
-                                latlons=latlons_f,
-                                month=month_f,
-                                valid_month=valid_month_f,
-                            )
-                            .cpu()
-                            .numpy()
+                with torch.no_grad():
+                    encodings = (
+                        pretrained_model.encoder(
+                            x_f,
+                            dynamic_world=dw_f.long(),
+                            mask=variable_mask_f,
+                            latlons=latlons_f,
+                            month=month_f,
+                            valid_month=valid_month_f if self.use_valid_month else None,
                         )
-                        encoding_list.append(encodings)
-                else:
-                    with torch.no_grad():
-                        encodings = (
-                            pretrained_model.encoder(
-                                x_f,
-                                dynamic_world=dw_f.long(),
-                                mask=variable_mask_f,
-                                latlons=latlons_f,
-                                month=month_f,
-                            )
-                            .cpu()
-                            .numpy()
-                        )
-                        encoding_list.append(encodings)
+                        .cpu()
+                        .numpy()
+                    )
+                    encoding_list.append(encodings)
 
             encodings_np = np.concatenate(encoding_list)
             targets = np.concatenate(target_list)
@@ -271,6 +257,7 @@ class WorldCerealEval:
                     task_type=self.task_type,
                     croptype_list=[],
                     return_hierarchical_labels="Hierarchical" in model,
+                    augment=self.augment,
                 ),
                 batch_size=2048,
                 shuffle=False,
@@ -317,7 +304,7 @@ class WorldCerealEval:
                     l2_leaf_reg = 30
 
                 downstream_model = CatBoostClassifier(
-                    iterations=8000,
+                    iterations=hyperparams.catboost_iterations,
                     depth=8,
                     learning_rate=learning_rate,
                     early_stopping_rounds=50,
@@ -340,7 +327,7 @@ class WorldCerealEval:
 
             elif model == "Hierarchical CatBoostClassifier":
                 downstream_model = CatBoostClassifierWrapper(
-                    iterations=8000,
+                    iterations=hyperparams.catboost_iterations,
                     depth=8,
                     eval_metric="F1",
                     learning_rate=0.2,
@@ -386,49 +373,14 @@ class WorldCerealEval:
             x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
                 t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
             ]
-            if use_valid_month:
-                input_d = {
-                    "x": x_f,
-                    "dynamic_world": dw_f.long(),
-                    "latlons": latlons_f,
-                    "mask": variable_mask_f,
-                    "month": month_f,
-                    "valid_month": valid_month_f,
-                }
-            else:
-                input_d = {
-                    "x": x_f,
-                    "dynamic_world": dw_f.long(),
-                    "latlons": latlons_f,
-                    "mask": variable_mask_f,
-                    "month": month_f,
-                }
-
-            # try:
-            #     x, y, dw, latlons, month, valid_month, variable_mask = b
-            #     x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
-            #         t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
-            #     ]
-            #     input_d = {
-            #         "x": x_f,
-            #         "dynamic_world": dw_f.long(),
-            #         "latlons": latlons_f,
-            #         "mask": variable_mask_f,
-            #         "month": month_f,
-            #         "valid_month": valid_month_f,
-            #     }
-            # except ValueError:
-            #     x, y, dw, latlons, month, variable_mask = b
-            #     x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-            #         t.to(device) for t in (x, dw, latlons, month, variable_mask)
-            #     ]
-            #     input_d = {
-            #         "x": x_f,
-            #         "dynamic_world": dw_f.long(),
-            #         "latlons": latlons_f,
-            #         "mask": variable_mask_f,
-            #         "month": month_f,
-            #     }
+            input_d = {
+                "x": x_f,
+                "dynamic_world": dw_f.long(),
+                "latlons": latlons_f,
+                "mask": variable_mask_f,
+                "month": month_f,
+                "valid_month": valid_month_f if use_valid_month else None,
+            }
 
             if isinstance(y, list) and len(y) == 2:
                 y = np.moveaxis(np.array(y), -1, 0)
@@ -485,6 +437,9 @@ class WorldCerealEval:
         pretrained_model: Optional[PrestoFineTuningModel] = None,
     ):
         assert self.spatial_inference_savedir is not None
+
+        CLASS_MAPPINGS = get_class_mappings()
+
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
             (
@@ -813,23 +768,14 @@ class WorldCerealEval:
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
 
-                if self.use_valid_month:
-                    input_d = {
-                        "x": x,
-                        "dynamic_world": dw.long(),
-                        "latlons": latlons,
-                        "mask": variable_mask,
-                        "month": month,
-                        "valid_month": valid_month,
-                    }
-                else:
-                    input_d = {
-                        "x": x,
-                        "dynamic_world": dw.long(),
-                        "latlons": latlons,
-                        "mask": variable_mask,
-                        "month": month,
-                    }
+                input_d = {
+                    "x": x,
+                    "dynamic_world": dw.long(),
+                    "latlons": latlons,
+                    "mask": variable_mask,
+                    "month": month,
+                    "valid_month": valid_month if self.use_valid_month else None,
+                }
 
                 optimizer.zero_grad()
                 preds = model(**input_d)
@@ -847,23 +793,14 @@ class WorldCerealEval:
                     t.to(device) for t in (x, y, dw, latlons, month, valid_month, variable_mask)
                 ]
 
-                if self.use_valid_month:
-                    input_d = {
-                        "x": x,
-                        "dynamic_world": dw.long(),
-                        "latlons": latlons,
-                        "mask": variable_mask,
-                        "month": month,
-                        "valid_month": valid_month,
-                    }
-                else:
-                    input_d = {
-                        "x": x,
-                        "dynamic_world": dw.long(),
-                        "latlons": latlons,
-                        "mask": variable_mask,
-                        "month": month,
-                    }
+                input_d = {
+                    "x": x,
+                    "dynamic_world": dw.long(),
+                    "latlons": latlons,
+                    "mask": variable_mask,
+                    "month": month,
+                    "valid_month": valid_month if self.use_valid_month else None,
+                }
 
                 with torch.no_grad():
                     preds = model(**input_d)
@@ -888,8 +825,8 @@ class WorldCerealEval:
 
             pbar.set_description(
                 f"Train metric: {train_loss[-1]:.3f}, Val metric: {val_loss[-1]:.3f}, \
-                Best Val Loss: {best_loss:.3f} \
-                (no improvement for {epochs_since_improvement} epochs)"
+Best Val Loss: {best_loss:.3f} \
+(no improvement for {epochs_since_improvement} epochs)"
             )
             if run is not None:
                 wandb.log(
@@ -909,12 +846,12 @@ class WorldCerealEval:
         self,
         sklearn_model_modes: List[str],
         finetuned_model: PrestoFineTuningModel,
+        hyperparams: Hyperparams = Hyperparams(),
     ):
         results_df = pd.DataFrame()
         if len(sklearn_model_modes) > 0:
             sklearn_models = self.finetune_sklearn_model(
-                finetuned_model,
-                models=sklearn_model_modes,
+                finetuned_model, models=sklearn_model_modes, hyperparams=hyperparams
             )
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {type(sklearn_model).__name__}...")
@@ -939,13 +876,13 @@ class WorldCerealEval:
             ]
 
         finetuned_model = self.finetune(pretrained_model, hyperparams=hyperparams)
-        print("Finetuning done")
+        logger.info("Finetuning done")
         results_df_ft = self.evaluate(finetuned_model, None, croptype_list=self.croptype_list)
-        print("Finetuning head evaluation done")
+        logger.info("Finetuning head evaluation done")
         if self.spatial_inference_savedir is not None:
             self.spatial_inference(finetuned_model, None)
         results_df_sklearn, sklearn_models_trained = self.finetuning_results_sklearn(
-            sklearn_model_modes, finetuned_model
+            sklearn_model_modes, finetuned_model, hyperparams
         )
         results_df_combined = pd.concat([results_df_ft, results_df_sklearn], axis=0)
 

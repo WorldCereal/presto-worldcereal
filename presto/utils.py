@@ -8,13 +8,12 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
 import geopandas as gpd
-import matplotlib.colors as mcolors
-import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-from matplotlib import pyplot as plt
+
+from presto.dataops import NUM_TIMESTEPS
 
 from .dataops import (
     BANDS,
@@ -39,9 +38,6 @@ config_dir = Path(__file__).parent.parent / "config"
 default_model_path = data_dir / "default_model.pt"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DEFAULT_SEED: int = 42
-
-with open(data_dir / "croptype_mappings" / "croptype_classes.json") as f:
-    CLASS_MAPPINGS = json.load(f)
 
 
 # From https://gist.github.com/ihoromi4/b681a9088f348942b01711f251e5f964
@@ -89,6 +85,20 @@ def timestamp_dirname(suffix: Optional[str] = None) -> str:
     return f"{ts}_{suffix}" if suffix is not None else ts
 
 
+def get_class_mappings() -> Dict:
+    """Method to get the WorldCereal class mappings for downstream task.
+
+    Returns
+    -------
+    Dict
+        the resulting dictionary with the class mappings
+    """
+    with open(data_dir / "croptype_mappings" / "croptype_classes.json") as f:
+        CLASS_MAPPINGS = json.load(f)
+
+    return CLASS_MAPPINGS
+
+
 def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     """
     This function takes in a DataFrame with S1, S2 and ERA5 observations and their respective dates
@@ -103,18 +113,26 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     timestamp is the date of the observation.
 
     This function performs the following operations:
-    - computing relative position of the timestamp and valid_date in the timeseries
+    - computing relative position of the timestamp (timestamp_ind variable)
+      and valid_date (valid_position variable) in the timeseries;
     - filtering out samples were valid date is outside the range of the actual extractions
     - adding dummy timesteps filled with NODATA values before the start_date or after
       the end_date for samples where valid_date is close to the edge of the timeseries;
       this closeness is defined by the globally defined parameter MIN_EDGE_BUFFER
-    - reinitializing the start_date and timestamp_ind to take into account
+    - reinitializing the start_date, end_date and timestamp_ind to take into account
       newly added timesteps
     - checking for missing timesteps in the middle of the timeseries and adding them
       with NODATA values
     - pivoting the DataFrame to wide format with columns for each band
       and timesteps as suffixes
     - assigning the correct suffixes to the band names
+    - computing the final valid_date position in the timeseries that takes
+      into account updated start_date
+    - computing the number of available timesteps in the timeseries that
+      takes into account updated start_date and end_date; available_timesteps
+      holds the absolute number of timesteps that for which observations are
+      available; it cannot be less than NUM_TIMESTEPS; if this is the case,
+      sample is considered faulty and is removed from the dataset
     - post-processing with prep_dataframe function
 
     Returns
@@ -182,6 +200,8 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         "start_date",
         "sample_id",
         "valid_date",
+        "location_id",
+        "ref_id",
     ]
 
     bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
@@ -227,15 +247,15 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     if len(samples_after_end_date) > 0 or len(samples_before_start_date) > 0:
         logger.warning(
             f"""\
-        Dataset {df["sample_id"].iloc[0].split("_")[0]}: removing {len(samples_after_end_date)}\
-        samples with valid_date after the end_date\
-        and {len(samples_before_start_date)} samples with valid_date before the start_date
-        """
+Dataset {df["ref_id"].iloc[0]}: removing {len(samples_after_end_date)} \
+samples with valid_date after the end_date \
+and {len(samples_before_start_date)} samples with valid_date before the start_date"""
         )
         df = df[~df["sample_id"].isin(samples_before_start_date)]
         df = df[~df["sample_id"].isin(samples_after_end_date)]
 
     # add timesteps before the start_date where needed
+    intermediate_dummy_df = pd.DataFrame()
     for n_ts_to_add in range(1, MIN_EDGE_BUFFER + 1):
         samples_to_add_ts_before_start = latest_obs_position[
             (MIN_EDGE_BUFFER - latest_obs_position["valid_position"]) >= -n_ts_to_add
@@ -247,9 +267,11 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
             months=n_ts_to_add
         )  # type: ignore
         dummy_df[feature_columns] = NODATAVALUE
-        df = pd.concat([df, dummy_df])
+        intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
+    df = pd.concat([df, intermediate_dummy_df])
 
     # add timesteps after the end_date where needed
+    intermediate_dummy_df = pd.DataFrame()
     for n_ts_to_add in range(1, MIN_EDGE_BUFFER + 1):
         samples_to_add_ts_after_end = latest_obs_position[
             (MIN_EDGE_BUFFER - latest_obs_position["valid_position_diff"]) >= n_ts_to_add
@@ -261,11 +283,16 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
             months=n_ts_to_add
         )  # type: ignore
         dummy_df[feature_columns] = NODATAVALUE
-        df = pd.concat([df, dummy_df])
+        intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
+    df = pd.concat([df, intermediate_dummy_df])
 
     # Now reassign start_date to the minimum timestamp
     new_start_date = df.groupby(["sample_id"])["timestamp"].min()
     df["start_date"] = df["sample_id"].map(new_start_date)
+
+    # Also reassign end_date to the maximum timestamp
+    new_end_date = df.groupby(["sample_id"])["timestamp"].max()
+    df["end_date"] = df["sample_id"].map(new_end_date)
 
     # reinitialize timestep_ind
     df["timestamp_ind"] = (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month) - (
@@ -312,8 +339,32 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         df_pivot["valid_date"].dt.year * 12 + df_pivot["valid_date"].dt.month
     ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
     df_pivot["available_timesteps"] = (
-        df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month
-    ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
+        (df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month)
+        - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
+        + 1
+    )
+
+    min_center_point = np.maximum(
+        NUM_TIMESTEPS // 2,
+        df_pivot["valid_position"] + MIN_EDGE_BUFFER - NUM_TIMESTEPS // 2,
+    )
+    max_center_point = np.minimum(
+        df_pivot["available_timesteps"] - NUM_TIMESTEPS // 2,
+        df_pivot["valid_position"] - MIN_EDGE_BUFFER + NUM_TIMESTEPS // 2,
+    )
+
+    faulty_samples = min_center_point > max_center_point
+    if faulty_samples.sum() > 0:
+        logger.warning(f"Dropping {faulty_samples.sum()} faulty samples.")
+    df_pivot = df_pivot[~faulty_samples]
+
+    samples_with_too_few_ts = df_pivot["available_timesteps"] < NUM_TIMESTEPS
+    if samples_with_too_few_ts.sum() > 0:
+        logger.warning(
+            f"Dropping {samples_with_too_few_ts.sum()} samples with \
+number of available timesteps less than {NUM_TIMESTEPS}."
+        )
+    df_pivot = df_pivot[~samples_with_too_few_ts]
 
     df_pivot["year"] = df_pivot["valid_date"].dt.year
 
@@ -413,9 +464,8 @@ def plot_results(
     to_wandb: bool = False,
     prefix: str = "",
 ):
-    global plt
-    if plt is None:
-        from matplotlib import pyplot as plt
+
+    from matplotlib import pyplot as plt
 
     def plot(title: str, plot_fn: Callable, figsize=(15, 5)) -> Path:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
@@ -538,6 +588,14 @@ def plot_spatial(
     to_wandb: bool = False,
     task_type: str = "cropland",
 ):
+
+    import matplotlib.colors as mcolors
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    CLASS_MAPPINGS = get_class_mappings()
+
     croptype_map = CLASS_MAPPINGS["CROPTYPE0"]
     colors_map = CLASS_MAPPINGS["CROPTYPE0_COLORS"]
 
@@ -561,23 +619,23 @@ def plot_spatial(
 
     fig = plt.figure(figsize=(40, 25))
 
-    fig.add_subplot(2, 3, 1)
-    plt.imshow(ground_truth)
-    plt.axis("off")
-    plt.title("Phase I WorldCereal Mask")
+    ax1 = fig.add_subplot(2, 3, 1)
+    ax1.imshow(ground_truth)
+    ax1.axis("off")
+    ax1.set_title("Phase I WorldCereal Mask", fontsize=24)
 
-    fig.add_subplot(2, 3, 2)
-    plt.imshow(rgb_ts6)
-    plt.axis("off")
-    plt.title("RGB TS6")
+    ax2 = fig.add_subplot(2, 3, 2)
+    ax2.imshow(rgb_ts6)
+    ax2.axis("off")
+    ax2.set_title("RGB TS6", fontsize=24)
 
-    fig.add_subplot(2, 3, 3)
-    plt.imshow(ndvi)
-    plt.axis("off")
-    plt.title("NDVI TS6")
+    ax3 = fig.add_subplot(2, 3, 3)
+    ax3.imshow(ndvi)
+    ax3.axis("off")
+    ax3.set_title("NDVI TS6", fontsize=24)
 
     if task_type == "croptype":
-        fig.add_subplot(2, 3, 4)
+        ax4 = fig.add_subplot(2, 3, 4)
 
         pred0_ewoc_int = [
             int(xx) if not np.isnan(xx) else 1000000000 for xx in np.unique(pred0_ewoc)
@@ -591,36 +649,43 @@ def plot_spatial(
         cmap = mcolors.ListedColormap(colors)
         cmap.set_bad(color="whitesmoke")
 
-        plt.imshow(prediction_0, cmap=cmap)
+        ax4.imshow(prediction_0, cmap=cmap)
         patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
-        plt.legend(
+        ax4.legend(
             handles=patches,
             bbox_to_anchor=(1.25, 0.65),
             loc=1,
-            borderaxespad=0.0,
-            prop={"size": 6},
+            borderaxespad=1.0,
+            prop={"size": 20},
         )
-        plt.axis("off")
-        plt.title("Croptype predictions")
+        ax4.axis("off")
+        ax4.set_title("Croptype predictions", fontsize=24)
 
     if task_type == "cropland":
-        fig.add_subplot(2, 3, 4)
-        plt.imshow(prob_0 > 0.5)
-        plt.axis("off")
-        plt.title("Cropland predictions")
+        ax4 = fig.add_subplot(2, 3, 4)
+        ax4.imshow(prob_0 > 0.5)
+        ax4.axis("off")
+        ax4.set_title("Cropland predictions", fontsize=20)
 
-    fig.add_subplot(2, 3, 5)
-    plt.imshow(prob_0, cmap="Greens", vmin=0, vmax=1)
-    plt.colorbar()
-    plt.axis("off")
-    plt.title("Top1 class prob")
+    ax5 = fig.add_subplot(2, 3, 5)
+    im = ax5.imshow(prob_0, cmap="Greens", vmin=0, vmax=1)
+    ax5.axis("off")
+    ax5.set_title("Top1 class prob", fontsize=24)
+    # Create an axis for the colorbar that is aligned with the plot
+    divider = make_axes_locatable(ax5)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cbar = plt.colorbar(im, cax=cax)
+    cbar.ax.tick_params(labelsize=15)  # Set font size for colorbar
 
     if task_type == "croptype":
-        fig.add_subplot(2, 3, 6)
-        plt.imshow(prob_1, cmap="Greens", vmin=0, vmax=1)
-        plt.colorbar()
-        plt.axis("off")
-        plt.title("Top2 class prob")
+        ax6 = fig.add_subplot(2, 3, 6)
+        im = ax6.imshow(prob_1, cmap="Greens", vmin=0, vmax=1)
+        ax6.axis("off")
+        ax6.set_title("Top2 class prob", fontsize=24)
+        divider = make_axes_locatable(ax6)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        cbar = plt.colorbar(im, cax=cax)
+        cbar.ax.tick_params(labelsize=15)  # Set font size for colorbar
 
     # plt.suptitle(test_patch_name)
 

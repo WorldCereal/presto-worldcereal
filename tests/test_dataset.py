@@ -5,7 +5,14 @@ import numpy as np
 import pandas as pd
 import torch
 
-from presto.dataops import NODATAVALUE, NUM_ORG_BANDS, NUM_TIMESTEPS
+from presto.dataops import (
+    NDVI_INDEX,
+    NODATAVALUE,
+    NUM_ORG_BANDS,
+    NUM_TIMESTEPS,
+    S2_RGB_INDEX,
+    S2_NIR_10m_INDEX,
+)
 from presto.dataset import (
     WorldCerealBase,
     WorldCerealInferenceDataset,
@@ -57,7 +64,33 @@ class TestDataset(TestCase):
         s1_s2_mask = mask[:, :-5]
         self.assertTrue((y[:, :-5][s1_s2_mask] != 0).all())
 
-    def test_spatial_dataset(self):
+    def test_spatial_dataset_with_valid_month_token(self):
+        num_vals = 100
+        ds = WorldCerealInferenceDataset()
+        # for now, let's just test it runs smoothly
+        path_to_config = config_dir / "default.json"
+        with open(path_to_config) as file:
+            model_kwargs = json.load(file)
+
+        model = Presto.construct(**model_kwargs)
+        # valid_month token can only be used in finetuning model
+        # or in the encoder
+        model = model.construct_finetuning_model(num_outputs=1)
+        model.to(device)
+        model.encoder.valid_month_as_token = True
+        eo, dw, mask, latlons, months, _, valid_months, _, _ = ds[0]
+
+        with torch.no_grad():
+            _ = model(
+                x=torch.from_numpy(eo).float()[:num_vals],
+                dynamic_world=torch.from_numpy(dw).long()[:num_vals],
+                latlons=torch.from_numpy(latlons).float()[:num_vals],
+                mask=torch.from_numpy(mask).int()[:num_vals],
+                month=torch.from_numpy(months).long()[:num_vals],
+                valid_month=torch.from_numpy(valid_months).long()[:num_vals],
+            )
+
+    def test_spatial_dataset_without_valid_month_token(self):
         num_vals = 100
         ds = WorldCerealInferenceDataset()
         # for now, let's just test it runs smoothly
@@ -67,9 +100,9 @@ class TestDataset(TestCase):
 
         model = Presto.construct(**model_kwargs)
         model.to(device)
-        eo, dw, mask, latlons, months, _, valid_months, _, _ = ds[0]
+        model.encoder.valid_month_as_token = False
+        eo, dw, mask, latlons, months, _, _, _, _ = ds[0]
 
-        # TODO: investigate why inference test fails with valid_month
         with torch.no_grad():
             _ = model(
                 x=torch.from_numpy(eo).float()[:num_vals],
@@ -77,7 +110,6 @@ class TestDataset(TestCase):
                 latlons=torch.from_numpy(latlons).float()[:num_vals],
                 mask=torch.from_numpy(mask).int()[:num_vals],
                 month=torch.from_numpy(months).long()[:num_vals],
-                # valid_month=torch.from_numpy(valid_months).long()[:num_vals],
             )
 
     def test_combine_predictions(self):
@@ -148,6 +180,26 @@ class TestDataset(TestCase):
         output_list = WorldCerealLabelledDataset.multiply_list_length_by_float(input_list, 2.5)
         self.assertEqual(len(output_list), 25)
 
+    def test_mask_consistency(self):
+        df = read_test_file()
+        test_row = df.sample().iloc[0]
+        # make first 6 timesteps filled with NODATAVALUE
+        # expected behavior is that NDVI is masked out
+        # at the first six timesteps
+        valid_position = int(test_row["valid_position"])
+        for ts in range(valid_position - 6, valid_position - 3):
+            test_row[f"OPTICAL-B04-ts{ts}-10m"] = NODATAVALUE
+        for ts in range(valid_position - 3, valid_position - 1):
+            test_row[f"OPTICAL-B08-ts{ts}-10m"] = NODATAVALUE
+        test_row[f"OPTICAL-B04-ts{valid_position-1}-10m"] = NODATAVALUE
+        test_row[f"OPTICAL-B08-ts{valid_position-1}-10m"] = NODATAVALUE
+
+        eo, mask, latlon, month, valid_month = WorldCerealBase.row_to_arrays(test_row)
+
+        self.assertTrue(set([0, 1, 2, 5]) & set(np.where(mask[:, S2_RGB_INDEX])[0]))
+        self.assertTrue(set([3, 4, 5]) & set(np.where(mask[:, S2_NIR_10m_INDEX])[0]))
+        self.assertTrue(mask[:6, NDVI_INDEX].all())
+
     def test_balancing_croptype(self):
         finetune_classes = "CROPTYPE0"
         downstream_classes = "CROPTYPE9"
@@ -217,6 +269,9 @@ class TestDataset(TestCase):
         timestep_positions_augment2 = WorldCerealLabelledDataset.get_timestep_positions(
             row_d, augment=True, is_ssl=False
         )
+        timestep_positions_augment3 = WorldCerealLabelledDataset.get_timestep_positions(
+            row_d, augment=True, is_ssl=False
+        )
 
         timestep_positions_ssl1 = WorldCerealLabelledDataset.get_timestep_positions(
             row_d, augment=False, is_ssl=True
@@ -232,7 +287,16 @@ class TestDataset(TestCase):
             timestep_positions_base[-1]
             == (valid_position + (WorldCerealBase.NUM_TIMESTEPS // 2) - 1)
         )
-        self.assertTrue(timestep_positions_augment1[0] != timestep_positions_augment2[0])
+        self.assertTrue(
+            np.unique(
+                [
+                    timestep_positions_augment1[0],
+                    timestep_positions_augment2[0],
+                    timestep_positions_augment3[0],
+                ]
+            ).shape[0]
+            > 1
+        )
         self.assertTrue(timestep_positions_ssl1[0] != timestep_positions_ssl2[0])
         self.assertTrue(
             (valid_position not in timestep_positions_ssl1)

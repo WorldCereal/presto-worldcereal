@@ -1,4 +1,3 @@
-import json
 import logging
 from datetime import datetime, timedelta
 from math import modf
@@ -18,13 +17,16 @@ from .dataops import (
     BANDS,
     BANDS_GROUPS_IDX,
     MIN_EDGE_BUFFER,
+    NDVI_INDEX,
     NODATAVALUE,
     NORMED_BANDS,
     S1_S2_ERA5_SRTM,
+    S2_RGB_INDEX,
     DynamicWorld2020_2021,
+    S2_NIR_10m_INDEX,
 )
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
-from .utils import DEFAULT_SEED, data_dir, load_world_df
+from .utils import DEFAULT_SEED, data_dir, get_class_mappings, load_world_df
 
 logger = logging.getLogger("__main__")
 
@@ -32,9 +34,6 @@ IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
     for idx in val:
         IDX_TO_BAND_GROUPS[NORMED_BANDS[idx]] = band_group_idx
-
-with open(data_dir / "croptype_mappings" / "croptype_classes.json") as f:
-    CLASS_MAPPINGS = json.load(f)
 
 
 class WorldCerealBase(Dataset):
@@ -71,12 +70,17 @@ class WorldCerealBase(Dataset):
         available_timesteps = int(row_d["available_timesteps"])
 
         if is_ssl:
-            valid_position = int(
-                np.random.choice(
-                    range(cls.NUM_TIMESTEPS // 2, (available_timesteps - cls.NUM_TIMESTEPS // 2)),
-                    1,
+            if available_timesteps == cls.NUM_TIMESTEPS:
+                valid_position = int(cls.NUM_TIMESTEPS // 2)
+            else:
+                valid_position = int(
+                    np.random.choice(
+                        range(
+                            cls.NUM_TIMESTEPS // 2, (available_timesteps - cls.NUM_TIMESTEPS // 2)
+                        ),
+                        1,
+                    )
                 )
-            )
             center_point = valid_position
         else:
             valid_position = int(row_d["valid_position"])
@@ -202,12 +206,17 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
             eo_data[:, BANDS.index(presto_val)] = values * idx_valid
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
+        # check if the visual bands mask is True
+        # or nir mask, and adjust the NDVI mask accordingly
+        mask[:, NDVI_INDEX] = np.logical_or(mask[:, S2_RGB_INDEX], mask[:, S2_NIR_10m_INDEX])
+
         return (cls.check(eo_data), mask.astype(bool), latlon, month, valid_month)
 
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, mask_per_token, latlon, month, valid_month = self.row_to_arrays(row)
+
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         return (
             self.normalize_and_mask(eo),
@@ -233,6 +242,8 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
         finetune_classes="CROPTYPE0",
         downstream_classes="CROPTYPE19",
     ) -> pd.DataFrame:
+
+        CLASS_MAPPINGS = get_class_mappings()
 
         wc2ewoc_map = pd.read_csv(data_dir / "croptype_mappings" / "wc2eurocrops_map.csv")
         wc2ewoc_map["ewoc_code"] = wc2ewoc_map["ewoc_code"].str.replace("-", "").astype(int)
@@ -355,8 +366,9 @@ class WorldCerealMaskedDataset(WorldCerealBase):
         # Get the sample
         row = self.df.iloc[idx, :]
         eo, real_mask_per_token, latlon, month, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list, self.is_ssl
+            row, task_type=self.task_type, croptype_list=self.croptype_list, is_ssl=self.is_ssl
         )
+
         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
             self.normalize_and_mask(eo), real_mask_per_token
         )
@@ -572,7 +584,7 @@ times of the initial class size."
         df_index = self.indices[idx]
         row = self.df.iloc[df_index, :]
         eo, mask_per_token, latlon, month, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list
+            row, self.task_type, self.croptype_list, augment=self.augment
         )
 
         if self.mask_ratio > 0:
@@ -727,6 +739,12 @@ class WorldCerealInferenceDataset(Dataset):
                 logger.warning(f"Band {presto_band} not found in input data.")
                 eo_data[:, :, BANDS.index(presto_band)] = 0
                 mask[:, :, IDX_TO_BAND_GROUPS[presto_band]] = 1
+
+        # check if the visual bands mask is True
+        # or nir mask, and adjust the NDVI mask accordingly
+        mask[:, :, NDVI_INDEX] = np.logical_or(
+            mask[:, :, S2_RGB_INDEX], mask[:, :, S2_NIR_10m_INDEX]
+        )
 
         return eo_data, mask
 

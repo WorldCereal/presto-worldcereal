@@ -10,6 +10,7 @@ from typing import Optional, cast
 
 import pandas as pd
 import requests
+import torch
 import xarray as xr
 from tqdm.auto import tqdm
 
@@ -155,10 +156,12 @@ model_modes = [
 ]
 
 logger.info("Reading dataset")
-files = sorted(glob(f"{parquet_file}/**/*.parquet"))[10:20]
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))
 df_list = []
 for f in tqdm(files):
     _data = pd.read_parquet(f, engine="fastparquet")
+    _ref_id = f.split("/")[-2].split("=")[-1]
+    _data["ref_id"] = _ref_id
     _data_pivot = process_parquet(_data)
     _data_pivot.reset_index(inplace=True)
     df_list.append(_data_pivot)
@@ -199,7 +202,8 @@ model_path.mkdir(exist_ok=True, parents=True)
 
 experiment_prefix = f"""\
 {presto_model_description}_{task_type}_{finetune_classes}_\
-{compositing_window}_{test_type}_time-token={time_token}_balance={balance}\
+{compositing_window}_{test_type}_time-token={time_token}_balance={balance}_\
+augment={augment}\
 """
 
 finetuned_model_path = model_path / f"{experiment_prefix}.pt"
@@ -214,7 +218,7 @@ if os.path.isfile(finetuned_model_path):
 
     finetuned_model = Presto.load_pretrained(
         model_path=finetuned_model_path,
-        strict=False,
+        strict=True,
         is_finetuned=True,
         dekadal=dekadal,
         valid_month_as_token=valid_month_as_token,
@@ -251,7 +255,7 @@ else:
             from_url=True,
             dekadal=dekadal,
             valid_month_as_token=valid_month_as_token,
-            strict=False,
+            strict=True,
         )
 
         best_model_path: Optional[Path] = default_model_path
@@ -266,7 +270,7 @@ else:
     results_df_combined, finetuned_model, sklearn_models_trained = full_eval.finetuning_results(
         model, sklearn_model_modes=model_modes
     )
-    # torch.save(finetuned_model.state_dict(), finetuned_model_path)
+    torch.save(finetuned_model.state_dict(), finetuned_model_path)
 
 results_df_combined["presto_model_description"] = presto_model_description
 results_df_combined["compositing_window"] = compositing_window

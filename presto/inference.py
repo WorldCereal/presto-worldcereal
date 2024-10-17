@@ -32,16 +32,23 @@ IDX_TO_BAND_GROUPS = {
 
 
 class PrestoFeatureExtractor:
-    def __init__(self, model: Presto, batch_size: int = 8192):
+    def __init__(self, model: Presto, use_valid_date_token: bool = False, batch_size: int = 8192):
         """
         Initialize the PrestoFeatureExtractor with a Presto model.
 
         Args:
             model (Presto): The Presto model used for feature extraction.
+            use_valid_date_token (bool): Use `valid_date` as input token to focus Presto.
             batch_size (int): Batch size for dataloader.
         """
         self.model = model
+        self.use_valid_date_token = use_valid_date_token
         self.batch_size = batch_size
+
+        if use_valid_date_token:
+            logger.warning('Initializing PrestoFeatureExtractor with "valid_date" token.')
+        else:
+            logger.warning('Initializing PrestoFeatureExtractor without "valid_date" token.')
 
     _NODATAVALUE = 65535
     _ds = WorldCerealInferenceDataset
@@ -130,7 +137,6 @@ class PrestoFeatureExtractor:
                 x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
                     t.to(device) for t in (x, dw, latlons, month, valid_month, variable_mask)
                 ]
-
                 encodings[i * self.batch_size : i * self.batch_size + self.batch_size, :] = (
                     self.model.encoder(
                         x_f,
@@ -138,7 +144,7 @@ class PrestoFeatureExtractor:
                         mask=variable_mask_f,
                         latlons=latlons_f,
                         month=month_f,
-                        valid_month=valid_month_f,
+                        valid_month=(valid_month_f if self.use_valid_date_token else None),
                     )
                     .cpu()
                     .numpy()
@@ -169,6 +175,7 @@ def get_presto_features(
     inarr: Union[pd.DataFrame, xr.DataArray],
     presto_url: str,
     epsg: int = 4326,
+    use_valid_date_token: bool = False,
     batch_size: int = 8192,
     compile: bool = False,
 ) -> Union[np.ndarray, xr.DataArray]:
@@ -179,6 +186,7 @@ def get_presto_features(
         inarr (xr.DataArray or pd.DataFrame): Input data as xarray DataArray or pandas DataFrame.
         presto_url (str): URL to the pretrained Presto model.
         epsg (int) : EPSG code describing the coordinates.
+        use_valid_date_token (bool) : Use `valid_date` as input token to focus Presto.
         batch_size (int): Batch size to be used for Presto inference.
         compile (bool): Whether to compile the model before extracting features.
 
@@ -188,14 +196,21 @@ def get_presto_features(
 
     # Load the model
     from_url = presto_url.startswith("http")
-    presto_model = Presto.load_pretrained(model_path=presto_url, from_url=from_url, strict=False)
+    presto_model = Presto.load_pretrained(
+        model_path=presto_url,
+        from_url=from_url,
+        strict=False,
+        valid_month_as_token=use_valid_date_token,
+    )
 
     # Compile for optimized inference. Note that warmup takes some time
     # so this is only recommended for larger inference jobs
     if compile:
         presto_model.encoder = compile_encoder(presto_model.encoder)
 
-    presto_extractor = PrestoFeatureExtractor(presto_model, batch_size=batch_size)
+    presto_extractor = PrestoFeatureExtractor(
+        presto_model, use_valid_date_token=use_valid_date_token, batch_size=batch_size
+    )
 
     if isinstance(inarr, pd.DataFrame):
         processed_df = process_parquet(inarr)
@@ -204,6 +219,9 @@ def get_presto_features(
         return presto_extractor._get_encodings(dl)
 
     elif isinstance(inarr, xr.DataArray):
+        # Check if we have the expected 12 timesteps
+        if len(inarr.t) != 12:
+            raise ValueError(f"Can only run Presto on 12 timesteps, got: {len(inarr.t)}")
         return presto_extractor.extract_presto_features(inarr, epsg=epsg)
 
     else:
@@ -230,9 +248,12 @@ def compile_encoder(presto_encoder: nn.Module) -> Callable[..., Any]:
     logger.info("Warming-up ...")
     for _ in range(3):
         presto_encoder(
-            torch.rand((1, 12, 17)).to(device),
-            torch.ones((1, 12)).to(device).long(),
-            torch.rand(1, 2).to(device),
+            x=torch.rand((1, 12, 17)).to(device),
+            dynamic_world=torch.ones((1, 12)).to(device).long(),
+            latlons=torch.rand(1, 2).to(device),
+            valid_month=torch.tensor([5]).to(device)
+            if presto_encoder.valid_month_as_token
+            else None,
         )
 
     logger.info("Compilation done.")
