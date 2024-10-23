@@ -5,12 +5,7 @@ from typing import Any, List, Tuple
 
 import numpy as np
 
-from .dataops import (
-    BAND_EXPANSION,
-    BANDS_GROUPS_IDX,
-    NUM_TIMESTEPS,
-    SRTM_INDEX,
-)
+from .dataops import BAND_EXPANSION, BANDS_GROUPS_IDX, NUM_TIMESTEPS, SRTM_INDEX
 
 MASK_STRATEGIES = (
     "group_bands",
@@ -105,7 +100,7 @@ def make_mask_no_dw(
         # -1 for SRTM
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
         max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
-        timesteps = sample(range(len(num_timesteps)), k=timesteps_to_mask)
+        timesteps = sample(range(num_timesteps), k=timesteps_to_mask)
         if timesteps_to_mask > 0:
             num_tokens_to_mask -= int(max_tokens_masked - sum(sum(mask[timesteps])))
             mask[timesteps] = True

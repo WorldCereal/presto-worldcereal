@@ -99,7 +99,7 @@ def get_class_mappings() -> Dict:
     return CLASS_MAPPINGS
 
 
-def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
+def process_parquet(df: pd.DataFrame, num_ts: int = 12) -> pd.DataFrame:
     """
     This function takes in a DataFrame with S1, S2 and ERA5 observations and their respective dates
     in long format and returns it in wide format.
@@ -131,7 +131,7 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     - computing the number of available timesteps in the timeseries that
       takes into account updated start_date and end_date; available_timesteps
       holds the absolute number of timesteps that for which observations are
-      available; it cannot be less than NUM_TIMESTEPS; if this is the case,
+      available; it cannot be less than num_ts; if this is the case,
       sample is considered faulty and is removed from the dataset
     - post-processing with prep_dataframe function
 
@@ -202,6 +202,8 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         "valid_date",
         "location_id",
         "ref_id",
+        "valid_position",
+        "available_timesteps",
     ]
 
     bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
@@ -217,18 +219,17 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     ]
     bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
 
-    df["timestamp_ind"] = (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
+    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int)
+    df["valid_date_ts_diff_days"] = (df["valid_date"] - df["timestamp"]).dt.days.abs()
+    valid_position = (
+        df.set_index("timestamp_ind").groupby("sample_id")["valid_date_ts_diff_days"].idxmin()
     )
-    df["valid_position"] = (df["valid_date"].dt.year * 12 + df["valid_date"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
-    )
+    df["valid_position"] = df["sample_id"].map(valid_position)
     df["valid_position_diff"] = df["timestamp_ind"] - df["valid_position"]
 
     # save the initial start_date for later
     df["initial_start_date"] = df["start_date"].copy()
     index_columns.append("initial_start_date")
-
     # define samples where valid_date is outside the range of the actual extractions
     # and remove them from the dataset
     latest_obs_position = df.groupby(["sample_id"])[
@@ -295,8 +296,9 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
     df["end_date"] = df["sample_id"].map(new_end_date)
 
     # reinitialize timestep_ind
-    df["timestamp_ind"] = (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
+    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int)
+    df["available_timesteps"] = df["sample_id"].map(
+        df.groupby("sample_id")["timestamp"].nunique().astype(int)
     )
 
     # check for missing timestamps in the middle of timeseries
@@ -335,22 +337,13 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
         f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
     ]  # type: ignore
 
-    df_pivot["valid_position"] = (
-        df_pivot["valid_date"].dt.year * 12 + df_pivot["valid_date"].dt.month
-    ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
-    df_pivot["available_timesteps"] = (
-        (df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month)
-        - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
-        + 1
-    )
-
     min_center_point = np.maximum(
-        NUM_TIMESTEPS // 2,
-        df_pivot["valid_position"] + MIN_EDGE_BUFFER - NUM_TIMESTEPS // 2,
+        num_ts // 2,
+        df_pivot["valid_position"] + MIN_EDGE_BUFFER - num_ts // 2,
     )
     max_center_point = np.minimum(
-        df_pivot["available_timesteps"] - NUM_TIMESTEPS // 2,
-        df_pivot["valid_position"] - MIN_EDGE_BUFFER + NUM_TIMESTEPS // 2,
+        df_pivot["available_timesteps"] - num_ts // 2,
+        df_pivot["valid_position"] - MIN_EDGE_BUFFER + num_ts // 2,
     )
 
     faulty_samples = min_center_point > max_center_point
@@ -358,11 +351,11 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
         logger.warning(f"Dropping {faulty_samples.sum()} faulty samples.")
     df_pivot = df_pivot[~faulty_samples]
 
-    samples_with_too_few_ts = df_pivot["available_timesteps"] < NUM_TIMESTEPS
+    samples_with_too_few_ts = df_pivot["available_timesteps"] < num_ts
     if samples_with_too_few_ts.sum() > 0:
         logger.warning(
             f"Dropping {samples_with_too_few_ts.sum()} samples with \
-number of available timesteps less than {NUM_TIMESTEPS}."
+number of available timesteps less than {num_ts}."
         )
     df_pivot = df_pivot[~samples_with_too_few_ts]
 

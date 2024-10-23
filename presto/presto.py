@@ -860,8 +860,8 @@ class Presto(nn.Module):
             valid_month_size=valid_month_size,
         )
 
-        if dekadal:
-            model = extend_to_dekadal(model)
+        # if dekadal:
+        #     model = extend_to_dekadal(model)
 
         if is_finetuned:
             model = model.construct_finetuning_model(num_outputs)
@@ -871,6 +871,9 @@ class Presto(nn.Module):
             model.load_state_dict(presto_model_layers, strict=strict)
         else:
             model.load_state_dict(torch.load(model_path, map_location=device), strict=strict)
+
+        if dekadal:
+            model = extend_to_dekadal(model)
 
         return model
 
