@@ -139,14 +139,14 @@ class MaskParamsNoDw:
                 "random_combinations",
             ]
 
-    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray, num_timesteps: int = NUM_TIMESTEPS):
+    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray):
         strategy = choice(self.strategies)
 
         mask = make_mask_no_dw(
             strategy=strategy,
             mask_ratio=self.ratio,
             existing_mask=mask,
-            num_timesteps=num_timesteps,
+            num_timesteps=self.num_timesteps,
         )
 
         x = eo_data * ~mask
