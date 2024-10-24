@@ -15,10 +15,9 @@ from tqdm.auto import tqdm
 
 # import xarray as xr
 from presto.dataops import BANDS_GROUPS_IDX, NODATAVALUE
-from presto.dataset import (
+from presto.dataset import (  # WorldCerealMasked10DDataset,
     WorldCerealBase,
     WorldCerealMaskedDataset,
-    WorldCerealMasked10DDataset
 )
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
@@ -40,6 +39,8 @@ from presto.utils import (  # plot_spatial,
     timestamp_dirname,
 )
 
+torch.multiprocessing.set_sharing_strategy("file_system")
+
 logger = logging.getLogger("__main__")
 
 argparser = argparse.ArgumentParser()
@@ -52,6 +53,11 @@ argparser.add_argument(
     help="Parent directory to save output to, <output_dir>/wandb/ "
     "and <output_dir>/output/ will be written to. "
     "Leave empty to use the directory you are running this file from.",
+)
+argparser.add_argument(
+    "--parquet_file",
+    type=str,
+    default="/home/vito/millig/projects/TAP/worldcereal/data/worldcereal_training_data.parquet",
 )
 argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
 argparser.add_argument("--num_workers", type=int, default=64)
@@ -85,6 +91,7 @@ argparser.add_argument(
     default="random",
     choices=["random", "spatial", "temporal", "seasonal"],
 )
+argparser.add_argument("--dekadal", dest="dekadal", action="store_true")
 argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
 
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
@@ -116,6 +123,7 @@ mask_ratio: float = args["mask_ratio"]
 # presto_model_description: str = args["presto_model_description"]
 test_type: str = args["test_type"]
 assert test_type in ["random", "spatial", "temporal", "seasonal"]
+dekadal = args["dekadal"]
 
 seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
@@ -128,6 +136,7 @@ if wandb_enabled:
         entity=wandb_org,
         project="presto-worldcereal",
         dir=output_parent_dir,
+        name=model_name,
     )
     run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
@@ -136,15 +145,11 @@ model_logging_dir.mkdir(exist_ok=True, parents=True)
 initialize_logging(model_logging_dir)
 logger.info("Using output dir: %s" % model_logging_dir)
 
-# parquet_file: str = args["parquet_file"]
-parquet_file = "/home/vito/butskoc/presto-worldcereal/data/long_parquet/\
-worldcereal_training_data.parquet"
+parquet_file: str = args["parquet_file"]
 train_only_samples_file: str = args["train_only_samples_file"]
 
-dekadal = False
 compositing_window = "30D"
-if "10d" in parquet_file:
-    dekadal = True
+if dekadal:
     compositing_window = "10D"
 
 path_to_config = config_dir / "default.json"
@@ -153,7 +158,7 @@ with open(path_to_config) as file:
 
 
 logger.info("Loading data")
-files = sorted(glob(f"{parquet_file}/**/*.parquet"))
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))[:10]
 df_list = []
 for f in tqdm(files):
     _data = pd.read_parquet(f, engine="fastparquet")
@@ -172,20 +177,34 @@ val_samples_file = f"cropland_{test_type}_generalization_test_split_samples.csv"
 logger.info(f"Preparing train and val splits for {test_type} test")
 val_samples_df = pd.read_csv(data_dir / "test_splits" / val_samples_file)
 
-train_df, val_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
+train_df, val_df = WorldCerealBase.split_df(
+    df, val_size=0.1
+)  # val_sample_ids=val_samples_df.sample_id.tolist())
 
 # Load the mask parameters
 mask_params = MaskParamsNoDw(mask_strategies, mask_ratio, num_timesteps=36 if dekadal else 12)
-masked_ds = WorldCerealMasked10DDataset if dekadal else WorldCerealMaskedDataset
+# masked_ds = WorldCerealMasked10DDataset if dekadal else WorldCerealMaskedDataset
 
 train_dataloader = DataLoader(
-    masked_ds(train_df, mask_params=mask_params, is_ssl=True),
+    WorldCerealMaskedDataset(
+        train_df,
+        num_timesteps=36 if dekadal else 12,
+        mask_params=mask_params,
+        is_ssl=True,
+        is_dekadal=dekadal,
+    ),
     batch_size=batch_size,
     shuffle=True,
     num_workers=num_workers,
 )
 val_dataloader = DataLoader(
-    masked_ds(val_df, mask_params=mask_params, is_ssl=True),
+    WorldCerealMaskedDataset(
+        val_df,
+        num_timesteps=36 if dekadal else 12,
+        mask_params=mask_params,
+        is_ssl=True,
+        is_dekadal=dekadal,
+    ),
     batch_size=batch_size,
     shuffle=False,
     num_workers=num_workers,
@@ -210,10 +229,11 @@ else:
     model_kwargs = json.load(Path(path_to_config).open("r"))
     model = Presto.construct(**model_kwargs)
     best_model_path = None
+    # moved into the else block ##################
+    if dekadal:
+        logger.info("extending model to dekadal architecture")
+        model = extend_to_dekadal(model)
 
-if dekadal:
-    logger.info("extending model to dekadal architecture")
-    model = extend_to_dekadal(model)
 model.to(device)
 # print(f"model pos embed shape {model.encoder.pos_embed.shape}") # correctly reinitialized
 
