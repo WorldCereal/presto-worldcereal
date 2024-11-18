@@ -398,7 +398,7 @@ class TestPresto(TestCase):
             dim=1,
         )
 
-        eo, dw = model.reconstruct_inputs(x)
+        eo, dw = model.reconstruct_inputs(x.to(device))
 
         for group, idxs in BANDS_GROUPS_IDX.items():
             relevant_vals = eo[:, :, idxs]
@@ -563,6 +563,9 @@ class TestPrestoEndToEnd(TestCase):
         def forward_encoder(x, dynamic_world, mask, encoder, eval_task=False):
             # THIS CODE IS FROM WITHIN THE PRESTO FUNCTION, WITH SLIGHT MODIFICATIONS #
             # if the presto code changes this will need to as well #
+
+            # print(f"initial x device: {x.device}")
+
             all_tokens, all_masks = [], []
 
             for channel_group, channel_idxs in encoder.band_groups.items():
@@ -587,15 +590,16 @@ class TestPrestoEndToEnd(TestCase):
 
             x = torch.cat(all_tokens, dim=1)  # [batch, timesteps, embedding_dim]
             mask = torch.cat(all_masks, dim=1)  # [batch, timesteps]
+            # print(f"redefined x device: {x.device}")
             x, orig_indices, upd_mask = encoder.mask_tokens(x, mask)
 
             # append latlon tokens
             latlon_tokens = torch.ones((x.shape[0], 1, embedding_size)) * -1
             x = torch.cat((latlon_tokens, x), dim=1)
-            upd_mask = torch.cat((torch.zeros(x.shape[0])[:, None].to(device), upd_mask), dim=1)
+            upd_mask = torch.cat((torch.zeros(x.shape[0])[:, None], upd_mask), dim=1)
             orig_indices = torch.cat(
                 (
-                    torch.zeros(upd_mask.shape[0])[:, None].to(device).int(),
+                    torch.zeros(upd_mask.shape[0])[:, None].int(),
                     orig_indices + 1,
                 ),
                 dim=1,
@@ -608,17 +612,18 @@ class TestPrestoEndToEnd(TestCase):
             return x, orig_indices, upd_mask
 
         cls.forward_encoder = partial(forward_encoder, encoder=model.encoder)
+        # cls.forward_encoder = partial(forward_encoder, encoder=model.encoder.to(device))
         cls.model = model
 
     def test_masking_and_unmasking_end_to_end(self):
         def forward(x, dynamic_world, mask):
             # THIS CODE IS FROM WITHIN THE PRESTO FUNCTION, WITH SLIGHT MODIFICATIONS #
             # if the presto code changes this will need to as well #
-            self.model = self.model.to(device)
+            # self.model = self.model
             x, orig_indices, upd_mask = self.forward_encoder(
                 x, dynamic_world, mask, eval_task=False
             )
-            x = self.model.decoder.add_masked_tokens(x, orig_indices, upd_mask)
+            x = self.model.decoder.add_masked_tokens(x.to(device), orig_indices.to(device), upd_mask.to(device))
             return self.model.decoder.reconstruct_inputs(x)
 
         batch_size, timesteps = 2, 3
@@ -632,7 +637,7 @@ class TestPrestoEndToEnd(TestCase):
         dynamic_world = torch.ones((batch_size, timesteps)) * dw_value
         mask = torch.zeros_like(x)
 
-        eo, dw = forward(x.to(device), dynamic_world.to(device), mask.to(device))
+        eo, dw = forward(x, dynamic_world, mask)
         for group, idxs in BANDS_GROUPS_IDX.items():
             relevant_vals = eo[:, :, idxs]
             self.assertTrue(
