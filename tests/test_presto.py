@@ -623,7 +623,9 @@ class TestPrestoEndToEnd(TestCase):
             x, orig_indices, upd_mask = self.forward_encoder(
                 x, dynamic_world, mask, eval_task=False
             )
-            x = self.model.decoder.add_masked_tokens(x.to(device), orig_indices.to(device), upd_mask.to(device))
+            x = self.model.decoder.add_masked_tokens(
+                x.to(device), orig_indices.to(device), upd_mask.to(device)
+            )
             return self.model.decoder.reconstruct_inputs(x)
 
         batch_size, timesteps = 2, 3
