@@ -126,6 +126,7 @@ required {self.num_timesteps}, got {len(timestep_positions)}"
         ), f"Valid position {valid_position} not in timestep positions {timestep_positions}"
         return timestep_positions
 
+    
     def row_to_arrays(
         self,
         row: pd.Series,
@@ -211,7 +212,7 @@ required {self.num_timesteps}, got {len(timestep_positions)}"
         mask[:, NDVI_INDEX] = np.logical_or(mask[:, S2_RGB_INDEX], mask[:, S2_NIR_10m_INDEX])
 
         return (self.check(eo_data), mask.astype(bool), latlon, month, valid_month)
-
+    
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
@@ -227,6 +228,21 @@ required {self.num_timesteps}, got {len(timestep_positions)}"
             mask_per_variable,
         )
 
+    def get_month_array(self, row: pd.Series) -> np.ndarray:
+        start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
+            row.end_date, "%Y-%m-%d"
+        )
+
+        # Calculate the step size for 10-day intervals and create a list of dates
+        step = int((end_date - start_date).days / (self.num_timesteps - 1))
+        date_vector = [start_date + timedelta(days=i * step) for i in range(self.num_timesteps)]
+
+        # Ensure last date is not beyond the end date
+        if date_vector[-1] > end_date:
+            date_vector[-1] = end_date
+
+        return np.array([d.month - 1 for d in date_vector])
+    
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
         # TODO: this can be removed
@@ -397,71 +413,6 @@ class WorldCerealMaskedDataset(WorldCerealBase):
             real_mask_per_variable,
         )
 
-    def get_month_array(self, row: pd.Series) -> np.ndarray:
-        start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
-            row.end_date, "%Y-%m-%d"
-        )
-
-        # Calculate the step size for 10-day intervals and create a list of dates
-        step = int((end_date - start_date).days / (self.num_timesteps - 1))
-        date_vector = [start_date + timedelta(days=i * step) for i in range(self.num_timesteps)]
-
-        # Ensure last date is not beyond the end date
-        if date_vector[-1] > end_date:
-            date_vector[-1] = end_date
-
-        return np.array([d.month - 1 for d in date_vector])
-
-
-# class WorldCerealMasked10DDataset(WorldCerealMaskedDataset):
-#     NUM_TIMESTEPS = 36
-
-#     def __getitem__(self, idx):
-#         # Get the sample
-#         row = self.df.iloc[idx, :]
-#         eo, real_mask_per_token, latlon, _, _ = self.row_to_arrays(
-#             row, task_type=self.task_type, croptype_list=self.croptype_list, is_ssl=self.is_ssl
-#         )
-
-#         mask_eo, x_eo, y_eo, strat = self.mask_params.mask_data(
-#             self.normalize_and_mask(eo),
-#             real_mask_per_token,
-#             num_timesteps=self.NUM_TIMESTEPS,
-#         )
-#         real_mask_per_variable = np.repeat(real_mask_per_token, BAND_EXPANSION, axis=1)
-
-#         dynamic_world = np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount)
-#         mask_dw = np.full(self.NUM_TIMESTEPS, True)
-#         y_dw = dynamic_world.copy()
-#         return MaskedExample(
-#             mask_eo,
-#             mask_dw,
-#             x_eo,
-#             y_eo,
-#             dynamic_world,
-#             y_dw,
-#             self.get_month_array(row),  #########
-#             latlon,
-#             strat,
-#             real_mask_per_variable,
-#         )
-
-# @classmethod
-# def get_month_array(cls, row: pd.Series) -> np.ndarray:
-#     start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
-#         row.end_date, "%Y-%m-%d"
-#     )
-
-#     # Calculate the step size for 10-day intervals and create a list of dates
-#     step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))
-#     date_vector = [start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)]
-
-#     # Ensure last date is not beyond the end date
-#     if date_vector[-1] > end_date:
-#         date_vector[-1] = end_date
-
-#     return np.array([d.month - 1 for d in date_vector])
-
 
 def filter_remove_noncrops(df: pd.DataFrame) -> pd.DataFrame:
     labels_to_exclude = [
@@ -497,6 +448,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
     def __init__(
         self,
         dataframe: pd.DataFrame,
+        num_timesteps: int = NUM_TIMESTEPS,
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         balance: bool = False,
@@ -504,6 +456,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         croptype_list: List = [],
         return_hierarchical_labels: bool = False,
         augment: bool = False,
+        is_dekadal: bool = False,
         mask_ratio: float = 0.0,
     ):
         dataframe = dataframe.loc[~dataframe.LANDCOVER_LABEL.isin(self.FILTER_LABELS)]
@@ -524,6 +477,7 @@ class WorldCerealLabelledDataset(WorldCerealBase):
         self.croptype_list = croptype_list
         self.return_hierarchical_labels = return_hierarchical_labels
         self.augment = augment
+        self.is_dekadal = is_dekadal
         if augment:
             logger.info(
                 "Augmentation is enabled. \
@@ -540,7 +494,7 @@ The horizontal jittering of the selected window will be performed."
             mask_ratio,
         )
 
-        super().__init__(dataframe)
+        super().__init__(dataframe, num_timesteps)
         if balance:
             if self.task_type == "cropland":
                 logger.info("Balancing is enabled. Underrepresented class will be upsampled.")
@@ -654,9 +608,9 @@ times of the initial class size."
         return (
             normed_eo,
             target,
-            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            np.ones(self.num_timesteps) * (DynamicWorld2020_2021.class_amount),
             latlon,
-            month,
+            self.get_month_array(row) if self.is_dekadal else month,
             valid_month,
             mask_per_variable,
         )
@@ -680,48 +634,48 @@ times of the initial class size."
         return self._class_weights
 
 
-class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
+# class WorldCerealLabelled10DDataset(WorldCerealLabelledDataset):
 
-    NUM_TIMESTEPS = 36
+#     NUM_TIMESTEPS = 36
 
-    @classmethod
-    def get_month_array(cls, row: pd.Series) -> np.ndarray:
-        start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
-            row.end_date, "%Y-%m-%d"
-        )
+#     @classmethod
+#     def get_month_array(cls, row: pd.Series) -> np.ndarray:
+#         start_date, end_date = datetime.strptime(row.start_date, "%Y-%m-%d"), datetime.strptime(
+#             row.end_date, "%Y-%m-%d"
+#         )
 
-        # Calculate the step size for 10-day intervals and create a list of dates
-        step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))
-        date_vector = [start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)]
+#         # Calculate the step size for 10-day intervals and create a list of dates
+#         step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))
+#         date_vector = [start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)]
 
-        # Ensure last date is not beyond the end date
-        if date_vector[-1] > end_date:
-            date_vector[-1] = end_date
+#         # Ensure last date is not beyond the end date
+#         if date_vector[-1] > end_date:
+#             date_vector[-1] = end_date
 
-        return np.array([d.month - 1 for d in date_vector])
+#         return np.array([d.month - 1 for d in date_vector])
 
-    def __getitem__(self, idx):
-        # Get the sample
-        df_index = self.indices[idx]
-        row = self.df.iloc[df_index, :]
-        eo, mask_per_token, latlon, _, valid_month = self.row_to_arrays(
-            row, self.task_type, self.croptype_list, self.augment
-        )
-        target = self.target_crop(
-            row, self.task_type, self.croptype_list, self.return_hierarchical_labels
-        )
-        if self.mask_ratio > 0:
-            mask_per_token, eo, _, _ = self.mask_params.mask_data(eo, mask_per_token)
-        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
-        return (
-            self.normalize_and_mask(eo),
-            target,
-            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
-            latlon,
-            self.get_month_array(row),
-            valid_month,
-            mask_per_variable,
-        )
+#     def __getitem__(self, idx):
+#         # Get the sample
+#         df_index = self.indices[idx]
+#         row = self.df.iloc[df_index, :]
+#         eo, mask_per_token, latlon, _, valid_month = self.row_to_arrays(
+#             row, self.task_type, self.croptype_list, self.augment
+#         )
+#         target = self.target_crop(
+#             row, self.task_type, self.croptype_list, self.return_hierarchical_labels
+#         )
+#         if self.mask_ratio > 0:
+#             mask_per_token, eo, _, _ = self.mask_params.mask_data(eo, mask_per_token)
+#         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+#         return (
+#             self.normalize_and_mask(eo),
+#             target,
+#             np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+#             latlon,
+#             self.get_month_array(row),
+#             valid_month,
+#             mask_per_variable,
+#         )
 
 
 class WorldCerealInferenceDataset(Dataset):

@@ -60,7 +60,7 @@ argparser.add_argument(
     default="/home/vito/millig/projects/TAP/worldcereal/data/worldcereal_training_data.parquet",
 )
 argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-argparser.add_argument("--num_workers", type=int, default=64)
+argparser.add_argument("--num_workers", type=int, default=8)
 argparser.add_argument("--wandb", dest="wandb", action="store_true")
 argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
 
@@ -140,7 +140,7 @@ if wandb_enabled:
     )
     run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
-model_logging_dir = output_parent_dir / "output" / timestamp_dirname(run_id)
+model_logging_dir = output_parent_dir / "models" / model_name / timestamp_dirname(run_id)
 model_logging_dir.mkdir(exist_ok=True, parents=True)
 initialize_logging(model_logging_dir)
 logger.info("Using output dir: %s" % model_logging_dir)
@@ -158,7 +158,7 @@ with open(path_to_config) as file:
 
 
 logger.info("Loading data")
-files = sorted(glob(f"{parquet_file}/**/*.parquet"))[:10]
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))  # [:10]
 df_list = []
 for f in tqdm(files):
     _data = pd.read_parquet(f, engine="fastparquet")
@@ -178,12 +178,11 @@ logger.info(f"Preparing train and val splits for {test_type} test")
 val_samples_df = pd.read_csv(data_dir / "test_splits" / val_samples_file)
 
 train_df, val_df = WorldCerealBase.split_df(
-    df, val_size=0.1
-)  # val_sample_ids=val_samples_df.sample_id.tolist())
+    df, val_sample_ids=val_samples_df.sample_id.tolist()
+)  # val_size=0.1
 
 # Load the mask parameters
 mask_params = MaskParamsNoDw(mask_strategies, mask_ratio, num_timesteps=36 if dekadal else 12)
-# masked_ds = WorldCerealMasked10DDataset if dekadal else WorldCerealMaskedDataset
 
 train_dataloader = DataLoader(
     WorldCerealMaskedDataset(
@@ -229,13 +228,11 @@ else:
     model_kwargs = json.load(Path(path_to_config).open("r"))
     model = Presto.construct(**model_kwargs)
     best_model_path = None
-    # moved into the else block ##################
     if dekadal:
         logger.info("extending model to dekadal architecture")
         model = extend_to_dekadal(model)
 
 model.to(device)
-# print(f"model pos embed shape {model.encoder.pos_embed.shape}") # correctly reinitialized
 
 param_groups = param_groups_weight_decay(model, weight_decay)
 optimizer = optim.AdamW(param_groups, lr=max_learning_rate, betas=(0.9, 0.95))

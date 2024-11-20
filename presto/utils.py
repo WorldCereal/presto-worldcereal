@@ -36,7 +36,8 @@ logger = logging.getLogger("__main__")
 data_dir = Path(__file__).parent.parent / "data"
 config_dir = Path(__file__).parent.parent / "config"
 default_model_path = data_dir / "default_model.pt"
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 DEFAULT_SEED: int = 42
 
 
@@ -191,8 +192,8 @@ def process_parquet(df: pd.DataFrame, num_ts: int = 12) -> pd.DataFrame:
         "DEM-alt-20m",
         "DEM-slo-20m",
         "LANDCOVER_LABEL",
-        "POTAPOV-LABEL-10m",
-        "WORLDCOVER-LABEL-10m",
+        # "POTAPOV-LABEL-10m",
+        # "WORLDCOVER-LABEL-10m",
         "aez_zoneid",
         "end_date",
         "lat",
@@ -200,7 +201,7 @@ def process_parquet(df: pd.DataFrame, num_ts: int = 12) -> pd.DataFrame:
         "start_date",
         "sample_id",
         "valid_date",
-        "location_id",
+        # "location_id",
         "ref_id",
         "valid_position",
         "available_timesteps",
