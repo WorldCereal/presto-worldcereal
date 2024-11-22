@@ -1,30 +1,23 @@
-import numpy as np
 import pandas as pd
 
-from presto.utils import data_dir
-
-# we will have a different number of maize labels for easier testing
-NUM_CROP_POINTS = 10
-NUM_MAIZE_POINTS = 20
+from presto.dataset import WorldCerealBase
+from presto.utils import data_dir, process_parquet
 
 
-def read_test_file() -> pd.DataFrame:
-    test_df = pd.read_parquet(data_dir / "worldcereal_testdf.parquet")[:20]
-    # this is to align the parquet file with the new parquet files
-    # shared in https://github.com/WorldCereal/presto-worldcereal/pull/34
+def read_test_file(
+    finetune_classes: str = "CROPTYPE0", downstream_classes: str = "CROPTYPE9"
+) -> pd.DataFrame:
+    test_parquet_fpath = data_dir / "test_long_parquet_2017_CAN_AAFC-ACIGTD.parquet"
+    test_df_long = pd.read_parquet(test_parquet_fpath, engine="fastparquet")
+    test_df = process_parquet(test_df_long)
+    test_df.reset_index(inplace=True)
+
     test_df.rename(
-        {"catboost_prediction": "worldcereal_prediction"},
+        {"WORLDCOVER-LABEL-10m": "worldcereal_prediction"},
         axis=1,
         inplace=True,
     )
-    test_df["sample_id"] = np.arange(len(test_df))
-    test_df["year"] = 2021
-    labels = [99] * len(test_df)  # 99 = No cropland
-    labels[:NUM_CROP_POINTS] = [11] * NUM_CROP_POINTS  # 11 = Annual cropland
-    test_df["LANDCOVER_LABEL"] = labels
-
-    croptype_labels = [99] * len(test_df)
-    croptype_labels[:NUM_MAIZE_POINTS] = [1200] * NUM_MAIZE_POINTS  # 1200 = Maize
-    test_df["CROPTYPE_LABEL"] = croptype_labels
+    test_df.reset_index(inplace=True)
+    test_df = WorldCerealBase.map_croptypes(test_df, finetune_classes, downstream_classes)
 
     return test_df

@@ -1,39 +1,37 @@
-# presto_pretrain_finetune, but in a notebook
 import argparse
+import gc
 import json
 import logging
+from glob import glob
 from pathlib import Path
 from typing import Optional, Tuple, cast
 
 import pandas as pd
 import torch
 import torch.nn as nn
-import xarray as xr
 from torch import optim
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
-from presto.dataops import BANDS_GROUPS_IDX
-from presto.dataset import WorldCerealMaskedDataset as WorldCerealDataset
-from presto.dataset import filter_remove_noncrops, target_maize
-from presto.eval import WorldCerealEval
+# import xarray as xr
+from presto.dataops import BANDS_GROUPS_IDX, NODATAVALUE
+from presto.dataset import WorldCerealBase, WorldCerealMaskedDataset
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
     LossWrapper,
     Presto,
     adjust_learning_rate,
+    extend_to_dekadal,
     param_groups_weight_decay,
 )
-from presto.utils import (
+from presto.utils import (  # plot_spatial,
     DEFAULT_SEED,
     config_dir,
     data_dir,
     default_model_path,
     device,
     initialize_logging,
-    load_world_df,
-    plot_results,
-    plot_spatial,
+    process_parquet,
     seed_everything,
     timestamp_dirname,
 )
@@ -51,14 +49,19 @@ argparser.add_argument(
     "and <output_dir>/output/ will be written to. "
     "Leave empty to use the directory you are running this file from.",
 )
+argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+argparser.add_argument("--num_workers", type=int, default=64)
+argparser.add_argument("--wandb", dest="wandb", action="store_true")
+argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
+
 argparser.add_argument("--n_epochs", type=int, default=20)
 argparser.add_argument("--max_learning_rate", type=float, default=0.0001)
 argparser.add_argument("--min_learning_rate", type=float, default=0.0)
-argparser.add_argument("--finetune_train_masking", type=float, default=0.0)
 argparser.add_argument("--warmup_epochs", type=int, default=2)
 argparser.add_argument("--weight_decay", type=float, default=0.05)
-argparser.add_argument("--batch_size", type=int, default=4096)
+argparser.add_argument("--batch_size", type=int, default=2048)
 argparser.add_argument("--val_per_n_steps", type=int, default=-1, help="If -1, val every epoch")
+
 argparser.add_argument(
     "--mask_strategies",
     type=str,
@@ -72,24 +75,43 @@ argparser.add_argument(
     help="`all` will use all available masking strategies (including single bands)",
 )
 argparser.add_argument("--mask_ratio", type=float, default=0.75)
-argparser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-argparser.add_argument("--num_workers", type=int, default=4)
-argparser.add_argument("--wandb", dest="wandb", action="store_true")
-argparser.add_argument("--wandb_org", type=str, default="nasa-harvest")
-argparser.add_argument("--parquet_file", type=str, default="rawts-monthly_calval.parquet")
-argparser.add_argument("--val_samples_file", type=str, default="VAL_samples.csv")
+argparser.add_argument(
+    "--test_type",
+    type=str,
+    default="random",
+    choices=["random", "spatial", "temporal", "seasonal"],
+)
+argparser.add_argument("--train_only_samples_file", type=str, default="train_only_samples.csv")
+
 argparser.add_argument("--warm_start", dest="warm_start", action="store_true")
 argparser.set_defaults(wandb=False)
 argparser.set_defaults(warm_start=True)
 args = argparser.parse_args().__dict__
 
 model_name = args["model_name"]
-seed: int = args["seed"]
-num_workers: int = args["num_workers"]
+seed = args["seed"]
+num_workers = args["num_workers"]
+num_epochs = args["n_epochs"]
+val_per_n_steps = args["val_per_n_steps"]
+max_learning_rate = args["max_learning_rate"]
+min_learning_rate = args["min_learning_rate"]
+warmup_epochs = args["warmup_epochs"]
+weight_decay = args["weight_decay"]
+batch_size = args["batch_size"]
 path_to_config = args["path_to_config"]
 warm_start = args["warm_start"]
-wandb_enabled: bool = args["wandb"]
-wandb_org: str = args["wandb_org"]
+wandb_enabled = args["wandb"]
+wandb_org = args["wandb_org"]
+
+# Default mask strategies and mask_ratio
+mask_strategies: Tuple[str, ...] = tuple(args["mask_strategies"])
+if (len(mask_strategies) == 1) and (mask_strategies[0] == "all"):
+    mask_strategies = MASK_STRATEGIES
+mask_ratio: float = args["mask_ratio"]
+
+# presto_model_description: str = args["presto_model_description"]
+test_type: str = args["test_type"]
+assert test_type in ["random", "spatial", "temporal", "seasonal"]
 
 seed_everything(seed)
 output_parent_dir = Path(args["output_dir"]) if args["output_dir"] else Path(__file__).parent
@@ -110,62 +132,73 @@ model_logging_dir.mkdir(exist_ok=True, parents=True)
 initialize_logging(model_logging_dir)
 logger.info("Using output dir: %s" % model_logging_dir)
 
-num_epochs = args["n_epochs"]
-val_per_n_steps = args["val_per_n_steps"]
-max_learning_rate = args["max_learning_rate"]
-min_learning_rate = args["min_learning_rate"]
-warmup_epochs = args["warmup_epochs"]
-weight_decay = args["weight_decay"]
-batch_size = args["batch_size"]
+# parquet_file: str = args["parquet_file"]
+parquet_file = "/home/vito/butskoc/presto-worldcereal/data/long_parquet/\
+worldcereal_training_data.parquet"
+train_only_samples_file: str = args["train_only_samples_file"]
 
-# Default mask strategies and mask_ratio
-mask_strategies: Tuple[str, ...] = tuple(args["mask_strategies"])
-if (len(mask_strategies) == 1) and (mask_strategies[0] == "all"):
-    mask_strategies = MASK_STRATEGIES
-mask_ratio: float = args["mask_ratio"]
-
-parquet_file: str = args["parquet_file"]
-val_samples_file: str = args["val_samples_file"]
+dekadal = False
+compositing_window = "30D"
+if "10d" in parquet_file:
+    dekadal = True
+    compositing_window = "10D"
 
 path_to_config = config_dir / "default.json"
-model_kwargs = json.load(Path(path_to_config).open("r"))
+with open(path_to_config) as file:
+    model_kwargs = json.load(file)
 
-logger.info("Setting up dataloaders")
+
+logger.info("Loading data")
+files = sorted(glob(f"{parquet_file}/**/*.parquet"))
+df_list = []
+for f in tqdm(files):
+    _data = pd.read_parquet(f, engine="fastparquet")
+    _ref_id = f.split("/")[-2].split("=")[-1]
+    _data["ref_id"] = _ref_id
+    _data_pivot = process_parquet(_data)
+    _data_pivot.reset_index(inplace=True)
+    df_list.append(_data_pivot)
+df = pd.concat(df_list)
+df = df.fillna(NODATAVALUE)
+del df_list
+gc.collect()
+
+val_samples_file = f"cropland_{test_type}_generalization_test_split_samples.csv"
+
+logger.info(f"Preparing train and val splits for {test_type} test")
+val_samples_df = pd.read_csv(data_dir / "test_splits" / val_samples_file)
+
+train_df, val_df = WorldCerealBase.split_df(df, val_sample_ids=val_samples_df.sample_id.tolist())
 
 # Load the mask parameters
-mask_params = MaskParamsNoDw(mask_strategies, mask_ratio)
+mask_params = MaskParamsNoDw(mask_strategies, mask_ratio, num_timesteps=36 if dekadal else 12)
+masked_ds = WorldCerealMaskedDataset
 
-df = pd.read_parquet(data_dir / parquet_file)
-if (data_dir / val_samples_file).exists():
-    val_samples_df = pd.read_csv(data_dir / val_samples_file)
-    val_samples = val_samples_df.sample_id.tolist()
-    train_df, val_df = WorldCerealDataset.split_df(df, val_sample_ids=val_samples)
-else:
-    train_df, val_df = WorldCerealDataset.split_df(df)
 train_dataloader = DataLoader(
-    WorldCerealDataset(train_df, mask_params=mask_params),
+    masked_ds(train_df, mask_params=mask_params, is_ssl=True),
     batch_size=batch_size,
     shuffle=True,
     num_workers=num_workers,
 )
 val_dataloader = DataLoader(
-    WorldCerealDataset(val_df, mask_params=mask_params),
+    masked_ds(val_df, mask_params=mask_params, is_ssl=True),
     batch_size=batch_size,
     shuffle=False,
     num_workers=num_workers,
 )
-validation_task = WorldCerealEval(
-    train_data=train_df.sample(1000, random_state=DEFAULT_SEED),
-    test_data=val_df.sample(1000, random_state=DEFAULT_SEED),
-)
+
 
 if val_per_n_steps == -1:
     val_per_n_steps = len(train_dataloader)
 
 logger.info("Setting up model")
 if warm_start:
-    model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
-    model = Presto.load_pretrained()
+    model = Presto.load_pretrained(
+        model_path=default_model_path,
+        dekadal=dekadal,
+        valid_month_as_token=False,
+        strict=False,
+    )
     best_model_path: Optional[Path] = default_model_path
 else:
     if path_to_config == "":
@@ -173,7 +206,12 @@ else:
     model_kwargs = json.load(Path(path_to_config).open("r"))
     model = Presto.construct(**model_kwargs)
     best_model_path = None
+
+if dekadal:
+    logger.info("extending model to dekadal architecture")
+    model = extend_to_dekadal(model)
 model.to(device)
+# print(f"model pos embed shape {model.encoder.pos_embed.shape}") # correctly reinitialized
 
 param_groups = param_groups_weight_decay(model, weight_decay)
 optimizer = optim.AdamW(param_groups, lr=max_learning_rate, betas=(0.9, 0.95))
@@ -207,7 +245,13 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
         train_size = 0
         model.train()
         for epoch_step, b in enumerate(tqdm(train_dataloader, desc="Train", leave=False)):
-            mask, x, y, start_month = b[0].to(device), b[2].to(device), b[3].to(device), b[6]
+            mask, x, y, start_month = (
+                b[0].to(device),
+                b[2].to(device),
+                b[3].to(device),
+                b[6].to(device),
+                # b[10].to(device),
+            )
             dw_mask, x_dw, y_dw = b[1].to(device), b[4].to(device).long(), b[5].to(device).long()
             latlons, real_mask = b[7].to(device), b[9].to(device)
             # zero the parameter gradients
@@ -222,7 +266,12 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
             )
             # Get model outputs and calculate loss
             y_pred, dw_pred = model(
-                x, mask=mask, dynamic_world=x_dw, latlons=latlons, month=start_month
+                x,
+                mask=mask,
+                dynamic_world=x_dw,
+                latlons=latlons,
+                month=start_month,
+                # valid_month=valid_month,
             )
             # set all SRTM timesteps except the first one to unmasked, so that
             # they will get ignored by the loss function even if the SRTM
@@ -253,14 +302,20 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                             b[0].to(device),
                             b[2].to(device),
                             b[3].to(device),
-                            b[6],
+                            b[6].to(device),
                             b[9].to(device),
+                            # b[10].to(device),
                         )
                         dw_mask, x_dw = b[1].to(device), b[4].to(device).long()
                         y_dw, latlons = b[5].to(device).long(), b[7].to(device)
                         # Get model outputs and calculate loss
                         y_pred, dw_pred = model(
-                            x, mask=mask, dynamic_world=x_dw, latlons=latlons, month=start_month
+                            x,
+                            mask=mask,
+                            dynamic_world=x_dw,
+                            latlons=latlons,
+                            month=start_month,
+                            # valid_month=valid_month,
                         )
                         # set all SRTM timesteps except the first one to unmasked, so that
                         # they will get ignored by the loss function even if the SRTM
@@ -294,11 +349,6 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 }
                 tqdm_epoch.set_postfix(loss=val_eo_loss)
 
-                val_task_results, _ = validation_task.finetuning_results(
-                    model, sklearn_model_modes=["Random Forest"]
-                )
-                to_log.update(val_task_results)
-
                 if lowest_validation_loss is None or val_eo_loss < lowest_validation_loss:
                     lowest_validation_loss = val_eo_loss
                     best_val_epoch = epoch
@@ -306,7 +356,7 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                     model_path = model_logging_dir / Path("models")
                     model_path.mkdir(exist_ok=True, parents=True)
 
-                    best_model_path = model_path / f"{model_name}{epoch}.pt"
+                    best_model_path = model_path / f"{model_name}_epoch{epoch}.pt"
                     logger.info(f"Saving best model to: {best_model_path}")
                     torch.save(model.state_dict(), best_model_path)
 
@@ -322,111 +372,3 @@ with tqdm(range(num_epochs), desc="Epoch") as tqdm_epoch:
                 model.train()
 
 logger.info(f"Trained for {num_epochs} epochs, best model at {best_model_path}")
-
-if best_model_path is not None:
-    logger.info("Loading best model: %s" % best_model_path)
-    best_model = torch.load(best_model_path, map_location=device)
-    model.load_state_dict(best_model)
-else:
-    logger.info("Running eval with randomly init weights")
-
-
-model_modes = ["Random Forest", "Regression", "CatBoostClassifier"]
-full_eval = WorldCerealEval(
-    train_df,
-    val_df,
-    spatial_inference_savedir=model_logging_dir,
-    train_masking=args["finetune_train_masking"],
-)
-results, finetuned_model = full_eval.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(results, indent=2))
-
-model_path = model_logging_dir / Path("models")
-model_path.mkdir(exist_ok=True, parents=True)
-finetuned_model_path = model_path / "finetuned_model.pt"
-torch.save(finetuned_model.state_dict(), finetuned_model_path)
-
-full_maize_eval = WorldCerealEval(
-    train_df,
-    val_df,
-    spatial_inference_savedir=model_logging_dir,
-    target_function=target_maize,
-    filter_function=filter_remove_noncrops,
-    name="WorldCerealMaize",
-    train_masking=args["finetune_train_masking"],
-)
-maize_results, maize_finetuned_model = full_maize_eval.finetuning_results(
-    model, sklearn_model_modes=model_modes
-)
-logger.info(json.dumps(maize_results, indent=2))
-torch.save(maize_finetuned_model.state_dict(), model_path / "maize_finetuned_model.pt")
-
-# not saving plots to wandb
-plot_results(load_world_df(), results, model_logging_dir, show=True, to_wandb=False)
-plot_results(
-    load_world_df(), maize_results, model_logging_dir, show=True, to_wandb=False, prefix="maize_"
-)
-
-# this is a bit hacky, but it lets us simulate crop/non-crop finetuning -> maize prediction head
-full_maize_eval.name = "WorldCerealCropFinetuningMaizeHead"
-crop_to_maize_results = full_maize_eval.finetuning_results_sklearn(
-    sklearn_model_modes=model_modes, finetuned_model=finetuned_model
-)
-logger.info(json.dumps(crop_to_maize_results, indent=2))
-
-# missing data experiments
-country_results = []
-for country in ["Latvia", "Brazil", "Togo", "Madagascar"]:
-    for predict_maize in [True, False]:
-        kwargs = {
-            "train_data": train_df,
-            "test_data": val_df,
-            "countries_to_remove": [country],
-            "spatial_inference_savedir": model_logging_dir,
-        }
-        if predict_maize:
-            kwargs.update(
-                {
-                    "target_function": target_maize,
-                    "filter_function": filter_remove_noncrops,
-                    "name": "WorldCerealMaize",
-                }
-            )
-        eval_task = WorldCerealEval(**kwargs)
-        results, finetuned_model = eval_task.finetuning_results(
-            model, sklearn_model_modes=model_modes
-        )
-        logger.info(json.dumps(results, indent=2))
-        country_results.append(results)
-        prefix = "maize" if predict_maize else ""
-        finetuned_model_path = model_path / f"{prefix}_finetuned_{country}_removed_model.pt"
-        torch.save(finetuned_model.state_dict(), finetuned_model_path)
-
-missing_year = WorldCerealEval(
-    train_df,
-    val_df,
-    years_to_remove=[2021],
-    spatial_inference_savedir=model_logging_dir,
-    train_masking=args["finetune_train_masking"],
-)
-year_results, _ = missing_year.finetuning_results(model, sklearn_model_modes=model_modes)
-logger.info(json.dumps(year_results, indent=2))
-
-all_spatial_preds = list(model_logging_dir.glob("*.nc"))
-for spatial_preds_path in all_spatial_preds:
-    preds = xr.load_dataset(spatial_preds_path)
-    output_path = model_logging_dir / f"{spatial_preds_path.stem}.png"
-    plot_spatial(preds, output_path, to_wandb=False)
-
-if wandb_enabled:
-    wandb.log(results)
-    wandb.log(maize_results)
-    wandb.log(crop_to_maize_results)
-    for results in country_results:
-        wandb.log(results)
-    wandb.log(year_results)
-
-if wandb_enabled and run:
-    run.finish()
-    logger.info(f"Wandb url: {run.url}")
-    logger.info(f"Wandb url: {run.url}")

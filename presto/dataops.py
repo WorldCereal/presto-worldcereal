@@ -77,6 +77,8 @@ DIVIDE_BY = (
 NUM_TIMESTEPS = 12
 NUM_ORG_BANDS = len(BANDS)
 TIMESTEPS_IDX = list(range(NUM_TIMESTEPS))
+NODATAVALUE = 65535
+MIN_EDGE_BUFFER = 2  # Min amount of timesteps to include before/after the valid position
 
 NORMED_BANDS = [x for x in BANDS if x != "B9"]
 NUM_BANDS = len(NORMED_BANDS)
@@ -97,6 +99,9 @@ BANDS_GROUPS_IDX: OrderedDictType[str, List[int]] = OrderedDict(
 
 BAND_EXPANSION = [len(x) for x in BANDS_GROUPS_IDX.values()]
 SRTM_INDEX = list(BANDS_GROUPS_IDX.keys()).index("SRTM")
+S2_RGB_INDEX = list(BANDS_GROUPS_IDX.keys()).index("S2_RGB")
+S2_NIR_10m_INDEX = list(BANDS_GROUPS_IDX.keys()).index("S2_NIR_10m")
+NDVI_INDEX = list(BANDS_GROUPS_IDX.keys()).index("NDVI")
 
 
 class DynamicWorld2020_2021:
