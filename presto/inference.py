@@ -201,7 +201,7 @@ def get_presto_features(
         from_url=from_url,
         strict=False,
         valid_month_as_token=use_valid_date_token,
-    )
+    ).to(device)
 
     # Compile for optimized inference. Note that warmup takes some time
     # so this is only recommended for larger inference jobs

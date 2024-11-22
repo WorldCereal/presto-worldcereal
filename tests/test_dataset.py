@@ -82,12 +82,12 @@ class TestDataset(TestCase):
 
         with torch.no_grad():
             _ = model(
-                x=torch.from_numpy(eo).float()[:num_vals],
-                dynamic_world=torch.from_numpy(dw).long()[:num_vals],
-                latlons=torch.from_numpy(latlons).float()[:num_vals],
-                mask=torch.from_numpy(mask).int()[:num_vals],
-                month=torch.from_numpy(months).long()[:num_vals],
-                valid_month=torch.from_numpy(valid_months).long()[:num_vals],
+                x=torch.from_numpy(eo).float()[:num_vals].to(device),
+                dynamic_world=torch.from_numpy(dw).long()[:num_vals].to(device),
+                latlons=torch.from_numpy(latlons).float()[:num_vals].to(device),
+                mask=torch.from_numpy(mask).int()[:num_vals].to(device),
+                month=torch.from_numpy(months).long()[:num_vals].to(device),
+                valid_month=torch.from_numpy(valid_months).long()[:num_vals].to(device),
             )
 
     def test_spatial_dataset_without_valid_month_token(self):
@@ -105,11 +105,11 @@ class TestDataset(TestCase):
 
         with torch.no_grad():
             _ = model(
-                x=torch.from_numpy(eo).float()[:num_vals],
-                dynamic_world=torch.from_numpy(dw).long()[:num_vals],
-                latlons=torch.from_numpy(latlons).float()[:num_vals],
-                mask=torch.from_numpy(mask).int()[:num_vals],
-                month=torch.from_numpy(months).long()[:num_vals],
+                x=torch.from_numpy(eo).float()[:num_vals].to(device),
+                dynamic_world=torch.from_numpy(dw).long()[:num_vals].to(device),
+                latlons=torch.from_numpy(latlons).float()[:num_vals].to(device),
+                mask=torch.from_numpy(mask).int()[:num_vals].to(device),
+                month=torch.from_numpy(months).long()[:num_vals].to(device),
             )
 
     def test_combine_predictions(self):

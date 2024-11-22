@@ -418,12 +418,11 @@ class Encoder(nn.Module):
         valid_month: Optional[torch.Tensor] = None,
         eval_task: bool = True,
     ):
-        # device = x.device
 
         if mask is None:
-            mask = torch.zeros_like(x, device=x.device)
+            mask = torch.zeros_like(x, device=device)
 
-        months = month_to_tensor(month, x.shape[0], x.shape[1], x.device)
+        months = month_to_tensor(month, x.shape[0], x.shape[1], device)
         month_embedding = self.month_embed(months)
         positional_embedding = repeat(
             self.pos_embed[:, : x.shape[1], :],
@@ -622,7 +621,7 @@ class Decoder(nn.Module):
         # channel group doesn't have timesteps
         num_timesteps = int((x.shape[1] - 2) / (num_channel_groups - 1))
         srtm_index = self.band_group_to_idx["SRTM"] * num_timesteps
-        months = month_to_tensor(month, x.shape[0], num_timesteps, x.device)
+        months = month_to_tensor(month, x.shape[0], num_timesteps, device)
 
         # when we expand the encodings, each channel_group gets num_timesteps
         # encodings. However, there is only one SRTM token so we remove the
@@ -676,7 +675,7 @@ class Decoder(nn.Module):
         srtm_index = self.band_group_to_idx["SRTM"] * num_timesteps
         srtm_token = x[:, srtm_index : srtm_index + 1, :]
 
-        mask = torch.full((x.shape[1],), True, device=x.device)
+        mask = torch.full((x.shape[1],), True, device=device)
         mask[torch.tensor(srtm_index)] = False
         x = x[:, mask]
 
