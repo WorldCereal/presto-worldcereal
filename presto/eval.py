@@ -21,7 +21,6 @@ from tqdm import tqdm
 from .dataset import (
     NORMED_BANDS,
     WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
     WorldCerealLabelledDataset,
 )
 from .hierarchical_classification import CatBoostClassifierWrapper
@@ -58,6 +57,7 @@ class WorldCerealEval:
         self,
         train_data: pd.DataFrame,
         test_data: pd.DataFrame,
+        num_timesteps: int = 12,
         countries_to_remove: Optional[List[str]] = None,
         years_to_remove: Optional[List[int]] = None,
         spatial_inference_savedir: Optional[Path] = None,
@@ -67,7 +67,6 @@ class WorldCerealEval:
         val_size: float = 0.2,
         dekadal: bool = False,
         task_type: str = "cropland",
-        num_outputs: int = 1,
         croptype_list: List = [],
         finetune_classes: str = "CROPTYPE0",
         downstream_classes: str = "CROPTYPE9",
@@ -78,6 +77,7 @@ class WorldCerealEval:
     ):
         self.seed = seed
         self.task_type = task_type
+        self.num_timesteps = num_timesteps
         self.name = f"WorldCereal{task_type.title()}"
 
         train_data, val_data = WorldCerealLabelledDataset.split_df(train_data, val_size=val_size)
@@ -112,12 +112,12 @@ class WorldCerealEval:
                     self.num_outputs = len(train_classes)
 
                 # use classes obtained from train to trim val and test classes
-                self.val_df.loc[
-                    ~self.val_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
-                self.test_df.loc[
-                    ~self.test_df[class_column].isin(train_classes), class_column
-                ] = "other_crop"
+                self.val_df.loc[~self.val_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
+                self.test_df.loc[~self.test_df[class_column].isin(train_classes), class_column] = (
+                    "other_crop"
+                )
 
             # create one-hot representation from obtained labels
             # one-hot is needed for finetuning,
@@ -151,7 +151,7 @@ class WorldCerealEval:
 
         self.dekadal = dekadal
         self.balance = balance
-        self.ds_class = WorldCerealLabelled10DDataset if dekadal else WorldCerealLabelledDataset
+        self.ds_class = WorldCerealLabelledDataset
         self.train_masking = train_masking
         self.augment = augment
         self.use_valid_month = use_valid_month
@@ -252,6 +252,7 @@ class WorldCerealEval:
             dl = DataLoader(
                 self.ds_class(
                     self.train_df,
+                    self.num_timesteps,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                     task_type=self.task_type,
@@ -266,6 +267,7 @@ class WorldCerealEval:
             val_dl = DataLoader(
                 self.ds_class(
                     self.val_df,
+                    self.num_timesteps,
                     countries_to_remove=self.countries_to_remove,
                     years_to_remove=self.years_to_remove,
                     task_type=self.task_type,

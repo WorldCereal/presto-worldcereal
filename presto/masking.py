@@ -5,13 +5,7 @@ from typing import Any, List, Tuple
 
 import numpy as np
 
-from .dataops import (
-    BAND_EXPANSION,
-    BANDS_GROUPS_IDX,
-    NUM_TIMESTEPS,
-    SRTM_INDEX,
-    TIMESTEPS_IDX,
-)
+from .dataops import BAND_EXPANSION, BANDS_GROUPS_IDX, NUM_TIMESTEPS, SRTM_INDEX
 
 MASK_STRATEGIES = (
     "group_bands",
@@ -54,7 +48,10 @@ def make_mask_no_dw(
     num_tokens_to_mask = int(
         ((num_timesteps * (len(BANDS_GROUPS_IDX) - 1)) + 1) * mask_ratio
     ) - sum(sum(mask))
-    assert num_tokens_to_mask > 0
+    # assert num_tokens_to_mask > 0
+    if num_tokens_to_mask <= 0:
+        mask[:, SRTM_INDEX] = srtm_mask
+        return np.repeat(mask, BAND_EXPANSION, axis=1)
 
     def mask_topography(srtm_mask, num_tokens_to_mask, mask_ratio):
         should_flip = random() < mask_ratio
@@ -106,7 +103,7 @@ def make_mask_no_dw(
         # -1 for SRTM
         timesteps_to_mask = int(num_tokens_to_mask / (len(BANDS_GROUPS_IDX) - 1))
         max_tokens_masked = (len(BANDS_GROUPS_IDX) - 1) * timesteps_to_mask
-        timesteps = sample(TIMESTEPS_IDX, k=timesteps_to_mask)
+        timesteps = sample(range(num_timesteps), k=timesteps_to_mask)
         if timesteps_to_mask > 0:
             num_tokens_to_mask -= int(max_tokens_masked - sum(sum(mask[timesteps])))
             mask[timesteps] = True
@@ -145,14 +142,14 @@ class MaskParamsNoDw:
                 "random_combinations",
             ]
 
-    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray, num_timesteps: int = NUM_TIMESTEPS):
+    def mask_data(self, eo_data: np.ndarray, mask: np.ndarray):
         strategy = choice(self.strategies)
 
         mask = make_mask_no_dw(
             strategy=strategy,
             mask_ratio=self.ratio,
             existing_mask=mask,
-            num_timesteps=num_timesteps,
+            num_timesteps=self.num_timesteps,
         )
 
         x = eo_data * ~mask
