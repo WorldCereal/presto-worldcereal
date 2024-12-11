@@ -12,22 +12,11 @@ import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-
 from presto.dataops import NUM_TIMESTEPS
 
-from .dataops import (
-    BANDS,
-    ERA5_BANDS,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    REMOVED_BANDS,
-    S1_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_BANDS,
-    SRTM_BANDS,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
+                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
+                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
 
 # plt = None
 
@@ -202,6 +191,8 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
         "valid_date",
         "location_id",
         "ref_id",
+        "valid_position",
+        "available_timesteps",
     ]
 
     bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
@@ -217,12 +208,11 @@ def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
     ]
     bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
 
-    df["timestamp_ind"] = (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
-    )
-    df["valid_position"] = (df["valid_date"].dt.year * 12 + df["valid_date"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
-    )
+    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int)
+    df["valid_date_ts_diff_days"] = (df["valid_date"] - df["timestamp"]).dt.days.abs()
+    valid_position = df.set_index("timestamp_ind").groupby("sample_id")['valid_date_ts_diff_days'].idxmin()
+    df["valid_position"] = df["sample_id"].map(valid_position)
+
     df["valid_position_diff"] = df["timestamp_ind"] - df["valid_position"]
 
     # save the initial start_date for later
@@ -295,9 +285,9 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
     df["end_date"] = df["sample_id"].map(new_end_date)
 
     # reinitialize timestep_ind
-    df["timestamp_ind"] = (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
-    )
+    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int)
+
+    df["available_timesteps"] = df["sample_id"].map(df.groupby("sample_id")["timestamp"].nunique().astype(int))
 
     # check for missing timestamps in the middle of timeseries
     # and create corresponding columns with NODATAVALUE
@@ -334,15 +324,6 @@ and {len(samples_before_start_date)} samples with valid_date before the start_da
     df_pivot.columns = [
         f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
     ]  # type: ignore
-
-    df_pivot["valid_position"] = (
-        df_pivot["valid_date"].dt.year * 12 + df_pivot["valid_date"].dt.month
-    ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
-    df_pivot["available_timesteps"] = (
-        (df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month)
-        - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
-        + 1
-    )
 
     min_center_point = np.maximum(
         NUM_TIMESTEPS // 2,
