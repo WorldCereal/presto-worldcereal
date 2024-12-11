@@ -13,9 +13,18 @@ from einops import rearrange
 from pyproj import CRS, Transformer
 from torch.utils.data import Dataset
 
-from .dataops import (BANDS, BANDS_GROUPS_IDX, MIN_EDGE_BUFFER, NDVI_INDEX,
-                      NODATAVALUE, NORMED_BANDS, S1_S2_ERA5_SRTM, S2_RGB_INDEX,
-                      DynamicWorld2020_2021, S2_NIR_10m_INDEX)
+from .dataops import (
+    BANDS,
+    BANDS_GROUPS_IDX,
+    MIN_EDGE_BUFFER,
+    NDVI_INDEX,
+    NODATAVALUE,
+    NORMED_BANDS,
+    S1_S2_ERA5_SRTM,
+    S2_RGB_INDEX,
+    DynamicWorld2020_2021,
+    S2_NIR_10m_INDEX,
+)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, get_class_mappings, load_world_df
 
@@ -142,7 +151,7 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
             # TODO: 1) this needs to go into a separate function
             # 2) definition of valid_position and timestep_ind
             #  should also be changed accordingly
-            
+
             year = pd.to_datetime(row_d["start_date"]).year
             year_dates = pd.date_range(start=f"{year}-01-01", end=f"{year}-12-31")
             bins = pd.cut(year_dates, bins=cls.NUM_TIMESTEPS, labels=False)
