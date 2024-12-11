@@ -12,22 +12,11 @@ import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-
 from presto.dataops import NUM_TIMESTEPS
 
-from .dataops import (
-    BANDS,
-    ERA5_BANDS,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    REMOVED_BANDS,
-    S1_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_BANDS,
-    SRTM_BANDS,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
+                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
+                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
 
 # plt = None
 
@@ -123,7 +112,7 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
 
     Args:
         df (pd.DataFrame): Input dataframe containing EO data and the following required attributes:
-            ["sample_id", "timestamp", "lat", "lon"].
+            ["sample_id", "timestamp"].
         use_valid_time (bool): If True, the function will use the valid_time column to check
             if valid_time lies within the range of available observations,
             with MIN_EDGE_BUFFER buffer.
@@ -144,12 +133,7 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
         error is raised if pivot results in an empty DataFrame
     """
 
-    required_columns = [
-        "sample_id",
-        "timestamp",
-        "lat",
-        "lon",
-    ]
+    required_columns = ["sample_id", "timestamp"]
     if not all([col in df.columns for col in required_columns]):
         missing_columns = [col for col in required_columns if col not in df.columns]
         raise AttributeError(f"DataFrame must contain the following columns: {missing_columns}")
@@ -185,19 +169,20 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
         "OPTICAL-B8A",
     ]
     bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
+    static_features = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
 
     feature_columns = bands10m + bands20m + bands100m
     # for index columns we need to include all columns that are not feature columns
     index_columns = [col for col in df.columns if col not in feature_columns]
-    # and also ensure that static DEM columns are included.
+    # and also ensure that static DEM columns and lat-lon are included.
     # if they are not available in the DataFrame,
     # they will be initialized with NODATAVALUE
-    index_columns.extend(["DEM-alt-20m", "DEM-slo-20m"])
+    index_columns.extend(static_features)
     index_columns.remove("timestamp")
 
     # check that all feature columns are present in the DataFrame
     # or initialize them with NODATAVALUE
-    for feature_col in feature_columns:
+    for feature_col in feature_columns + static_features:
         if feature_col not in df.columns:
             df[feature_col] = NODATAVALUE
 
