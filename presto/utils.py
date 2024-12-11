@@ -12,11 +12,22 @@ import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
+
 from presto.dataops import NUM_TIMESTEPS
 
-from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
-                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
-                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
+from .dataops import (
+    BANDS,
+    ERA5_BANDS,
+    MIN_EDGE_BUFFER,
+    NODATAVALUE,
+    NORMED_BANDS,
+    REMOVED_BANDS,
+    S1_BANDS,
+    S1_S2_ERA5_SRTM,
+    S2_BANDS,
+    SRTM_BANDS,
+    DynamicWorld2020_2021,
+)
 
 # plt = None
 
@@ -98,25 +109,27 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
 
     This function performs the following operations:
     - initializing the start_date and end_date as the first and last available observation;
-    - computing relative position of the timestamp (timestamp_ind variable) in the timeseries; 
+    - computing relative position of the timestamp (timestamp_ind variable) in the timeseries;
     - checking for missing timesteps in the middle of the timeseries and adding them
       with NODATA values
     - pivoting the DataFrame to wide format with columns for each feature column
       and timesteps as suffixes
     - assigning the correct suffixes to the band names
-    - computing the number of available timesteps in the timeseries; 
+    - computing the number of available timesteps in the timeseries;
       it represents the absolute number of timesteps for which observations are
       available; it cannot be less than NUM_TIMESTEPS; if this is the case,
       sample is considered faulty and is removed from the dataset
     - post-processing with prep_dataframe function
 
     Args:
-        df (pd.DataFrame): Input dataframe containing EO data and the following required attributes: 
+        df (pd.DataFrame): Input dataframe containing EO data and the following required attributes:
             ["sample_id", "timestamp", "lat", "lon"].
-        use_valid_time (bool): If True, the function will use the valid_time column to check 
-            if valid_time lies within the range of available observations, with MIN_EDGE_BUFFER buffer. 
-            Samples where this is not the case are removed from the dataset. 
-            If False, the function will not use the valid_time column and will not perform this check.
+        use_valid_time (bool): If True, the function will use the valid_time column to check
+            if valid_time lies within the range of available observations,
+            with MIN_EDGE_BUFFER buffer.
+            Samples where this is not the case are removed from the dataset.
+            If False, the function will not use the valid_time column
+            and will not perform this check.
 
     Returns
     -------
@@ -129,19 +142,17 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
         error is raised if DataFrame does not contain the required columns
     ValueError
         error is raised if pivot results in an empty DataFrame
-    """  
-    
+    """
+
     required_columns = [
-        "sample_id", 
+        "sample_id",
         "timestamp",
         "lat",
         "lon",
-        ]
+    ]
     if not all([col in df.columns for col in required_columns]):
         missing_columns = [col for col in required_columns if col not in df.columns]
-        raise AttributeError(
-            f"DataFrame must contain the following columns: {missing_columns}"
-        )
+        raise AttributeError(f"DataFrame must contain the following columns: {missing_columns}")
 
     df.rename(
         columns={
@@ -176,7 +187,12 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
     bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
 
     feature_columns = bands10m + bands20m + bands100m
-    index_columns = required_columns + ["DEM-alt-20m","DEM-slo-20m"]
+    # for index columns we need to include all columns that are not feature columns
+    index_columns = [col for col in df.columns if col not in feature_columns]
+    # and also ensure that static DEM columns are included.
+    # if they are not available in the DataFrame,
+    # they will be initialized with NODATAVALUE
+    index_columns.extend(["DEM-alt-20m", "DEM-slo-20m"])
     index_columns.remove("timestamp")
 
     # check that all feature columns are present in the DataFrame
@@ -190,16 +206,21 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
     # Assign start_date and end_date as the minimum and maximum available timestamp
     df["start_date"] = df["sample_id"].map(df.groupby(["sample_id"])["timestamp"].min())
     df["end_date"] = df["sample_id"].map(df.groupby(["sample_id"])["timestamp"].max())
-    index_columns.extend(["start_date","end_date"])
+    index_columns.extend(["start_date", "end_date"])
 
     if use_valid_time:
-        # since in the openEO output this variable is called "valid_time", 
-        # we need the following lines for compatibility with earlier datasets 
-        df.rename(columns={"valid_date": "valid_time"}, inplace=True)
+        if "valid_date" in df.columns:
+            # since in the openEO output this variable is called "valid_time",
+            # we need the following lines for compatibility with earlier datasets
+            df.rename(columns={"valid_date": "valid_time"}, inplace=True)
+            index_columns.remove("valid_date")
+
         index_columns.append("valid_time")
 
         df["valid_time_ts_diff_days"] = (df["valid_time"] - df["timestamp"]).dt.days.abs()
-        valid_position = df.set_index("timestamp_ind").groupby("sample_id")['valid_time_ts_diff_days'].idxmin()
+        valid_position = (
+            df.set_index("timestamp_ind").groupby("sample_id")["valid_time_ts_diff_days"].idxmin()
+        )
         df["valid_position"] = df["sample_id"].map(valid_position)
         index_columns.append("valid_position")
 
@@ -264,7 +285,9 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
 
     # create timestep_ind
     df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int)
-    df["available_timesteps"] = df["sample_id"].map(df.groupby("sample_id")["timestamp"].nunique().astype(int))
+    df["available_timesteps"] = df["sample_id"].map(
+        df.groupby("sample_id")["timestamp"].nunique().astype(int)
+    )
     index_columns.append("available_timesteps")
 
     # check for missing timestamps in the middle of timeseries
@@ -282,6 +305,7 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
         df = pd.concat([df, dummy_df])
 
     # finally pivot the dataframe
+    index_columns = list(np.unique(index_columns))
     df_pivot = df.pivot(index=index_columns, columns="timestamp_ind", values=feature_columns)
     df_pivot = df_pivot.fillna(NODATAVALUE)
 
@@ -304,7 +328,9 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
     ]  # type: ignore
 
     if use_valid_time:
+        df_pivot["year"] = df_pivot["valid_time"].dt.year
         df_pivot["valid_time"] = df_pivot["valid_time"].dt.date.astype(str)
+
         min_center_point = np.maximum(
             NUM_TIMESTEPS // 2,
             df_pivot["valid_position"] + MIN_EDGE_BUFFER - NUM_TIMESTEPS // 2,
