@@ -99,7 +99,12 @@ def get_class_mappings() -> Dict:
     return CLASS_MAPPINGS
 
 
-def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFrame:
+def process_parquet(
+    df: pd.DataFrame,
+    use_valid_time: bool = True,
+    num_timesteps: int = NUM_TIMESTEPS,
+    min_edge_buffer: int = MIN_EDGE_BUFFER,
+) -> pd.DataFrame:
     """
     This function takes in a DataFrame with S1, S2 and ERA5 observations and their respective dates
     in long format and returns it in wide format.
@@ -117,7 +122,7 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
     - assigning the correct suffixes to the band names
     - computing the number of available timesteps in the timeseries;
       it represents the absolute number of timesteps for which observations are
-      available; it cannot be less than NUM_TIMESTEPS; if this is the case,
+      available; it cannot be less than num_timesteps; if this is the case,
       sample is considered faulty and is removed from the dataset
     - post-processing with prep_dataframe function
 
@@ -126,7 +131,7 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
             ["sample_id", "timestamp"].
         use_valid_time (bool): If True, the function will use the valid_time column to check
             if valid_time lies within the range of available observations,
-            with MIN_EDGE_BUFFER buffer.
+            with min_edge_buffer buffer.
             Samples where this is not the case are removed from the dataset.
             If False, the function will not use the valid_time column
             and will not perform this check.
@@ -249,9 +254,9 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
 
         # add timesteps before the start_date where needed
         intermediate_dummy_df = pd.DataFrame()
-        for n_ts_to_add in range(1, MIN_EDGE_BUFFER + 1):
+        for n_ts_to_add in range(1, min_edge_buffer + 1):
             samples_to_add_ts_before_start = latest_obs_position[
-                (MIN_EDGE_BUFFER - latest_obs_position["valid_position"]) >= -n_ts_to_add
+                (min_edge_buffer - latest_obs_position["valid_position"]) >= -n_ts_to_add
             ].index
             dummy_df = df[
                 (df["sample_id"].isin(samples_to_add_ts_before_start)) & (df["timestamp_ind"] == 0)
@@ -265,9 +270,9 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
 
         # add timesteps after the end_date where needed
         intermediate_dummy_df = pd.DataFrame()
-        for n_ts_to_add in range(1, MIN_EDGE_BUFFER + 1):
+        for n_ts_to_add in range(1, min_edge_buffer + 1):
             samples_to_add_ts_after_end = latest_obs_position[
-                (MIN_EDGE_BUFFER - latest_obs_position["valid_position_diff"]) >= n_ts_to_add
+                (min_edge_buffer - latest_obs_position["valid_position_diff"]) >= n_ts_to_add
             ].index
             dummy_df = df[
                 (df["sample_id"].isin(samples_to_add_ts_after_end)) & (df["is_last_available_ts"])
@@ -328,12 +333,12 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
         df_pivot["valid_time"] = df_pivot["valid_time"].dt.date.astype(str)
 
         min_center_point = np.maximum(
-            NUM_TIMESTEPS // 2,
-            df_pivot["valid_position"] + MIN_EDGE_BUFFER - NUM_TIMESTEPS // 2,
+            num_timesteps // 2,
+            df_pivot["valid_position"] + min_edge_buffer - num_timesteps // 2,
         )
         max_center_point = np.minimum(
-            df_pivot["available_timesteps"] - NUM_TIMESTEPS // 2,
-            df_pivot["valid_position"] - MIN_EDGE_BUFFER + NUM_TIMESTEPS // 2,
+            df_pivot["available_timesteps"] - num_timesteps // 2,
+            df_pivot["valid_position"] - min_edge_buffer + num_timesteps // 2,
         )
 
         faulty_samples = min_center_point > max_center_point
@@ -341,11 +346,11 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
             logger.warning(f"Dropping {faulty_samples.sum()} faulty samples.")
         df_pivot = df_pivot[~faulty_samples]
 
-    samples_with_too_few_ts = df_pivot["available_timesteps"] < NUM_TIMESTEPS
+    samples_with_too_few_ts = df_pivot["available_timesteps"] < num_timesteps
     if samples_with_too_few_ts.sum() > 0:
         logger.warning(
             f"Dropping {samples_with_too_few_ts.sum()} samples with \
-number of available timesteps less than {NUM_TIMESTEPS}."
+number of available timesteps less than {num_timesteps}."
         )
     df_pivot = df_pivot[~samples_with_too_few_ts]
 
