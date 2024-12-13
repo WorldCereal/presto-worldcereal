@@ -243,6 +243,11 @@ def process_parquet(
             df = df[~df["sample_id"].isin(samples_before_start_date)]
             df = df[~df["sample_id"].isin(samples_after_end_date)]
 
+        # compute average distance between observations
+        # and use it as an approximation for frequency
+        obs_timestamps = pd.Series(df["timestamp"].unique()).sort_values()
+        avg_distance = int(obs_timestamps.diff().abs().dt.days.mean())
+
         # add timesteps before the start_date where needed
         intermediate_dummy_df = pd.DataFrame()
         for n_ts_to_add in range(1, min_edge_buffer + 1):
@@ -253,7 +258,7 @@ def process_parquet(
                 (df["sample_id"].isin(samples_to_add_ts_before_start)) & (df["timestamp_ind"] == 0)
             ].copy()
             dummy_df["timestamp"] = dummy_df["timestamp"] - pd.DateOffset(
-                months=n_ts_to_add
+                days=(n_ts_to_add * avg_distance)
             )  # type: ignore
             dummy_df[feature_columns] = NODATAVALUE
             intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
@@ -269,7 +274,7 @@ def process_parquet(
                 (df["sample_id"].isin(samples_to_add_ts_after_end)) & (df["is_last_available_ts"])
             ].copy()
             dummy_df["timestamp"] = dummy_df["timestamp"] + pd.DateOffset(
-                months=n_ts_to_add
+                months=(n_ts_to_add * avg_distance)
             )  # type: ignore
             dummy_df[feature_columns] = NODATAVALUE
             intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
