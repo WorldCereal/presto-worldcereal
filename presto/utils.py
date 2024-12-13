@@ -110,8 +110,8 @@ def process_parquet(df: pd.DataFrame, use_valid_time: bool = True) -> pd.DataFra
     This function performs the following operations:
     - initializing the start_date and end_date as the first and last available observation;
     - computing relative position of the timestamp (timestamp_ind variable) in the timeseries;
-    - checking for missing timesteps in the middle of the timeseries and adding them
-      with NODATA values
+    - checking for missing timesteps in the middle of the timeseries
+      and filling them with NODATAVALUE
     - pivoting the DataFrame to wide format with columns for each feature column
       and timesteps as suffixes
     - assigning the correct suffixes to the band names
