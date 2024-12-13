@@ -201,7 +201,7 @@ def process_parquet(
         if feature_col not in df.columns:
             df[feature_col] = NODATAVALUE
 
-    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int)
+    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int) - 1
 
     # Assign start_date and end_date as the minimum and maximum available timestamp
     df["start_date"] = df["sample_id"].map(df.groupby(["sample_id"])["timestamp"].min())
@@ -280,26 +280,13 @@ def process_parquet(
             intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
         df = pd.concat([df, intermediate_dummy_df])
 
-    # create timestep_ind
-    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int)
+        # reinitialize timestep_ind
+        df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int) - 1
+
     df["available_timesteps"] = df["sample_id"].map(
         df.groupby("sample_id")["timestamp"].nunique().astype(int)
     )
     index_columns.append("available_timesteps")
-
-    # check for missing timestamps in the middle of timeseries
-    # and create corresponding columns with NODATAVALUE
-    missing_timestamps = [
-        xx for xx in range(df["timestamp_ind"].max()) if xx not in df["timestamp_ind"].unique()
-    ]
-    present_timestamps = [
-        xx for xx in range(df["timestamp_ind"].max()) if xx not in missing_timestamps
-    ]
-    for missing_timestamp in missing_timestamps:
-        dummy_df = df[df["timestamp_ind"] == np.random.choice(present_timestamps)].copy()
-        dummy_df["timestamp_ind"] = missing_timestamp
-        dummy_df[feature_columns] = NODATAVALUE
-        df = pd.concat([df, dummy_df])
 
     # finally pivot the dataframe
     index_columns = list(np.unique(index_columns))
