@@ -170,6 +170,9 @@ def process_parquet(
             "S2-L2A-B12": "OPTICAL-B12",
             "AGERA5-precipitation-flux": "METEO-precipitation_flux",
             "AGERA5-temperature-mean": "METEO-temperature_mean",
+            # since the openEO output has the attribute "valid_time",
+            # # we need the following line for compatibility with earlier datasets
+            "valid_date": "valid_time",
         },
         inplace=True,
     )
@@ -206,14 +209,6 @@ def process_parquet(
     index_columns.extend(["start_date", "end_date"])
 
     if use_valid_time:
-        if "valid_date" in df.columns:
-            # since in the openEO output this variable is called "valid_time",
-            # we need the following lines for compatibility with earlier datasets
-            df.rename(columns={"valid_date": "valid_time"}, inplace=True)
-            index_columns.remove("valid_date")
-
-        index_columns.append("valid_time")
-
         df["valid_time_ts_diff_days"] = (df["valid_time"] - df["timestamp"]).dt.days.abs()
         valid_position = (
             df.set_index("timestamp_ind").groupby("sample_id")["valid_time_ts_diff_days"].idxmin()
