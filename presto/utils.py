@@ -289,7 +289,7 @@ def process_parquet(
     index_columns.append("available_timesteps")
 
     # finally pivot the dataframe
-    index_columns = list(np.unique(index_columns))
+    index_columns = list(set(index_columns))
     df_pivot = df.pivot(index=index_columns, columns="timestamp_ind", values=feature_columns)
     df_pivot = df_pivot.fillna(NODATAVALUE)
 
