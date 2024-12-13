@@ -149,7 +149,8 @@ def process_parquet(
         error is raised if pivot results in an empty DataFrame
     """
 
-    required_columns = ["sample_id", "timestamp"]
+    static_features = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
+    required_columns = ["sample_id", "timestamp"] + static_features
     if not all([col in df.columns for col in required_columns]):
         missing_columns = [col for col in required_columns if col not in df.columns]
         raise AttributeError(f"DataFrame must contain the following columns: {missing_columns}")
@@ -185,20 +186,15 @@ def process_parquet(
         "OPTICAL-B8A",
     ]
     bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
-    static_features = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
 
     feature_columns = bands10m + bands20m + bands100m
     # for index columns we need to include all columns that are not feature columns
     index_columns = [col for col in df.columns if col not in feature_columns]
-    # and also ensure that static DEM columns and lat-lon are included.
-    # if they are not available in the DataFrame,
-    # they will be initialized with NODATAVALUE
-    index_columns.extend(static_features)
     index_columns.remove("timestamp")
 
     # check that all feature columns are present in the DataFrame
     # or initialize them with NODATAVALUE
-    for feature_col in feature_columns + static_features:
+    for feature_col in feature_columns:
         if feature_col not in df.columns:
             df[feature_col] = NODATAVALUE
 
