@@ -335,7 +335,7 @@ def process_parquet(
             f"Dropping {samples_with_too_few_ts.sum()} samples with \
 number of available timesteps less than {num_timesteps}."
         )
-    df_pivot = df_pivot[~samples_with_too_few_ts]
+        df_pivot = df_pivot[~samples_with_too_few_ts]
 
     df_pivot["start_date"] = df_pivot["start_date"].dt.date.astype(str)
     df_pivot["end_date"] = df_pivot["end_date"].dt.date.astype(str)
