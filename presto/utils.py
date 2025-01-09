@@ -12,22 +12,11 @@ import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-
 from presto.dataops import NUM_TIMESTEPS
 
-from .dataops import (
-    BANDS,
-    ERA5_BANDS,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
-    NORMED_BANDS,
-    REMOVED_BANDS,
-    S1_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_BANDS,
-    SRTM_BANDS,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, ERA5_BANDS, MIN_EDGE_BUFFER, NODATAVALUE,
+                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
+                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
 
 # plt = None
 
@@ -684,7 +673,6 @@ def prep_dataframe(
     # SAR cannot equal 0.0 since we take the log of it
     cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
 
-    df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "start_date"])
     df = df[~pd.isna(df).any(axis=1)]
     df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
     df = df.set_index("sample_id")
