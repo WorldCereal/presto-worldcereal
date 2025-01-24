@@ -5,7 +5,7 @@ import sys
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Literal, Optional, Union
 
 import geopandas as gpd
 import numpy as np
@@ -101,6 +101,7 @@ def get_class_mappings() -> Dict:
 
 def process_parquet(
     df: pd.DataFrame,
+    ts_freq: Literal["month", "dekad"] = "month",
     use_valid_time: bool = True,
     num_timesteps: int = NUM_TIMESTEPS,
     min_edge_buffer: int = MIN_EDGE_BUFFER,
@@ -148,6 +149,31 @@ def process_parquet(
     ValueError
         error is raised if pivot results in an empty DataFrame
     """
+
+    def fill_missing_dates(df: pd.DataFrame) -> pd.DataFrame:
+        def get_all_month_ends(start_date, end_date):
+            return pd.date_range(start=start_date, end=end_date, freq="ME")
+
+        def fill_sample(sample_df):
+            all_dates = get_all_month_ends(
+                sample_df["start_date"].iloc[0], sample_df["end_date"].iloc[0]
+            )
+            missing_dates = all_dates.difference(sample_df["timestamp"])
+            if not missing_dates.empty:
+                static_cols = sample_df.iloc[0][index_columns].to_dict()
+                for date in missing_dates:
+                    new_row = {**static_cols, "timestamp": date}
+                    for col in feature_columns:
+                        new_row[col] = NODATAVALUE
+                    sample_df.loc[-1] = new_row
+                    sample_df.reset_index(drop=True, inplace=True)
+            return sample_df
+
+        return (
+            df.groupby("sample_id")[[*index_columns, *feature_columns, "timestamp"]]
+            .apply(fill_sample)
+            .reset_index(drop=True)
+        )
 
     static_features = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
     required_columns = ["sample_id", "timestamp"] + static_features
@@ -201,12 +227,25 @@ def process_parquet(
         if feature_col not in df.columns:
             df[feature_col] = NODATAVALUE
 
-    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int) - 1
-
     # Assign start_date and end_date as the minimum and maximum available timestamp
     df["start_date"] = df["sample_id"].map(df.groupby(["sample_id"])["timestamp"].min())
     df["end_date"] = df["sample_id"].map(df.groupby(["sample_id"])["timestamp"].max())
     index_columns.extend(["start_date", "end_date"])
+
+    index_columns = list(set(index_columns))
+
+    # check if there are missing timestep depending on the frequency
+    if ts_freq == "month":
+        # check that all timestamps are at the end of the month,
+        # as this is the expected format of input monthly data
+        if not df["timestamp"].dt.is_month_end.all():
+            raise ValueError("All timestamps must be at the end of the month")
+        df = fill_missing_dates(df)
+    else:
+        raise ValueError(f"ts_freq {ts_freq} not supported")
+
+    # initialize timestep_ind
+    df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int) - 1
 
     if use_valid_time:
         df["valid_time_ts_diff_days"] = (df["valid_time"] - df["timestamp"]).dt.days.abs()
@@ -243,11 +282,6 @@ def process_parquet(
             df = df[~df["sample_id"].isin(samples_before_start_date)]
             df = df[~df["sample_id"].isin(samples_after_end_date)]
 
-        # compute average distance between observations
-        # and use it as an approximation for frequency
-        obs_timestamps = pd.Series(df["timestamp"].unique()).sort_values()
-        avg_distance = int(obs_timestamps.diff().abs().dt.days.mean())
-
         # add timesteps before the start_date where needed
         intermediate_dummy_df = pd.DataFrame()
         for n_ts_to_add in range(1, min_edge_buffer + 1):
@@ -257,9 +291,14 @@ def process_parquet(
             dummy_df = df[
                 (df["sample_id"].isin(samples_to_add_ts_before_start)) & (df["timestamp_ind"] == 0)
             ].copy()
-            dummy_df["timestamp"] = dummy_df["timestamp"] - pd.DateOffset(
-                days=(n_ts_to_add * avg_distance)
-            )  # type: ignore
+
+            if ts_freq == "month":
+                dummy_df["timestamp"] = dummy_df["timestamp"] - pd.DateOffset(
+                    months=n_ts_to_add
+                )  # type: ignore
+            else:
+                raise ValueError(f"ts_freq {ts_freq} not supported")
+
             dummy_df[feature_columns] = NODATAVALUE
             intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
         df = pd.concat([df, intermediate_dummy_df])
@@ -273,9 +312,14 @@ def process_parquet(
             dummy_df = df[
                 (df["sample_id"].isin(samples_to_add_ts_after_end)) & (df["is_last_available_ts"])
             ].copy()
-            dummy_df["timestamp"] = dummy_df["timestamp"] + pd.DateOffset(
-                months=(n_ts_to_add * avg_distance)
-            )  # type: ignore
+
+            if ts_freq == "month":
+                dummy_df["timestamp"] = dummy_df["timestamp"] + pd.DateOffset(
+                    months=n_ts_to_add
+                )  # type: ignore
+            else:
+                raise ValueError(f"ts_freq {ts_freq} not supported")
+
             dummy_df[feature_columns] = NODATAVALUE
             intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
         df = pd.concat([df, intermediate_dummy_df])
