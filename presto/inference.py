@@ -10,6 +10,8 @@ from einops import rearrange
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from presto.input_data_processors import process_parquet
+
 from .dataops import (
     BANDS_GROUPS_IDX,
     NORMED_BANDS,
@@ -19,7 +21,7 @@ from .dataops import (
 from .dataset import WorldCerealBase, WorldCerealInferenceDataset
 from .masking import BAND_EXPANSION
 from .presto import Presto
-from .utils import device, process_parquet
+from .utils import device
 
 logger = logging.getLogger(__name__)
 
