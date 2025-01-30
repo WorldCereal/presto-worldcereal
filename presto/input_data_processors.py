@@ -64,7 +64,10 @@ class DataFrameValidator:
     def validate_timestamps(df_long: pd.DataFrame, freq: str = "month") -> None:
         if freq == "month":
             if not df_long["timestamp"].dt.is_month_start.all():
-                raise ValueError("All monthly timestamps must be at month start")
+                bad_dates = df_long[~df_long["timestamp"].dt.is_month_start]["timestamp"].unique()
+                raise ValueError(
+                    f"All monthly timestamps must be at month start. Found: {bad_dates}"
+                )
         elif freq == "dekad":
             if not df_long["timestamp"].dt.day.isin([1, 11, 21]).all():
                 raise ValueError(
