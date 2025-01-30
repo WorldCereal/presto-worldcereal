@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import Dict, List, Literal, Optional
 
 import numpy as np
@@ -61,8 +62,16 @@ class DataFrameValidator:
 
     @staticmethod
     def validate_timestamps(df_long: pd.DataFrame, freq: str = "month") -> None:
-        if freq == "month" and not df_long["timestamp"].dt.is_month_start.all():
-            raise ValueError("All monthly timestamps must be at month start")
+        if freq == "month":
+            if not df_long["timestamp"].dt.is_month_start.all():
+                raise ValueError("All monthly timestamps must be at month start")
+        elif freq == "dekad":
+            if not df_long["timestamp"].dt.day.isin([1, 11, 21]).all():
+                raise ValueError(
+                    "All dekad timestamps must be at the 1st, 11th, or 21st of the month"
+                )
+        else:
+            raise NotImplementedError(f"Frequency {freq} not supported")
 
     @staticmethod
     def check_faulty_samples(df_wide: pd.DataFrame, min_edge_buffer: int) -> pd.DataFrame:
@@ -99,7 +108,7 @@ All samples have fewer timesteps than required ({required_min_timesteps})."
             return df_wide
 
     @staticmethod
-    def check_median_distance(df_long: pd.DataFrame, ts_freq: str) -> pd.DataFrame:
+    def check_median_distance(df_long: pd.DataFrame, freq: str) -> pd.DataFrame:
         # compute median distance between observations
         # and use it as an approximation for frequency
 
@@ -116,32 +125,32 @@ All samples have fewer timesteps than required ({required_min_timesteps})."
             ts_subset_df.groupby("sample_id")["timestamp_diff_days"].median().fillna(0).astype(int)
         )
 
-        if ts_freq == "month":
+        if freq == "month":
             samples_with_mismatching_distance = median_distance[
                 median_distance != EXPECTED_DISTANCES["month"]
             ]
-        elif ts_freq == "dekad":
+        elif freq == "dekad":
             samples_with_mismatching_distance = median_distance[
                 median_distance != EXPECTED_DISTANCES["dekad"]
             ]
         else:
-            raise ValueError(f"ts_freq {ts_freq} not supported.")
+            raise NotImplementedError(f"Frequency {freq} not supported")
 
         if len(samples_with_mismatching_distance) > 0:
             logger.warning(
                 f"Found {len(samples_with_mismatching_distance)} samples with median distance \
-between observations not corresponding to {ts_freq}. \
+between observations not corresponding to {freq}. \
 Removing them from the dataset."
             )
             df_long = df_long[~df_long["sample_id"].isin(samples_with_mismatching_distance.index)]
             if len(df_long) == 0:
                 raise ValueError(
                     f"Left with an empty DataFrame! All samples have median distance between \
-observations not corresponding to {ts_freq}."
+observations not corresponding to {freq}."
                 )
         else:
             logger.info(
-                f"Expected observations frequency: {ts_freq}; \
+                f"Expected observations frequency: {freq}; \
 Median observed distance between observations: {median_distance.unique()} days"
             )
 
@@ -164,19 +173,26 @@ class TimeSeriesProcessor:
 
     @staticmethod
     def fill_missing_dates(
-        df_long: pd.DataFrame, ts_freq: str, index_columns: List[str]
+        df_long: pd.DataFrame, freq: str, index_columns: List[str]
     ) -> pd.DataFrame:
-        def get_expected_dates(start_date, end_date, ts_freq):
-            if ts_freq == "month":
+        def get_expected_dates(start_date, end_date, freq):
+            if freq == "month":
                 return pd.date_range(start=start_date, end=end_date, freq="MS")
-            elif ts_freq == "dekad":
-                return NotImplemented
+            elif freq == "dekad":
+                return pd.DatetimeIndex(
+                    np.unique(
+                        [
+                            _dekad_startdate_from_date(xx)
+                            for xx in _dekad_timestamps(start_date, end_date)
+                        ]
+                    )
+                )
             else:
-                raise ValueError(f"ts_freq {ts_freq} not supported")
+                raise NotImplementedError(f"Frequency {freq} not supported")
 
         def fill_sample(sample_df):
             expected_dates = get_expected_dates(
-                sample_df["start_date"].iloc[0], sample_df["end_date"].iloc[0], ts_freq
+                sample_df["start_date"].iloc[0], sample_df["end_date"].iloc[0], freq
             )
             missing_dates = expected_dates.difference(sample_df["timestamp"])
             if not missing_dates.empty:
@@ -191,7 +207,7 @@ class TimeSeriesProcessor:
 
         unique_date_pairs = df_long[["start_date", "end_date"]].drop_duplicates()
         unique_date_pairs["expected_n_observations"] = unique_date_pairs.apply(
-            lambda xx: len(get_expected_dates(xx["start_date"], xx["end_date"], ts_freq)),
+            lambda xx: len(get_expected_dates(xx["start_date"], xx["end_date"], freq)),
             axis=1,
         )
         unique_date_pairs.set_index(["start_date", "end_date"], inplace=True)
@@ -232,9 +248,9 @@ Filling them with NODATAVALUE."
 
     @staticmethod
     def add_dummy_timestamps(
-        df_long: pd.DataFrame, min_edge_buffer: int, ts_freq: str
+        df_long: pd.DataFrame, min_edge_buffer: int, freq: str
     ) -> pd.DataFrame:
-        def create_dummy_rows(samples_to_add, n_ts_to_add, direction):
+        def create_dummy_rows(samples_to_add, n_ts_to_add, direction, freq):
             dummy_df = df_long[
                 df_long["sample_id"].isin(samples_to_add)
                 & (
@@ -242,13 +258,18 @@ Filling them with NODATAVALUE."
                     == (0 if direction == "before" else df_long["timestamp_ind"].max())
                 )
             ].copy()
-            offset = pd.DateOffset(months=n_ts_to_add * (1 if direction == "after" else -1))
-            dummy_df["timestamp"] += offset
+
+            if freq == "month":
+                offset = pd.DateOffset(months=n_ts_to_add * (1 if direction == "after" else -1))
+                dummy_df["timestamp"] += offset
+            elif freq == "dekad":
+                offset = pd.DateOffset(days=n_ts_to_add * (10 if direction == "after" else -10))
+                dummy_df["timestamp"] = dummy_df["timestamp"] + offset
+                dummy_df["timestamp"] = dummy_df["timestamp"].apply(_dekad_startdate_from_date)
+
+            # dummy_df["timestamp"] += offset
             dummy_df[FEATURE_COLUMNS] = NODATAVALUE
             return dummy_df
-
-        if ts_freq != "month":
-            raise ValueError(f"ts_freq {ts_freq} not supported")
 
         latest_obs_position = df_long.groupby("sample_id")[
             ["valid_position", "timestamp_ind", "valid_position_diff"]
@@ -260,9 +281,6 @@ Filling them with NODATAVALUE."
         samples_before_start_date = latest_obs_position[
             latest_obs_position["valid_position"] < 0
         ].index.tolist()
-
-        # print(samples_after_end_date)
-        # print(samples_after_end_date)
 
         if (len(samples_after_end_date) > 0) or (len(samples_before_start_date) > 0):
             logger.warning(
@@ -282,6 +300,7 @@ before the start_date"
                     ].index,
                     n_ts_to_add,
                     "before",
+                    freq,
                 )
                 for n_ts_to_add in range(1, min_edge_buffer)
             ]
@@ -293,6 +312,7 @@ before the start_date"
                     ].index,
                     n_ts_to_add,
                     "after",
+                    freq,
                 )
                 for n_ts_to_add in range(1, min_edge_buffer)
             ]
@@ -380,9 +400,117 @@ Replacing them with NODATAVALUE."
         return df_long
 
 
+def _dekad_timestamps(begin, end):
+    """Creates a temporal sequence on a dekadal basis.
+    Returns end date for each dekad.
+    Based on: https://pytesmo.readthedocs.io/en/7.1/_modules/pytesmo/timedate/dekad.html  # NOQA
+
+    Parameters
+    ----------
+    begin : datetime
+        Datetime index start date.
+    end : datetime, optional
+        Datetime index end date, set to current date if None.
+
+    Returns
+    -------
+    dtindex : pandas.DatetimeIndex
+        Dekadal datetime index.
+    """
+
+    import calendar
+
+    daterange = generate_month_sequence(begin, end)
+
+    dates = []
+
+    for i, dat in enumerate(daterange):
+        year, month = int(str(dat)[:4]), int(str(dat)[5:7])
+        lday = calendar.monthrange(year, month)[1]
+        if i == 0 and begin.day > 1:
+            if begin.day < 11:
+                if daterange.size == 1:
+                    if end.day < 11:
+                        dekads = [10]
+                    elif end.day >= 11 and end.day < 21:
+                        dekads = [10, 20]
+                    else:
+                        dekads = [10, 20, lday]
+                else:
+                    dekads = [10, 20, lday]
+            elif begin.day >= 11 and begin.day < 21:
+                if daterange.size == 1:
+                    if end.day < 21:
+                        dekads = [20]
+                    else:
+                        dekads = [20, lday]
+                else:
+                    dekads = [20, lday]
+            else:
+                dekads = [lday]
+        elif i == (len(daterange) - 1) and end.day < 21:
+            if end.day < 11:
+                dekads = [10]
+            else:
+                dekads = [10, 20]
+        else:
+            dekads = [10, 20, lday]
+
+        for j in dekads:
+            dates.append(datetime(year, month, j))
+
+    return dates
+
+
+def _dekad_startdate_from_date(dt_in):
+    """
+    dekadal startdate that a date falls in
+    Based on: https://pytesmo.readthedocs.io/en/7.1/_modules/pytesmo/timedate/dekad.html  # NOQA
+
+    Parameters
+    ----------
+    run_dt: datetime.datetime
+
+    Returns
+    -------
+    startdate: datetime.datetime
+        startdate of dekad
+    """
+    if dt_in.day <= 10:
+        startdate = datetime(dt_in.year, dt_in.month, 1, 0, 0, 0)
+    if dt_in.day >= 11 and dt_in.day <= 20:
+        startdate = datetime(dt_in.year, dt_in.month, 11, 0, 0, 0)
+    if dt_in.day >= 21:
+        startdate = datetime(dt_in.year, dt_in.month, 21, 0, 0, 0)
+    return startdate
+
+
+def generate_month_sequence(start_date: datetime, end_date: datetime) -> np.ndarray:
+    """Helper function to generate a sequence of months between start_date and end_date.
+    This is much faster than using a pd.date_range().
+
+    Parameters
+    ----------
+    start_date : datetime
+        start of the sequence
+    end_date : datetime
+        end of the sequence
+
+    Returns
+    -------
+    array contaning the sequence of months
+
+    """
+    start = np.datetime64(start_date, "M")  # Truncate to month start
+    end = np.datetime64(end_date, "M")  # Truncate to month start
+    timestamps = np.arange(start, end + 1, dtype="datetime64[M]")
+
+    return timestamps
+
+
 def process_parquet(
     df: pd.DataFrame,
-    ts_freq: Literal["month", "dekad"] = "month",
+    freq: Literal["month", "dekad"] = "month",
     use_valid_time: bool = True,
     required_min_timesteps: Optional[int] = None,
     min_edge_buffer: int = 2,
@@ -395,8 +523,8 @@ def process_parquet(
     # Validate input
     validator = DataFrameValidator()
     validator.validate_required_columns(df)
-    validator.validate_timestamps(df, ts_freq)
-    df = validator.check_median_distance(df, ts_freq)
+    validator.validate_timestamps(df, freq)
+    df = validator.check_median_distance(df, freq)
 
     # Process columns
     df = (
@@ -414,7 +542,7 @@ def process_parquet(
 
     # Process time series
     processor = TimeSeriesProcessor()
-    df = processor.fill_missing_dates(df, ts_freq, index_columns)
+    df = processor.fill_missing_dates(df, freq, index_columns)
     if return_after_fill:
         return df
 
@@ -425,7 +553,7 @@ def process_parquet(
         df = processor.calculate_valid_position(df)
         index_columns.append("valid_position")
         df["valid_position_diff"] = df["timestamp_ind"] - df["valid_position"]
-        df = processor.add_dummy_timestamps(df, min_edge_buffer, ts_freq)
+        df = processor.add_dummy_timestamps(df, min_edge_buffer, freq)
 
     df["available_timesteps"] = df["sample_id"].map(
         df.groupby("sample_id")["timestamp"].nunique().astype(int)
