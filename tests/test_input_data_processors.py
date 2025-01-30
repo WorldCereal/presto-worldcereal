@@ -5,6 +5,7 @@ import pandas as pd
 
 from presto.dataops import MIN_EDGE_BUFFER, NODATAVALUE, NUM_TIMESTEPS
 from presto.input_data_processors import (
+    FEATURE_COLUMNS,
     _dekad_startdate_from_date,
     _dekad_timestamps,
     process_parquet,
@@ -289,19 +290,19 @@ class TestProcessParquet(TestCase):
             self.assertIn("METEO-precipitation_flux-ts0-100m", result.columns)
 
     def test_process_parquet_missing_timestamps(self):
-        bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
-        bands20m = [
-            "SAR-VH",
-            "SAR-VV",
-            "OPTICAL-B05",
-            "OPTICAL-B06",
-            "OPTICAL-B07",
-            "OPTICAL-B11",
-            "OPTICAL-B12",
-            "OPTICAL-B8A",
-        ]
-        bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
-        feature_columns = bands10m + bands20m + bands100m
+        # bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
+        # bands20m = [
+        #     "SAR-VH",
+        #     "SAR-VV",
+        #     "OPTICAL-B05",
+        #     "OPTICAL-B06",
+        #     "OPTICAL-B07",
+        #     "OPTICAL-B11",
+        #     "OPTICAL-B12",
+        #     "OPTICAL-B8A",
+        # ]
+        # bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
+        # feature_columns = bands10m + bands20m + bands100m
 
         for freq in self.allowed_freqs:
             df = self.df_month if freq == "month" else self.df_dekad if freq == "dekad" else None
@@ -329,10 +330,41 @@ class TestProcessParquet(TestCase):
                     & (result["timestamp"] == trow["timestamp"])
                 ]
                 self.assertFalse(row_to_check.empty)
-                self.assertTrue((row_to_check[feature_columns] == NODATAVALUE).values.all())
+                self.assertTrue((row_to_check[FEATURE_COLUMNS] == NODATAVALUE).values.all())
 
-    # def test_process_parquet_wild_timestamps(self):
-    # TODO: Implement test when wild timestamp(s) are injected into the dataframe
+    def test_process_parquet_wild_timestamps(self):
+        # TODO: Implement test when wild timestamp(s) are injected into the dataframe
+        for freq in self.allowed_freqs:
+            test_df = (
+                self.df_month if freq == "month" else self.df_dekad if freq == "dekad" else None
+            )
+
+            # Add n wild timestamp(s) to the dataframe
+            # Make sure not to add any of the existing timestamps
+            n_samples = 3
+            bag_of_wild_timestamps_inside = pd.date_range(
+                start=self.start_date, end=self.end_date, freq="D"
+            )
+            bag_of_wild_timestamps_inside = [
+                xx
+                for xx in bag_of_wild_timestamps_inside
+                if xx not in test_df["timestamp"].unique()
+            ]
+            wild_timestamps_inside = np.random.choice(bag_of_wild_timestamps_inside, n_samples)
+
+            dummy_df = test_df.sample(n_samples)
+            dummy_df["timestamp"] = wild_timestamps_inside
+
+            test_df = pd.concat([test_df, dummy_df], ignore_index=True)
+
+            with self.assertRaises(ValueError):
+                process_parquet(
+                    test_df,
+                    freq=freq,
+                    use_valid_time=True,
+                    required_min_timesteps=NUM_TIMESTEPS,
+                    min_edge_buffer=MIN_EDGE_BUFFER,
+                )
 
     def test_process_parquet_valid_date_close_to_start(self):
         for freq in self.allowed_freqs:
