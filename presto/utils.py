@@ -13,13 +13,9 @@ import pandas as pd
 import torch
 import xarray as xr
 
-from presto.dataops import NUM_TIMESTEPS
-
-from .dataops import (
+from .dataops import (  # MIN_EDGE_BUFFER,; NODATAVALUE,
     BANDS,
     ERA5_BANDS,
-    MIN_EDGE_BUFFER,
-    NODATAVALUE,
     NORMED_BANDS,
     REMOVED_BANDS,
     S1_BANDS,
@@ -28,6 +24,9 @@ from .dataops import (
     SRTM_BANDS,
     DynamicWorld2020_2021,
 )
+
+# from presto.dataops import NUM_TIMESTEPS
+
 
 # plt = None
 
@@ -97,284 +96,6 @@ def get_class_mappings() -> Dict:
         CLASS_MAPPINGS = json.load(f)
 
     return CLASS_MAPPINGS
-
-
-def process_parquet(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    This function takes in a DataFrame with S1, S2 and ERA5 observations and their respective dates
-    in long format and returns it in wide format.
-
-    Each row of the input DataFrame should represent a unique combination
-    of sample_id and timestamp, also containing start_date and valid_date columns.
-    start_date is the first date of the timeseries.
-    valid_date is the date for which the crop of the sample is valid
-    (prefrerably it is located around
-    the center of the agricultural season, but not necessarily).
-    timestamp is the date of the observation.
-
-    This function performs the following operations:
-    - computing relative position of the timestamp (timestamp_ind variable)
-      and valid_date (valid_position variable) in the timeseries;
-    - filtering out samples were valid date is outside the range of the actual extractions
-    - adding dummy timesteps filled with NODATA values before the start_date or after
-      the end_date for samples where valid_date is close to the edge of the timeseries;
-      this closeness is defined by the globally defined parameter MIN_EDGE_BUFFER
-    - reinitializing the start_date, end_date and timestamp_ind to take into account
-      newly added timesteps
-    - checking for missing timesteps in the middle of the timeseries and adding them
-      with NODATA values
-    - pivoting the DataFrame to wide format with columns for each band
-      and timesteps as suffixes
-    - assigning the correct suffixes to the band names
-    - computing the final valid_date position in the timeseries that takes
-      into account updated start_date
-    - computing the number of available timesteps in the timeseries that
-      takes into account updated start_date and end_date; available_timesteps
-      holds the absolute number of timesteps that for which observations are
-      available; it cannot be less than NUM_TIMESTEPS; if this is the case,
-      sample is considered faulty and is removed from the dataset
-    - post-processing with prep_dataframe function
-
-    Returns
-    -------
-    pd.DataFrame
-        pivoted DataFrame with columns for each band and timesteps as suffixes
-
-    Raises
-    ------
-    ValueError
-        error is raised if pivot results in an empty DataFrame
-    """
-
-    # add dummy value + rename stuff for compatibility with existing functions
-    df["OPTICAL-B8A"] = NODATAVALUE
-
-    # TODO: this needs to go away once the transition to new data is complete
-    df.rename(
-        columns={
-            "S1-SIGMA0-VV": "SAR-VV",
-            "S1-SIGMA0-VH": "SAR-VH",
-            "S2-L2A-B02": "OPTICAL-B02",
-            "S2-L2A-B03": "OPTICAL-B03",
-            "S2-L2A-B04": "OPTICAL-B04",
-            "S2-L2A-B05": "OPTICAL-B05",
-            "S2-L2A-B06": "OPTICAL-B06",
-            "S2-L2A-B07": "OPTICAL-B07",
-            "S2-L2A-B08": "OPTICAL-B08",
-            "S2-L2A-B11": "OPTICAL-B11",
-            "S2-L2A-B12": "OPTICAL-B12",
-            "AGERA5-precipitation-flux": "METEO-precipitation_flux",
-            "AGERA5-temperature-mean": "METEO-temperature_mean",
-        },
-        inplace=True,
-    )
-
-    # should these definitions be here? or better in the dataops.py?
-    feature_columns = [
-        "METEO-precipitation_flux",
-        "METEO-temperature_mean",
-        "SAR-VH",
-        "SAR-VV",
-        "OPTICAL-B02",
-        "OPTICAL-B03",
-        "OPTICAL-B04",
-        "OPTICAL-B08",
-        "OPTICAL-B8A",
-        "OPTICAL-B05",
-        "OPTICAL-B06",
-        "OPTICAL-B07",
-        "OPTICAL-B11",
-        "OPTICAL-B12",
-    ]
-    index_columns = [
-        "CROPTYPE_LABEL",
-        "DEM-alt-20m",
-        "DEM-slo-20m",
-        "LANDCOVER_LABEL",
-        "POTAPOV-LABEL-10m",
-        "WORLDCOVER-LABEL-10m",
-        "aez_zoneid",
-        "end_date",
-        "lat",
-        "lon",
-        "start_date",
-        "sample_id",
-        "valid_date",
-        "location_id",
-        "ref_id",
-    ]
-
-    bands10m = ["OPTICAL-B02", "OPTICAL-B03", "OPTICAL-B04", "OPTICAL-B08"]
-    bands20m = [
-        "SAR-VH",
-        "SAR-VV",
-        "OPTICAL-B05",
-        "OPTICAL-B06",
-        "OPTICAL-B07",
-        "OPTICAL-B11",
-        "OPTICAL-B12",
-        "OPTICAL-B8A",
-    ]
-    bands100m = ["METEO-precipitation_flux", "METEO-temperature_mean"]
-
-    df["timestamp_ind"] = (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
-    )
-    df["valid_position"] = (df["valid_date"].dt.year * 12 + df["valid_date"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
-    )
-    df["valid_position_diff"] = df["timestamp_ind"] - df["valid_position"]
-
-    # save the initial start_date for later
-    df["initial_start_date"] = df["start_date"].copy()
-    index_columns.append("initial_start_date")
-
-    # define samples where valid_date is outside the range of the actual extractions
-    # and remove them from the dataset
-    latest_obs_position = df.groupby(["sample_id"])[
-        ["valid_position", "timestamp_ind", "valid_position_diff"]
-    ].max()
-    df["is_last_available_ts"] = (
-        df["sample_id"].map(latest_obs_position["timestamp_ind"]) == df["timestamp_ind"]
-    )
-    samples_after_end_date = latest_obs_position[
-        (latest_obs_position["valid_position"] > latest_obs_position["timestamp_ind"])
-    ].index
-    samples_before_start_date = latest_obs_position[
-        (latest_obs_position["valid_position"] < 0)
-    ].index
-
-    if len(samples_after_end_date) > 0 or len(samples_before_start_date) > 0:
-        logger.warning(
-            f"""\
-Dataset {df["ref_id"].iloc[0]}: removing {len(samples_after_end_date)} \
-samples with valid_date after the end_date \
-and {len(samples_before_start_date)} samples with valid_date before the start_date"""
-        )
-        df = df[~df["sample_id"].isin(samples_before_start_date)]
-        df = df[~df["sample_id"].isin(samples_after_end_date)]
-
-    # add timesteps before the start_date where needed
-    intermediate_dummy_df = pd.DataFrame()
-    for n_ts_to_add in range(1, MIN_EDGE_BUFFER + 1):
-        samples_to_add_ts_before_start = latest_obs_position[
-            (MIN_EDGE_BUFFER - latest_obs_position["valid_position"]) >= -n_ts_to_add
-        ].index
-        dummy_df = df[
-            (df["sample_id"].isin(samples_to_add_ts_before_start)) & (df["timestamp_ind"] == 0)
-        ].copy()
-        dummy_df["timestamp"] = dummy_df["timestamp"] - pd.DateOffset(
-            months=n_ts_to_add
-        )  # type: ignore
-        dummy_df[feature_columns] = NODATAVALUE
-        intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
-    df = pd.concat([df, intermediate_dummy_df])
-
-    # add timesteps after the end_date where needed
-    intermediate_dummy_df = pd.DataFrame()
-    for n_ts_to_add in range(1, MIN_EDGE_BUFFER + 1):
-        samples_to_add_ts_after_end = latest_obs_position[
-            (MIN_EDGE_BUFFER - latest_obs_position["valid_position_diff"]) >= n_ts_to_add
-        ].index
-        dummy_df = df[
-            (df["sample_id"].isin(samples_to_add_ts_after_end)) & (df["is_last_available_ts"])
-        ].copy()
-        dummy_df["timestamp"] = dummy_df["timestamp"] + pd.DateOffset(
-            months=n_ts_to_add
-        )  # type: ignore
-        dummy_df[feature_columns] = NODATAVALUE
-        intermediate_dummy_df = pd.concat([intermediate_dummy_df, dummy_df])
-    df = pd.concat([df, intermediate_dummy_df])
-
-    # Now reassign start_date to the minimum timestamp
-    new_start_date = df.groupby(["sample_id"])["timestamp"].min()
-    df["start_date"] = df["sample_id"].map(new_start_date)
-
-    # Also reassign end_date to the maximum timestamp
-    new_end_date = df.groupby(["sample_id"])["timestamp"].max()
-    df["end_date"] = df["sample_id"].map(new_end_date)
-
-    # reinitialize timestep_ind
-    df["timestamp_ind"] = (df["timestamp"].dt.year * 12 + df["timestamp"].dt.month) - (
-        df["start_date"].dt.year * 12 + df["start_date"].dt.month
-    )
-
-    # check for missing timestamps in the middle of timeseries
-    # and create corresponding columns with NODATAVALUE
-    missing_timestamps = [
-        xx for xx in range(df["timestamp_ind"].max()) if xx not in df["timestamp_ind"].unique()
-    ]
-    present_timestamps = [
-        xx for xx in range(df["timestamp_ind"].max()) if xx not in missing_timestamps
-    ]
-    for missing_timestamp in missing_timestamps:
-        dummy_df = df[df["timestamp_ind"] == np.random.choice(present_timestamps)].copy()
-        dummy_df["timestamp_ind"] = missing_timestamp
-        dummy_df[feature_columns] = NODATAVALUE
-        df = pd.concat([df, dummy_df])
-
-    # finally pivot the dataframe
-    df_pivot = df.pivot(index=index_columns, columns="timestamp_ind", values=feature_columns)
-    df_pivot = df_pivot.fillna(NODATAVALUE)
-
-    if df_pivot.empty:
-        raise ValueError("Left with an empty DataFrame!")
-
-    df_pivot.reset_index(inplace=True)
-    df_pivot.columns = [
-        f"{xx[0]}-ts{xx[1]}" if isinstance(xx[1], int) else xx[0]
-        for xx in df_pivot.columns.to_flat_index()
-    ]  # type: ignore
-    df_pivot.columns = [
-        f"{xx}-10m" if any(band in xx for band in bands10m) else xx for xx in df_pivot.columns
-    ]  # type: ignore
-    df_pivot.columns = [
-        f"{xx}-20m" if any(band in xx for band in bands20m) else xx for xx in df_pivot.columns
-    ]  # type: ignore
-    df_pivot.columns = [
-        f"{xx}-100m" if any(band in xx for band in bands100m) else xx for xx in df_pivot.columns
-    ]  # type: ignore
-
-    df_pivot["valid_position"] = (
-        df_pivot["valid_date"].dt.year * 12 + df_pivot["valid_date"].dt.month
-    ) - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
-    df_pivot["available_timesteps"] = (
-        (df_pivot["end_date"].dt.year * 12 + df_pivot["end_date"].dt.month)
-        - (df_pivot["start_date"].dt.year * 12 + df_pivot["start_date"].dt.month)
-        + 1
-    )
-
-    min_center_point = np.maximum(
-        NUM_TIMESTEPS // 2,
-        df_pivot["valid_position"] + MIN_EDGE_BUFFER - NUM_TIMESTEPS // 2,
-    )
-    max_center_point = np.minimum(
-        df_pivot["available_timesteps"] - NUM_TIMESTEPS // 2,
-        df_pivot["valid_position"] - MIN_EDGE_BUFFER + NUM_TIMESTEPS // 2,
-    )
-
-    faulty_samples = min_center_point > max_center_point
-    if faulty_samples.sum() > 0:
-        logger.warning(f"Dropping {faulty_samples.sum()} faulty samples.")
-    df_pivot = df_pivot[~faulty_samples]
-
-    samples_with_too_few_ts = df_pivot["available_timesteps"] < NUM_TIMESTEPS
-    if samples_with_too_few_ts.sum() > 0:
-        logger.warning(
-            f"Dropping {samples_with_too_few_ts.sum()} samples with \
-number of available timesteps less than {NUM_TIMESTEPS}."
-        )
-    df_pivot = df_pivot[~samples_with_too_few_ts]
-
-    df_pivot["year"] = df_pivot["valid_date"].dt.year
-
-    df_pivot["start_date"] = df_pivot["start_date"].dt.date.astype(str)
-    df_pivot["end_date"] = df_pivot["end_date"].dt.date.astype(str)
-    df_pivot["valid_date"] = df_pivot["valid_date"].dt.date.astype(str)
-
-    df_pivot = prep_dataframe(df_pivot)
-
-    return df_pivot
 
 
 def construct_single_presto_input(
@@ -716,7 +437,6 @@ def prep_dataframe(
     # SAR cannot equal 0.0 since we take the log of it
     cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
 
-    df = df.drop_duplicates(subset=["sample_id", "lat", "lon", "end_date"])
     df = df[~pd.isna(df).any(axis=1)]
     df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
     df = df.set_index("sample_id")

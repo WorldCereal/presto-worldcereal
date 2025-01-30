@@ -16,6 +16,7 @@ from tqdm.auto import tqdm
 # import xarray as xr
 from presto.dataops import BANDS_GROUPS_IDX, NODATAVALUE
 from presto.dataset import WorldCerealBase, WorldCerealMaskedDataset
+from presto.input_data_processors import process_parquet
 from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import (
     LossWrapper,
@@ -24,14 +25,13 @@ from presto.presto import (
     extend_to_dekadal,
     param_groups_weight_decay,
 )
-from presto.utils import (  # plot_spatial,
-    DEFAULT_SEED,
+from presto.utils import DEFAULT_SEED  # plot_spatial,; process_parquet,
+from presto.utils import (
     config_dir,
     data_dir,
     default_model_path,
     device,
     initialize_logging,
-    process_parquet,
     seed_everything,
     timestamp_dirname,
 )

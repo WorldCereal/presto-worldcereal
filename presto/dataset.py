@@ -143,7 +143,7 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
         timestep_positions = cls.get_timestep_positions(row_d, augment=augment, is_ssl=is_ssl)
 
         if cls.NUM_TIMESTEPS == 12:
-            initial_start_date_position = pd.to_datetime(row_d["start_date"]).month
+            initial_start_date_position = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month
         elif cls.NUM_TIMESTEPS > 12:
             # get the correct index of the start_date based on NUM_TIMESTEPS`
             # e.g. if NUM_TIMESTEPS is 36 (dekadal setup), we should take the correct
@@ -151,6 +151,7 @@ required {cls.NUM_TIMESTEPS}, got {len(timestep_positions)}"
             # TODO: 1) this needs to go into a separate function
             # 2) definition of valid_position and timestep_ind
             #  should also be changed accordingly
+
             year = pd.to_datetime(row_d["start_date"]).year
             year_dates = pd.date_range(start=f"{year}-01-01", end=f"{year}-12-31")
             bins = pd.cut(year_dates, bins=cls.NUM_TIMESTEPS, labels=False)

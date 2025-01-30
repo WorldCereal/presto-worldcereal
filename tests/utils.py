@@ -1,7 +1,8 @@
 import pandas as pd
 
 from presto.dataset import WorldCerealBase
-from presto.utils import data_dir, process_parquet
+from presto.input_data_processors import process_parquet
+from presto.utils import data_dir
 
 
 def read_test_file(
@@ -9,6 +10,7 @@ def read_test_file(
 ) -> pd.DataFrame:
     test_parquet_fpath = data_dir / "test_long_parquet_2017_CAN_AAFC-ACIGTD.parquet"
     test_df_long = pd.read_parquet(test_parquet_fpath, engine="fastparquet")
+    print(test_df_long["timestamp"].min(), test_df_long["timestamp"].max())
     test_df = process_parquet(test_df_long)
     test_df.reset_index(inplace=True)
 

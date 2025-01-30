@@ -17,8 +17,9 @@ from tqdm.auto import tqdm
 from presto.dataops import NODATAVALUE
 from presto.dataset import WorldCerealBase, filter_remove_noncrops
 from presto.eval import WorldCerealEval
+from presto.input_data_processors import process_parquet
 from presto.presto import Presto
-from presto.utils import (
+from presto.utils import (  # process_parquet,
     DEFAULT_SEED,
     config_dir,
     data_dir,
@@ -26,7 +27,6 @@ from presto.utils import (
     device,
     initialize_logging,
     plot_spatial,
-    process_parquet,
     seed_everything,
     timestamp_dirname,
 )
