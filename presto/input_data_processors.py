@@ -516,8 +516,8 @@ def process_parquet(
     freq: Literal["month", "dekad"] = "month",
     use_valid_time: bool = True,
     required_min_timesteps: Optional[int] = None,
-    min_edge_buffer: int = 2,
-    return_after_fill: bool = False,
+    min_edge_buffer: int = 2,  # only used if valid_time is used
+    return_after_fill: bool = False,  # added for debugging purposes
 ) -> pd.DataFrame:
 
     if df.empty:
