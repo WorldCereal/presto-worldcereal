@@ -14,7 +14,9 @@ class CatBoostClassifierWrapper(CatBoostClassifier):
         val_fraction = 0.3
         early_stopping_rounds = 100
 
-        _X_trn, _X_val, _y_trn, _y_val = train_test_split(X, y, stratify=y, test_size=val_fraction)
+        _X_trn, _X_val, _y_trn, _y_val = train_test_split(
+            X, y, stratify=y, test_size=val_fraction
+        )
 
         return super().fit(
             _X_trn,
@@ -40,66 +42,114 @@ class LocalClassifierPerNodeWrapper(LocalClassifierPerNode):
             verbose=verbose,
             edge_list=edge_list,
             replace_classifiers=replace_classifiers,
-            n_jobs=n_jobs,
-            # classifier_abbreviation="LCPN",
-            bert=bert,
         )
         self.binary_policy = binary_policy
+        self.n_jobs = n_jobs
+        self.bert = bert
+        self.classifiers_ = {}
+
+    def _fit_local_classifier(self, node, X_node, y_node):
+        nodes_to_train = [
+            n for n in self.hierarchy_.nodes() if list(self.hierarchy_.successors(n))
+        ]
+        total = len(nodes_to_train)
+        try:
+            pos = nodes_to_train.index(node) + 1
+        except ValueError:
+            pos = "unknown"
+        logger.info(f"Training classifier for class '{node}' ({pos} out of {total}).")
+        clf = super()._fit_local_classifier(node, X_node, y_node)
+        self.classifiers_[node] = clf
+        return clf
 
     def predict_proba(self, X):
-        # Check if fit has been called
+        """
+        Predict probabilities level-by-level.
+        For level 0 we use the classifiers associated with the children of the root.
+        For subsequent levels, we use the classifier of the predicted parent.
+        If a classifier is not found in self.classifiers_, we attempt to retrieve it from
+        self.hierarchy_.nodes[node]["classifier"]. Otherwise we fall back to uniform probabilities.
+        """
+        # Check that the model is fitted.
         check_is_fitted(self)
 
-        # Input validation
+        # Validate input.
         if not self.bert:
-            X = check_array(X, accept_sparse="csr", allow_nd=True, ensure_2d=False)
+            X = check_array(X, accept_sparse="csr", allow_nd=True, ensure_2d=True)
         else:
             X = np.array(X)
+        n_samples = X.shape[0]
+        L = self.max_levels_  # total number of levels in the hierarchy
 
-        # Initialize array that holds predictions
-        y = np.empty((X.shape[0], self.max_levels_), dtype=self.dtype_)
+        # Initialize prediction array and winning probability array.
+        y = np.full((n_samples, L), "", dtype=object)
+        win_prob = np.full((n_samples, L), np.nan)
 
-        # TODO: Add threshold to stop prediction halfway if need be
-
-        bfs = nx.bfs_successors(self.hierarchy_, source=self.root_)
-
-        self.logger_.info("Predicting")
-
-        # We initialize a dictionary that will hold the probabilities for each node
-        probability_dict = {}
-        for predecessor, successors in bfs:
-            if predecessor == self.root_:
-                mask = [True] * X.shape[0]
-                subset_x = X[mask]
+        # --- LEVEL 0: Decision from children of the root ---
+        children0 = list(self.hierarchy_.successors(self.root_))
+        if not children0:
+            return y, win_prob
+        n_children = len(children0)
+        probs = np.zeros((n_samples, n_children))
+        for i, child in enumerate(children0):
+            # Try to retrieve the classifier from our dictionary...
+            classifier = self.classifiers_.get(child)
+            # ...and if not found, try from the node attribute.
+            if classifier is None and child in self.hierarchy_.nodes():
+                classifier = self.hierarchy_.nodes[child].get("classifier")
+            if classifier is None:
+                # Fallback: uniform probability.
+                probs[:, i] = 1.0 / n_children
             else:
-                mask = np.isin(y, predecessor).any(axis=1)
-                subset_x = X[mask]
-            if subset_x.shape[0] > 0:
-                probabilities = np.zeros((subset_x.shape[0], len(successors)))
-                for i, successor in enumerate(successors):
-                    successor_name = str(successor).split(self.separator_)[-1]
-                    self.logger_.info(f"Predicting for node '{successor_name}'")
-                    classifier = self.hierarchy_.nodes[successor]["classifier"]
-                    positive_index = np.where(classifier.classes_ == 1)[0]
-                    probabilities[:, i] = classifier.predict_proba(subset_x)[:, positive_index][
-                        :, 0
-                    ]
+                # For binary classifiers assume the positive class is at index 1.
+                if len(classifier.classes_) == 2:
+                    pos_idx = 1
+                else:
+                    try:
+                        pos_idx = list(classifier.classes_).index(child)
+                    except ValueError:
+                        pos_idx = 0
+                probs[:, i] = classifier.predict_proba(X)[:, pos_idx]
+        pred_indices = np.argmax(probs, axis=1)
+        for i in range(n_samples):
+            chosen_child = children0[pred_indices[i]]
+            y[i, 0] = chosen_child
+            win_prob[i, 0] = probs[i, pred_indices[i]]
 
-                # For each node, save the probabilities in the dictiopnary
-                probability_dict[predecessor] = probabilities
-                highest_probability = np.argmax(probabilities, axis=1)
-                prediction = []
-                for i in highest_probability:
-                    prediction.append(successors[i])
-                level = nx.shortest_path_length(self.hierarchy_, self.root_, predecessor)
-                # prediction = np.array(prediction)
-                y[mask, level] = np.array(prediction)
-
-        y = self._convert_to_1d(y)
-
-        self._remove_separator(y)
-
-        return y, probability_dict
+        # --- LEVELS 1 to L-1: Decisions at deeper levels ---
+        for level in range(1, L):
+            unique_parents = np.unique(y[:, level - 1])
+            for parent in unique_parents:
+                indices = np.where(y[:, level - 1] == parent)[0]
+                if indices.size == 0:
+                    continue
+                children = list(self.hierarchy_.successors(parent))
+                if not children:
+                    continue  # parent is a leaf node
+                X_subset = X[indices]
+                n_children = len(children)
+                sub_probs = np.zeros((X_subset.shape[0], n_children))
+                for j, child in enumerate(children):
+                    classifier = self.classifiers_.get(child)
+                    if classifier is None and child in self.hierarchy_.nodes():
+                        classifier = self.hierarchy_.nodes[child].get("classifier")
+                    if classifier is None:
+                        sub_probs[:, j] = 1.0 / n_children
+                    else:
+                        if len(classifier.classes_) == 2:
+                            pos_idx = 1
+                        else:
+                            try:
+                                pos_idx = list(classifier.classes_).index(child)
+                            except ValueError:
+                                pos_idx = 0
+                        sub_probs[:, j] = classifier.predict_proba(X_subset)[:, pos_idx]
+                sub_pred_indices = np.argmax(sub_probs, axis=1)
+                for k, sample_idx in enumerate(indices):
+                    chosen_child = children[sub_pred_indices[k]]
+                    y[sample_idx, level] = chosen_child
+                    win_prob[sample_idx, level] = sub_probs[k, sub_pred_indices[k]]
+        return win_prob
 
 
 class LocalClassifierPerParentNodeWrapper(LocalClassifierPerParentNode):
