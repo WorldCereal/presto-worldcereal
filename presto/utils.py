@@ -366,6 +366,7 @@ def plot_spatial(
             cbar.ax.tick_params(labelsize=15)
         return im
 
+    CLASS_MAPPINGS = get_class_mappings()
     croptype_map = CLASS_MAPPINGS["CROPTYPE0"]
     colors_map = CLASS_MAPPINGS["CROPTYPE0_COLORS"]
 
