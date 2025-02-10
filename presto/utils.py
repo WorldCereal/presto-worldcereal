@@ -13,17 +13,9 @@ import pandas as pd
 import torch
 import xarray as xr
 
-from .dataops import (  # MIN_EDGE_BUFFER,; NODATAVALUE,
-    BANDS,
-    ERA5_BANDS,
-    NORMED_BANDS,
-    REMOVED_BANDS,
-    S1_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_BANDS,
-    SRTM_BANDS,
-    DynamicWorld2020_2021,
-)
+from .dataops import (BANDS, ERA5_BANDS,  # MIN_EDGE_BUFFER,; NODATAVALUE,
+                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
+                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
 
 # from presto.dataops import NUM_TIMESTEPS
 
@@ -302,7 +294,6 @@ def plot_results(
 
     metrics_df.groupby(["model", "metric_type"]).apply(plot_for_group)
 
-
 def plot_spatial(
     spatial_preds: xr.Dataset,
     output_path: Path,
@@ -315,100 +306,149 @@ def plot_spatial(
     import matplotlib.pyplot as plt
     from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-    CLASS_MAPPINGS = get_class_mappings()
+    def normalize_band(band):
+        """Normalize a band to [0,1]."""
+        bmin, bmax = band.min(), band.max()
+        return (band - bmin) / (bmax - bmin) if bmax != bmin else band
+
+
+    def create_legend_df(pred_array, croptype_map, colors_map):
+        """Create a dataframe with legend information from the prediction array."""
+        # Get unique non-nan values.
+        unique_vals = [
+            x for x in pd.Series(pred_array.flatten()).unique() if not np.isnan(x)
+        ]
+        df = pd.DataFrame(
+            {
+                "ewoc_code": [int(x) for x in unique_vals],
+                "color": [
+                    colors_map[str(int(x))] if x != 0.0 else "whitesmoke"
+                    for x in unique_vals
+                ],
+                "crop_name": [
+                    croptype_map[str(int(x))] if x != 0.0 else "not_crop"
+                    for x in unique_vals
+                ],
+            }
+        )
+        df["pred_code"] = df.index
+        counts = pd.Series(pred_array.flatten()).value_counts()
+        df["count"] = df["ewoc_code"].map(counts)
+        df = df[df["ewoc_code"] != 0]
+        df.sort_values(by="pred_code", inplace=True)
+        df.reset_index(drop=True, inplace=True)
+        return df
+
+
+    def normalize_predictions(pred_array, replace_dict):
+        """Replace 0s/nans and convert prediction codes using a replacement dictionary."""
+        norm_pred = pred_array.copy()
+        np.putmask(norm_pred, np.isnan(norm_pred), -1)
+        vectorized_replace = np.vectorize(replace_dict.get)
+        norm_pred = vectorized_replace(norm_pred, norm_pred).astype(np.float32)
+        np.putmask(norm_pred, norm_pred == -1, np.nan)
+        return norm_pred
+
+
+    def plot_image(
+        ax, image, title, cmap=None, colorbar=False, cbar_vmin=None, cbar_vmax=None
+    ):
+        """
+        Plot an image on a given axis, remove axis ticks, set title, and optionally add a colorbar.
+        """
+        im = ax.imshow(image, cmap=cmap, vmin=cbar_vmin, vmax=cbar_vmax)
+        ax.axis("off")
+        ax.set_title(title, fontsize=24)
+        if colorbar:
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            cbar = plt.colorbar(im, cax=cax)
+            cbar.ax.tick_params(labelsize=15)
+        return im
 
     croptype_map = CLASS_MAPPINGS["CROPTYPE0"]
     colors_map = CLASS_MAPPINGS["CROPTYPE0_COLORS"]
 
+    # Extract bands and other arrays
     b2 = spatial_preds.sel(bands="b2")["__xarray_dataarray_variable__"].values
     b3 = spatial_preds.sel(bands="b3")["__xarray_dataarray_variable__"].values
     b4 = spatial_preds.sel(bands="b4")["__xarray_dataarray_variable__"].values
     ground_truth = spatial_preds.sel(bands="ground_truth")["__xarray_dataarray_variable__"].values
     ndvi = spatial_preds.sel(bands="ndvi")["__xarray_dataarray_variable__"].values
     pred0_ewoc = spatial_preds.sel(bands="pred0_ewoc")["__xarray_dataarray_variable__"].values
-    prediction_0 = spatial_preds.sel(bands="prediction_0")["__xarray_dataarray_variable__"].values
+    pred0_ewoc[pred0_ewoc == 0.0] = np.nan
     prob_0 = spatial_preds.sel(bands="prob_0")["__xarray_dataarray_variable__"].values
     prob_1 = spatial_preds.sel(bands="prob_1")["__xarray_dataarray_variable__"].values
 
-    rgb_ts6 = np.dstack(
-        (
-            (b4 - b4.min()) / (b4.max() - b4.min()),
-            (b3 - b3.min()) / (b3.max() - b3.min()),
-            (b2 - b2.min()) / (b2.max() - b2.min()),
-        )
-    )
+    # Create an RGB composite using normalized bands.
+    rgb_ts6 = np.dstack((normalize_band(b4), normalize_band(b3), normalize_band(b2)))
 
-    fig = plt.figure(figsize=(40, 25))
+    # Create a figure with constrained layout for proper spacing.
+    fig, axes = plt.subplots(2, 3, figsize=(40, 25), constrained_layout=True)
+    ax1, ax2, ax3, ax4, ax5, ax6 = axes.flatten()
 
-    ax1 = fig.add_subplot(2, 3, 1)
-    ax1.imshow(ground_truth)
-    ax1.axis("off")
-    ax1.set_title("Phase I WorldCereal Mask", fontsize=24)
-
-    ax2 = fig.add_subplot(2, 3, 2)
-    ax2.imshow(rgb_ts6)
-    ax2.axis("off")
-    ax2.set_title("RGB TS6", fontsize=24)
-
-    ax3 = fig.add_subplot(2, 3, 3)
-    ax3.imshow(ndvi)
-    ax3.axis("off")
-    ax3.set_title("NDVI TS6", fontsize=24)
+    # Plot ground truth, RGB, and NDVI.
+    plot_image(ax1, ground_truth, "Phase I WorldCereal Mask")
+    plot_image(ax2, rgb_ts6, "RGB TS6")
+    plot_image(ax3, ndvi, "NDVI TS6")
 
     if task_type == "croptype":
-        ax4 = fig.add_subplot(2, 3, 4)
-
-        pred0_ewoc_int = [
-            int(xx) if not np.isnan(xx) else 1000000000 for xx in np.unique(pred0_ewoc)
+        legend_df = create_legend_df(pred0_ewoc, croptype_map, colors_map)
+        top5_legend_df = legend_df.nlargest(5, "count").reset_index(drop=True)
+        cmap = mcolors.ListedColormap(legend_df["color"])
+        cmap.set_bad(color="white")
+        # cmap.set_bad(color="whitesmoke")
+        replace_dict = legend_df.set_index("ewoc_code")["pred_code"].to_dict()
+        prediction_norm = normalize_predictions(pred0_ewoc, replace_dict)
+        ax4.imshow(prediction_norm, cmap=cmap)
+        patches = [
+            mpatches.Patch(
+                color=top5_legend_df.loc[i, "color"],
+                label=top5_legend_df.loc[i, "crop_name"],
+            )
+            for i in range(len(top5_legend_df))
         ]
-        values = [croptype_map[str(xx)] for xx in pred0_ewoc_int]
-        colors = [colors_map[str(xx)] for xx in pred0_ewoc_int]
-
-        # values = [croptype_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
-        # colors = [colors_map[str(xx)] for xx in np.unique(spatial_preds.pred0_ewoc)]
-
-        cmap = mcolors.ListedColormap(colors)
-        cmap.set_bad(color="whitesmoke")
-
-        ax4.imshow(prediction_0, cmap=cmap)
-        patches = [mpatches.Patch(color=colors[ii], label=values[ii]) for ii in range(len(values))]
         ax4.legend(
             handles=patches,
             bbox_to_anchor=(1.25, 0.65),
             loc=1,
             borderaxespad=1.0,
             prop={"size": 20},
+            title="\nTop5 croptype classes \n(by pixel count)",
+            title_fontsize="20",
         )
         ax4.axis("off")
         ax4.set_title("Croptype predictions", fontsize=24)
+    elif task_type == "cropland":
+        plot_image(ax4, prob_0 > 0.5, "Cropland predictions", cmap="gray")
 
-    if task_type == "cropland":
-        ax4 = fig.add_subplot(2, 3, 4)
-        ax4.imshow(prob_0 > 0.5)
-        ax4.axis("off")
-        ax4.set_title("Cropland predictions", fontsize=20)
-
-    ax5 = fig.add_subplot(2, 3, 5)
-    im = ax5.imshow(prob_0, cmap="Greens", vmin=0, vmax=1)
-    ax5.axis("off")
-    ax5.set_title("Top1 class prob", fontsize=24)
-    # Create an axis for the colorbar that is aligned with the plot
-    divider = make_axes_locatable(ax5)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    cbar = plt.colorbar(im, cax=cax)
-    cbar.ax.tick_params(labelsize=15)  # Set font size for colorbar
-
+    # Plot probability maps.
+    plot_image(
+        ax5,
+        prob_0,
+        "Top1 class prob",
+        cmap="Greens",
+        colorbar=True,
+        cbar_vmin=0,
+        cbar_vmax=1,
+    )
     if task_type == "croptype":
-        ax6 = fig.add_subplot(2, 3, 6)
-        im = ax6.imshow(prob_1, cmap="Greens", vmin=0, vmax=1)
+        plot_image(
+            ax6,
+            prob_1,
+            "Top2 class prob",
+            cmap="Greens",
+            colorbar=True,
+            cbar_vmin=0,
+            cbar_vmax=1,
+        )
+    else:
         ax6.axis("off")
-        ax6.set_title("Top2 class prob", fontsize=24)
-        divider = make_axes_locatable(ax6)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        cbar = plt.colorbar(im, cax=cax)
-        cbar.ax.tick_params(labelsize=15)  # Set font size for colorbar
 
-    # plt.suptitle(test_patch_name)
+    # fig.suptitle(
+    #     f"{patch_name.split("_")[1].capitalize()}, {patch_name.split("_")[2].capitalize()}, {type(finetuned_model).__name__}",
+    #     fontsize=30,
+    # )
 
     plt.savefig(output_path, bbox_inches="tight")
     if to_wandb:
