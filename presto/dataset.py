@@ -13,18 +13,9 @@ from einops import rearrange
 from pyproj import CRS, Transformer
 from torch.utils.data import Dataset
 
-from .dataops import (
-    BANDS,
-    BANDS_GROUPS_IDX,
-    MIN_EDGE_BUFFER,
-    NDVI_INDEX,
-    NODATAVALUE,
-    NORMED_BANDS,
-    S1_S2_ERA5_SRTM,
-    S2_RGB_INDEX,
-    DynamicWorld2020_2021,
-    S2_NIR_10m_INDEX,
-)
+from .dataops import (BANDS, BANDS_GROUPS_IDX, MIN_EDGE_BUFFER, NDVI_INDEX,
+                      NODATAVALUE, NORMED_BANDS, S1_S2_ERA5_SRTM, S2_RGB_INDEX,
+                      DynamicWorld2020_2021, S2_NIR_10m_INDEX)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, get_class_mappings, load_world_df
 
@@ -34,6 +25,16 @@ IDX_TO_BAND_GROUPS = {}
 for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
     for idx in val:
         IDX_TO_BAND_GROUPS[NORMED_BANDS[idx]] = band_group_idx
+
+
+ARTIFACTORY_BASE_URL = (
+    "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/"
+)
+
+CLASS_MAPPINGS = get_class_mappings()
+CROP_LEGEND_URL = ARTIFACTORY_BASE_URL + "legend/WorldCereal_LC_CT_legend_latest.csv"
+legend = pd.read_csv(CROP_LEGEND_URL, header=0, sep=";")
+legend["ewoc_code"] = legend["ewoc_code"].str.replace("-","").astype(int)
 
 
 class WorldCerealBase(Dataset):
@@ -537,6 +538,7 @@ times of the initial class size."
         task_type: str = "cropland",
         croptype_list: List = [],
         return_hierarchical_labels: bool = False,
+        downstream_classes="CROPTYPE9",
     ) -> Union[int, np.ndarray, List]:
 
         _target: Union[int, np.ndarray, List]
@@ -544,7 +546,20 @@ times of the initial class size."
             _target = int(row_d["LANDCOVER_LABEL"] == 11)
         if task_type == "croptype":
             if return_hierarchical_labels:
-                _target = [row_d["landcover_name"], row_d["downstream_class"]]
+                meaningful_classes = [
+                    int(k) for k, v in CLASS_MAPPINGS[downstream_classes].items() if v != "other_crop"
+                ]
+                meaningful_levels = legend[legend["ewoc_code"].isin(meaningful_classes)]["level_2"].unique()
+
+                l1_target = row_d["landcover_name"]
+                l2_target = row_d["downstream_class"]
+
+                if (l2_target == "other_crop") and (l1_target not in meaningful_levels):
+                    l1_target = "other_crop"
+                if (l2_target == "other_crop") and (l1_target in meaningful_levels):
+                    l2_target = l1_target
+
+                _target = [l1_target, l2_target]
             elif len(croptype_list) == 0:
                 _target = row_d["downstream_class"]
             else:
