@@ -18,19 +18,12 @@ from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .dataset import (
-    NORMED_BANDS,
-    WorldCerealInferenceDataset,
-    WorldCerealLabelled10DDataset,
-    WorldCerealLabelledDataset,
-)
+from .dataset import (CROP_LEGEND, NORMED_BANDS, WorldCerealInferenceDataset,
+                      WorldCerealLabelled10DDataset,
+                      WorldCerealLabelledDataset)
 from .hierarchical_classification import CatBoostClassifierWrapper
-from .presto import (
-    Presto,
-    PrestoFineTuningModel,
-    get_sinusoid_encoding_table,
-    param_groups_lrd,
-)
+from .presto import (Presto, PrestoFineTuningModel,
+                     get_sinusoid_encoding_table, param_groups_lrd)
 from .utils import DEFAULT_SEED, device, get_class_mappings, prep_dataframe
 
 MIN_SAMPLES_PER_CLASS = 3
@@ -43,8 +36,8 @@ SklearnStyleModel = Union[BaseEstimator, CatBoostClassifier]
 @dataclass
 class Hyperparams:
     lr: float = 2e-5
-    max_epochs: int = 100
-    batch_size: int = 256
+    max_epochs: int = 200
+    batch_size: int = 2048
     patience: int = 20
     num_workers: int = 8
     catboost_iterations: int = 8000
@@ -314,6 +307,8 @@ class WorldCerealEval:
                     random_state=self.seed,
                     verbose=100,
                     class_names=np.unique(train_targets),
+                    task_type="GPU",
+                    devices="0",
                 )
 
                 fit_models.append(
@@ -334,11 +329,13 @@ class WorldCerealEval:
                     l2_leaf_reg=100,
                     verbose=100,
                     random_seed=self.seed,
+                    task_type="GPU",
+                    devices="0",
                 )
                 fit_models.append(
-                    LocalClassifierPerNode(
+                    LocalClassifierPerNodeWrapper(
                         local_classifier=downstream_model,
-                        binary_policy="exclusive_siblings",
+                        binary_policy="inclusive",
                     ).fit(
                         np.concatenate((train_encodings, val_encodings), axis=0),
                         np.concatenate((train_targets, val_targets), axis=0),
@@ -355,6 +352,7 @@ class WorldCerealEval:
                 downstream_model = RandomForestClassifier(
                     class_weight=class_weight_dict,
                     random_state=self.seed,
+                    # verbose=1,
                 )
                 fit_models.append(clone(downstream_model).fit(train_encodings, train_targets))
         return fit_models
@@ -367,7 +365,18 @@ class WorldCerealEval:
         task_type: str = "cropland",
         use_valid_month: bool = True,
     ) -> Tuple:
-        test_preds, test_probs, targets = [], [], []
+        test_preds, test_probs, targets, cropland_mask = [], [], [], []
+        # best_cropland_model_path="https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ss-wc-ft-ct_cropland_CROPLAND2_30D_random_time-token=none_balance=True_augment=True.pt",
+        best_cropland_model_path = "/home/vito/butskoc/presto-worldcereal/data/presto-ss-wc-ft-ct_cropland_CROPLAND2_30D_random_time-token=none_balance=True_augment=True_corrected-mask.pt"
+        best_cropland_model = Presto.load_pretrained(
+            model_path=best_cropland_model_path,
+            strict=True,
+            is_finetuned=True,
+            from_url=best_cropland_model_path.startswith("https"),
+            dekadal=False,
+            valid_month_as_token=False,
+            num_outputs=1
+        ).to(device)
         for b in dl:
             x, y, dw, latlons, month, valid_month, variable_mask = b
             x_f, dw_f, latlons_f, month_f, valid_month_f, variable_mask_f = [
@@ -393,8 +402,14 @@ class WorldCerealEval:
                 if task_type == "cropland":
                     preds = torch.sigmoid(preds).cpu().numpy()
                     probs = preds.copy()
-                elif task_type == "croptype":
+                    _cropland_mask = preds > 0.5
+                elif task_type == "croptype":                    
+                    cropland_preds = best_cropland_model(**input_d).squeeze(dim=1)
+                    cropland_preds = cropland_preds.cpu().detach().numpy()
+                    _cropland_mask = cropland_preds > 0.5
+
                     preds = nn.functional.softmax(preds, dim=1).cpu().numpy()
+                    # preds = nn.functional.softmax(preds, dim=1).cpu().detach().numpy()
                     probs = preds.copy()
                 else:
                     logger.error(
@@ -407,14 +422,13 @@ class WorldCerealEval:
                 if task_type == "cropland":
                     preds = finetuned_model.predict_proba(encodings)[:, 1]
                     probs = preds.copy()
+                    _cropland_mask = preds > 0.5
                 elif task_type == "croptype":
+                    cropland_preds = best_cropland_model(**input_d).squeeze(dim=1)
+                    cropland_preds = cropland_preds.cpu().detach().numpy()
+                    _cropland_mask = cropland_preds > 0.5
                     preds = finetuned_model.predict(encodings)
-                    # for hierarchical classification, get predictions on the most granular level
-                    if preds.ndim > 2:
-                        preds = preds[:, -1]
-                        probs = np.zeros_like(preds)
-                    else:
-                        probs = finetuned_model.predict_proba(encodings)
+                    probs = finetuned_model.predict_proba(encodings)
                 else:
                     logger.error(
                         "Unknown task type. \
@@ -423,12 +437,14 @@ class WorldCerealEval:
 
             test_preds.append(preds)
             test_probs.append(probs)
+            cropland_mask.append(_cropland_mask)
 
         test_preds_np = np.concatenate(test_preds)
         test_probs_np = np.concatenate(test_probs)
         target_np = np.concatenate(targets)
+        cropland_mask_np = np.concatenate(cropland_mask)
 
-        return test_preds_np, test_probs_np, target_np
+        return test_preds_np, test_probs_np, target_np, cropland_mask_np
 
     @torch.no_grad()
     def spatial_inference(
@@ -440,8 +456,31 @@ class WorldCerealEval:
 
         CLASS_MAPPINGS = get_class_mappings()
 
+        # best_cropland_model = Presto.load_pretrained(
+        #     # model_path="https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ss-wc-ft-ct_cropland_CROPLAND2_30D_random_time-token=none_balance=True_augment=True.pt",
+        #     model_path="/home/vito/butskoc/presto-worldcereal/data/presto-ss-wc-ft-ct_cropland_CROPLAND2_30D_random_time-token=none_balance=True_augment=True_corrected-mask.pt",
+        #     strict=True,
+        #     is_finetuned=True,
+        #     from_url=True,
+        #     dekadal=False,
+        #     valid_month_as_token=False,
+        #     num_outputs=1,
+        # ).to(device)
+        # best_cropland_model.eval()
+
         ds = WorldCerealInferenceDataset()
         for i in range(len(ds)):
+            
+            logger.info(f"Processing inference patch {ds.all_files[i].stem}")
+            prefix = f"{self.name}_{ds.all_files[i].stem}"
+            if pretrained_model is None:
+                filename = f"{prefix}_finetuning_{self.task_type}.nc"
+            else:
+                filename = f"{prefix}_{finetuned_model.__class__.__name__}_{self.task_type}.nc"
+            if (self.spatial_inference_savedir / filename).exists():
+                logger.info(f"Skipping {filename} as it already exists.")
+                continue
+
             (
                 eo,
                 dynamic_world,
@@ -467,29 +506,69 @@ class WorldCerealEval:
                 batch_size=2048,
                 shuffle=False,
             )
-            test_preds_np, test_probs_np, _ = self._inference_for_dl(
+            test_preds_np, test_probs_np, _, cropland_mask_np = self._inference_for_dl(
                 dl,
                 finetuned_model,
                 pretrained_model,
                 task_type=self.task_type,
                 use_valid_month=self.use_valid_month,
             )
+
+            if type(finetuned_model).__name__ == "LocalClassifierPerNodeWrapper":
+                test_preds_np = test_preds_np[:, -1]
+            if type(finetuned_model).__name__ == "CatBoostClassifier":
+                test_preds_np = test_preds_np.flatten()
+
             test_preds_str = test_preds_np.copy()
 
             if self.task_type == "croptype":
                 if pretrained_model is None:
+                    test_preds_np = np.argmax(test_preds_np, axis=-1)
+                    test_preds_np = test_preds_np.astype(np.float32)
+                    test_preds_np[~cropland_mask_np] = np.nan
+                    test_probs_np[~cropland_mask_np] = np.nan
+                    test_preds_str = np.array(
+                        [
+                            self.croptype_list[int(xx)] if ~np.isnan(xx) else "not_crop"
+                            for xx in test_preds_np
+                        ]
+                    )
                     temp_croptype_map = pd.DataFrame(
                         CLASS_MAPPINGS[self.finetune_classes].items(),
                         columns=["ewoc_code", "name"],
                     )
-                    test_preds_np = np.argmax(test_preds_np, axis=-1)
-                    test_preds_str = np.array([self.croptype_list[xx] for xx in test_preds_np])
                 else:
-                    test_preds_np = np.argmax(test_probs_np, axis=-1)
+                    # test_preds_np = np.argmax(test_probs_np, axis=-1)
+                    # test_preds_np = test_preds_np.astype(np.float32)
+                    test_preds_np[~cropland_mask_np] = np.nan
+                    test_probs_np[~cropland_mask_np] = np.nan
+                    test_preds_str[~cropland_mask_np] = "not_crop"
+
                     temp_croptype_map = pd.DataFrame(
                         CLASS_MAPPINGS[self.downstream_classes].items(),
                         columns=["ewoc_code", "name"],
                     )
+                    if type(finetuned_model).__name__ == "LocalClassifierPerNodeWrapper":
+                        # update list of crops with other level
+                        meaningful_classes = [
+                            int(k)
+                            for k, v in CLASS_MAPPINGS[self.downstream_classes].items()
+                            if v != "other_crop"
+                        ]
+                        meaningful_levels = CROP_LEGEND[CROP_LEGEND["ewoc_code"].isin(meaningful_classes)][
+                            "level_2"
+                        ].unique()
+                        meaningful_levels = (
+                            CROP_LEGEND[CROP_LEGEND["level_2"].isin(meaningful_levels)][
+                                ["ewoc_code", "level_2"]
+                            ]
+                            .sort_values(by="ewoc_code")
+                            .drop_duplicates(subset=["level_2"], keep="first")
+                        )
+                        meaningful_levels.rename(columns={"level_2": "name"}, inplace=True)
+                        temp_croptype_map = pd.concat(
+                            [temp_croptype_map, meaningful_levels], axis=0
+                        )
 
                 temp_croptype_map.sort_values(
                     by=["name", "ewoc_code"], ascending=True, inplace=True
@@ -501,7 +580,10 @@ class WorldCerealEval:
                     test_preds_str = test_preds_str.flatten()
 
                 test_preds_ewoc_code = np.array(
-                    [int(temp_croptype_map.loc[xx].iloc[0]) for xx in test_preds_str]
+                    [
+                        int(temp_croptype_map.loc[xx].iloc[0]) if (xx != "not_crop") else 0
+                        for xx in test_preds_str
+                    ]
                 )
 
             # take the middle timestep's ndvi
@@ -529,7 +611,7 @@ class WorldCerealEval:
                 da = ds.combine_predictions(
                     x_coord,
                     y_coord,
-                    test_preds_np,
+                    test_preds_ewoc_code,
                     test_preds_ewoc_code,
                     test_probs_np,
                     y,
@@ -539,11 +621,11 @@ class WorldCerealEval:
                     b4,
                 )
 
-            prefix = f"{self.name}_{ds.all_files[i].stem}"
-            if pretrained_model is None:
-                filename = f"{prefix}_finetuning_{self.task_type}.nc"
-            else:
-                filename = f"{prefix}_{finetuned_model.__class__.__name__}_{self.task_type}.nc"
+            # prefix = f"{self.name}_{ds.all_files[i].stem}"
+            # if pretrained_model is None:
+            #     filename = f"{prefix}_finetuning_{self.task_type}.nc"
+            # else:
+            #     filename = f"{prefix}_{finetuned_model.__class__.__name__}_{self.task_type}.nc"
             da.to_netcdf(self.spatial_inference_savedir / filename)
 
     @torch.no_grad()
@@ -560,7 +642,7 @@ class WorldCerealEval:
             croptype_list=croptype_list,
             return_hierarchical_labels=(
                 type(finetuned_model).__name__
-                in ["LocalClassifierPerParentNode", "LocalClassifierPerNode"]
+                in ["LocalClassifierPerParentNodeWrapper", "LocalClassifierPerNodeWrapper"]
             ),
         )
 
@@ -572,7 +654,7 @@ class WorldCerealEval:
         )
         assert isinstance(dl.sampler, torch.utils.data.SequentialSampler)
 
-        test_preds_np, test_probs_np, target_np = self._inference_for_dl(
+        test_preds_np, test_probs_np, target_np, _ = self._inference_for_dl(
             dl,
             finetuned_model,
             pretrained_model,
@@ -586,12 +668,14 @@ class WorldCerealEval:
             if len(croptype_list) > 0:
                 test_preds_np = np.argmax(test_preds_np, axis=-1)
                 test_preds_np = np.array([self.croptype_list[xx] for xx in test_preds_np])
+                # test_preds_np = np.array([self.croptype_list[xx] if ~np.isnan(xx) else 0 for xx in test_preds_np])
 
                 target_np = np.argmax(target_np, axis=-1)
                 target_np = np.array([self.croptype_list[xx] for xx in target_np])
-            elif target_np.ndim > 1:
+            if type(finetuned_model).__name__ == "LocalClassifierPerNodeWrapper":
                 # for hierarchical classification, get predictions on the most granular level
-                target_np = np.array(target_np)[:, -1]
+                target_np = target_np[:, -1]
+                test_preds_np = test_preds_np[:, -1]
 
             _croptype_list = list(np.unique(target_np))
 
@@ -865,6 +949,7 @@ Best Val Loss: {best_loss:.3f} \
         self,
         pretrained_model,
         sklearn_model_modes: List[str],
+        finetuned_model_path: Optional[str] = None,
         hyperparams: Hyperparams = Hyperparams(),
     ) -> Tuple[pd.DataFrame, PrestoFineTuningModel, List]:
         for model_mode in sklearn_model_modes:
@@ -876,6 +961,8 @@ Best Val Loss: {best_loss:.3f} \
             ]
 
         finetuned_model = self.finetune(pretrained_model, hyperparams=hyperparams)
+        if finetuned_model_path is not None:
+            torch.save(finetuned_model.state_dict(), finetuned_model_path)
         logger.info("Finetuning done")
         results_df_ft = self.evaluate(finetuned_model, None, croptype_list=self.croptype_list)
         logger.info("Finetuning head evaluation done")
