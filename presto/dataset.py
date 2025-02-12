@@ -26,15 +26,17 @@ for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
     for idx in val:
         IDX_TO_BAND_GROUPS[NORMED_BANDS[idx]] = band_group_idx
 
+# ARTIFACTORY_BASE_URL = (
+#     "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/"
+# )
+# CROP_LEGEND_URL = ARTIFACTORY_BASE_URL + "legend/WorldCereal_LC_CT_legend_latest.csv"
+CROP_LEGEND_URL = data_dir / "croptype_mappings" / "WorldCereal_LC_CT_legend_latest.csv"
 
-ARTIFACTORY_BASE_URL = (
-    "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/"
-)
+CROP_LEGEND = pd.read_csv(CROP_LEGEND_URL, header=0, sep=";")
+CROP_LEGEND["ewoc_code"] = CROP_LEGEND["ewoc_code"].str.replace("-","").astype(int)
+CROP_LEGEND = CROP_LEGEND.ffill(axis=1)
 
 CLASS_MAPPINGS = get_class_mappings()
-CROP_LEGEND_URL = ARTIFACTORY_BASE_URL + "legend/WorldCereal_LC_CT_legend_latest.csv"
-legend = pd.read_csv(CROP_LEGEND_URL, header=0, sep=";")
-legend["ewoc_code"] = legend["ewoc_code"].str.replace("-","").astype(int)
 
 
 class WorldCerealBase(Dataset):
@@ -549,7 +551,7 @@ times of the initial class size."
                 meaningful_classes = [
                     int(k) for k, v in CLASS_MAPPINGS[downstream_classes].items() if v != "other_crop"
                 ]
-                meaningful_levels = legend[legend["ewoc_code"].isin(meaningful_classes)]["level_2"].unique()
+                meaningful_levels = CROP_LEGEND[CROP_LEGEND["ewoc_code"].isin(meaningful_classes)]["level_2"].unique()
 
                 l1_target = row_d["landcover_name"]
                 l2_target = row_d["downstream_class"]
