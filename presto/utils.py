@@ -13,9 +13,17 @@ import pandas as pd
 import torch
 import xarray as xr
 
-from .dataops import (BANDS, ERA5_BANDS,  # MIN_EDGE_BUFFER,; NODATAVALUE,
-                      NORMED_BANDS, REMOVED_BANDS, S1_BANDS, S1_S2_ERA5_SRTM,
-                      S2_BANDS, SRTM_BANDS, DynamicWorld2020_2021)
+from .dataops import (  # MIN_EDGE_BUFFER,; NODATAVALUE,
+    BANDS,
+    ERA5_BANDS,
+    NORMED_BANDS,
+    REMOVED_BANDS,
+    S1_BANDS,
+    S1_S2_ERA5_SRTM,
+    S2_BANDS,
+    SRTM_BANDS,
+    DynamicWorld2020_2021,
+)
 
 # from presto.dataops import NUM_TIMESTEPS
 
@@ -294,6 +302,7 @@ def plot_results(
 
     metrics_df.groupby(["model", "metric_type"]).apply(plot_for_group)
 
+
 def plot_spatial(
     spatial_preds: xr.Dataset,
     output_path: Path,
@@ -311,23 +320,18 @@ def plot_spatial(
         bmin, bmax = band.min(), band.max()
         return (band - bmin) / (bmax - bmin) if bmax != bmin else band
 
-
     def create_legend_df(pred_array, croptype_map, colors_map):
         """Create a dataframe with legend information from the prediction array."""
         # Get unique non-nan values.
-        unique_vals = [
-            x for x in pd.Series(pred_array.flatten()).unique() if not np.isnan(x)
-        ]
+        unique_vals = [x for x in pd.Series(pred_array.flatten()).unique() if not np.isnan(x)]
         df = pd.DataFrame(
             {
                 "ewoc_code": [int(x) for x in unique_vals],
                 "color": [
-                    colors_map[str(int(x))] if x != 0.0 else "whitesmoke"
-                    for x in unique_vals
+                    colors_map[str(int(x))] if x != 0.0 else "whitesmoke" for x in unique_vals
                 ],
                 "crop_name": [
-                    croptype_map[str(int(x))] if x != 0.0 else "not_crop"
-                    for x in unique_vals
+                    croptype_map[str(int(x))] if x != 0.0 else "not_crop" for x in unique_vals
                 ],
             }
         )
@@ -339,7 +343,6 @@ def plot_spatial(
         df.reset_index(drop=True, inplace=True)
         return df
 
-
     def normalize_predictions(pred_array, replace_dict):
         """Replace 0s/nans and convert prediction codes using a replacement dictionary."""
         norm_pred = pred_array.copy()
@@ -349,10 +352,7 @@ def plot_spatial(
         np.putmask(norm_pred, norm_pred == -1, np.nan)
         return norm_pred
 
-
-    def plot_image(
-        ax, image, title, cmap=None, colorbar=False, cbar_vmin=None, cbar_vmax=None
-    ):
+    def plot_image(ax, image, title, cmap=None, colorbar=False, cbar_vmin=None, cbar_vmax=None):
         """
         Plot an image on a given axis, remove axis ticks, set title, and optionally add a colorbar.
         """
@@ -445,11 +445,6 @@ def plot_spatial(
         )
     else:
         ax6.axis("off")
-
-    # fig.suptitle(
-    #     f"{patch_name.split("_")[1].capitalize()}, {patch_name.split("_")[2].capitalize()}, {type(finetuned_model).__name__}",
-    #     fontsize=30,
-    # )
 
     plt.savefig(output_path, bbox_inches="tight")
     if to_wandb:

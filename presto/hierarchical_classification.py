@@ -1,9 +1,12 @@
-import networkx as nx
+import logging
+
 import numpy as np
 from catboost import CatBoostClassifier
 from hiclass import LocalClassifierPerNode, LocalClassifierPerParentNode
 from sklearn.model_selection import train_test_split
 from sklearn.utils.validation import check_array, check_is_fitted
+
+logger = logging.getLogger("__main__")
 
 
 class CatBoostClassifierWrapper(CatBoostClassifier):
@@ -14,9 +17,7 @@ class CatBoostClassifierWrapper(CatBoostClassifier):
         val_fraction = 0.3
         early_stopping_rounds = 100
 
-        _X_trn, _X_val, _y_trn, _y_val = train_test_split(
-            X, y, stratify=y, test_size=val_fraction
-        )
+        _X_trn, _X_val, _y_trn, _y_val = train_test_split(X, y, stratify=y, test_size=val_fraction)
 
         return super().fit(
             _X_trn,
@@ -46,7 +47,7 @@ class LocalClassifierPerNodeWrapper(LocalClassifierPerNode):
         self.binary_policy = binary_policy
         self.n_jobs = n_jobs
         self.bert = bert
-        self.classifiers_ = {}
+        self.classifiers_ = {}  # type: ignore
 
     def _fit_local_classifier(self, node, X_node, y_node):
         nodes_to_train = [

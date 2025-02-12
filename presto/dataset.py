@@ -13,9 +13,18 @@ from einops import rearrange
 from pyproj import CRS, Transformer
 from torch.utils.data import Dataset
 
-from .dataops import (BANDS, BANDS_GROUPS_IDX, MIN_EDGE_BUFFER, NDVI_INDEX,
-                      NODATAVALUE, NORMED_BANDS, S1_S2_ERA5_SRTM, S2_RGB_INDEX,
-                      DynamicWorld2020_2021, S2_NIR_10m_INDEX)
+from .dataops import (
+    BANDS,
+    BANDS_GROUPS_IDX,
+    MIN_EDGE_BUFFER,
+    NDVI_INDEX,
+    NODATAVALUE,
+    NORMED_BANDS,
+    S1_S2_ERA5_SRTM,
+    S2_RGB_INDEX,
+    DynamicWorld2020_2021,
+    S2_NIR_10m_INDEX,
+)
 from .masking import BAND_EXPANSION, MaskedExample, MaskParamsNoDw
 from .utils import DEFAULT_SEED, data_dir, get_class_mappings, load_world_df
 
@@ -33,7 +42,7 @@ for band_group_idx, (key, val) in enumerate(BANDS_GROUPS_IDX.items()):
 CROP_LEGEND_URL = data_dir / "croptype_mappings" / "WorldCereal_LC_CT_legend_latest.csv"
 
 CROP_LEGEND = pd.read_csv(CROP_LEGEND_URL, header=0, sep=";")
-CROP_LEGEND["ewoc_code"] = CROP_LEGEND["ewoc_code"].str.replace("-","").astype(int)
+CROP_LEGEND["ewoc_code"] = CROP_LEGEND["ewoc_code"].str.replace("-", "").astype(int)
 CROP_LEGEND = CROP_LEGEND.ffill(axis=1)
 
 CLASS_MAPPINGS = get_class_mappings()
@@ -549,9 +558,13 @@ times of the initial class size."
         if task_type == "croptype":
             if return_hierarchical_labels:
                 meaningful_classes = [
-                    int(k) for k, v in CLASS_MAPPINGS[downstream_classes].items() if v != "other_crop"
+                    int(k)
+                    for k, v in CLASS_MAPPINGS[downstream_classes].items()
+                    if v != "other_crop"
                 ]
-                meaningful_levels = CROP_LEGEND[CROP_LEGEND["ewoc_code"].isin(meaningful_classes)]["level_2"].unique()
+                meaningful_levels = CROP_LEGEND[CROP_LEGEND["ewoc_code"].isin(meaningful_classes)][
+                    "level_2"
+                ].unique()
 
                 l1_target = row_d["landcover_name"]
                 l2_target = row_d["downstream_class"]
